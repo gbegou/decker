@@ -271,12 +271,17 @@ fn start_presentation(app: AppHandle, state: Shared, with_presenter: Option<bool
     let primary = editor.primary_monitor().map_err(err)?.or_else(|| monitors.first().cloned());
     let secondary = monitors.iter().find(|m| Some(m.position()) != primary.as_ref().map(|p| p.position())).cloned();
 
+    // `DECKER_WINDOWED=1`: a normal, decorated, non-fullscreen audience
+    // window, to tell a page problem from a fullscreen painting problem.
+    let windowed = std::env::var("DECKER_WINDOWED").map(|v| v == "1").unwrap_or(false);
     let audience_monitor = secondary.clone().or(primary.clone());
     let mut audience = WebviewWindowBuilder::new(&app, "audience", WebviewUrl::App("index.html".into()))
         .title("decker — presentation")
-        .decorations(false)
+        .decorations(windowed)
         .focused(true);
-    if let Some(m) = &audience_monitor {
+    if windowed {
+        audience = audience.inner_size(960.0, 540.0);
+    } else if let Some(m) = &audience_monitor {
         let p = m.position();
         let sz = m.size();
         let scale = m.scale_factor();
@@ -285,7 +290,9 @@ fn start_presentation(app: AppHandle, state: Shared, with_presenter: Option<bool
             .inner_size(sz.width as f64 / scale, sz.height as f64 / scale);
     }
     let audience = audience.build().map_err(err)?;
-    let _ = audience.set_fullscreen(true);
+    if !windowed {
+        let _ = audience.set_fullscreen(true);
+    }
 
     if secondary.is_some() || with_presenter == Some(true) {
         let mut presenter = WebviewWindowBuilder::new(&app, "presenter", WebviewUrl::App("index.html".into()))
