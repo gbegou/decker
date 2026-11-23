@@ -28,6 +28,37 @@ They land in `target/release/bundle/` at the workspace root. The Installers work
 on every push and attaches them to the run as artifacts; the Windows one is built without
 Visual Studio, the way a user without admin rights would (see `environment-windows.yml`).
 
+## Windows without admin rights
+
+Everything installs into the user profile: Miniconda, then from the repository root
+
+```powershell
+conda env create -f environment-windows.yml
+```
+
+```powershell
+conda activate decker
+```
+
+Rust comes from rustup, with the GNU toolchain (the MSVC one needs Visual Studio, an
+admin install). From the folder where `rustup-init.exe` was downloaded:
+
+```powershell
+.\rustup-init.exe --default-host x86_64-pc-windows-gnu --default-toolchain stable --profile minimal -y
+```
+
+Two details the repository takes care of: `.cargo/config.toml` makes Rust link with the
+MinGW runtime it ships, since conda's gcc only compiles C files; and `dlltool.exe`, which a
+Windows dependency needs, is in rustup's toolchain, so add its folder to the PATH once (user
+PATH, no admin):
+
+```powershell
+$env:PATH = "$HOME\.rustup\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\bin\self-contained;$env:PATH"
+```
+
+Then, in a new terminal with the environment active, `npm install` and `npm run tauri dev` in
+`apps/deck-app`. The first build compiles about 400 crates and takes 10 to 15 minutes.
+
 ## Opening a presentation
 
 In the editor, **Open PPTX…** imports a PowerPoint file into a `.deck` folder next to it, and

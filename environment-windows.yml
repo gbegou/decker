@@ -9,6 +9,12 @@
 #   rustup toolchain install stable-x86_64-pc-windows-gnu
 #   rustup default stable-x86_64-pc-windows-gnu
 #
+# Two more things the repository handles: .cargo/config.toml links with
+# the MinGW runtime rustup ships, and dlltool.exe (needed by a Windows
+# dependency) is in rustup's toolchain folder
+# ~/.rustup/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained,
+# which goes on the PATH. Steps in docs/src/running.md.
+#
 # On Linux the system WebKitGTK development package is still required
 # (conda-forge has no webkit2gtk).
 name: decker
