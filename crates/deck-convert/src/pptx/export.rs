@@ -12,7 +12,10 @@ use deck_core::*;
 
 use super::*;
 
-pub fn export(deck: &Deck, deck_dir: &Path, pptx: &Path) -> Result<()> {
+/// Writes `deck` to `pptx`. Returns warnings about what could not be
+/// expressed in PPTX (formulas, step overrides other than appear/disappear).
+pub fn export(deck: &Deck, deck_dir: &Path, pptx: &Path) -> Result<Vec<String>> {
+    let mut warnings = vec![];
     let file = std::fs::File::create(pptx).with_context(|| format!("creating {}", pptx.display()))?;
     let mut zip = zip::ZipWriter::new(file);
     let opts = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
@@ -135,6 +138,31 @@ pub fn export(deck: &Deck, deck_dir: &Path, pptx: &Path) -> Result<()> {
                         tx_body(&s.paragraphs)
                     );
                 }
+                Element::Math(m) => {
+                    warnings.push(format!("slide {i}: formula exported as its source text"));
+                    let p = Paragraph {
+                        runs: vec![Run {
+                            text: m.source.clone(),
+                            size: m.size,
+                            color: m.color,
+                            font: Some("Consolas".into()),
+                            ..Default::default()
+                        }],
+                        align: Align::Center,
+                        bullet: None,
+                    };
+                    let _ = write!(
+                        xml,
+                        r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Math {id}" descr="{}:{}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>{}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>{}</p:sp>"#,
+                        match m.syntax {
+                            MathSyntax::Typst => "typst",
+                            MathSyntax::Latex => "latex",
+                        },
+                        esc(&m.source),
+                        xfrm(&m.rect),
+                        tx_body(&[p])
+                    );
+                }
                 Element::Image(img) => {
                     let src = deck_dir.join(&img.src);
                     let bytes = std::fs::read(&src).with_context(|| format!("reading asset {}", src.display()))?;
@@ -158,7 +186,9 @@ pub fn export(deck: &Deck, deck_dir: &Path, pptx: &Path) -> Result<()> {
                 }
             }
         }
-        xml.push_str("</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>");
+        xml.push_str("</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>");
+        xml.push_str(&timing_xml(slide, i, &mut warnings));
+        xml.push_str("</p:sld>");
         if !slide.notes.is_empty() {
             rel_id += 1;
             let _ = write!(
@@ -173,7 +203,75 @@ pub fn export(deck: &Deck, deck_dir: &Path, pptx: &Path) -> Result<()> {
         add(&format!("ppt/slides/_rels/slide{i}.xml.rels"), rels.as_bytes())?;
     }
     zip.finish()?;
-    Ok(())
+    Ok(warnings)
+}
+
+/// Build steps as a PowerPoint timing tree: one click per step, a fade
+/// entrance for opacity going to 1, a fade exit for opacity going to 0.
+fn timing_xml(slide: &Slide, slide_no: usize, warnings: &mut Vec<String>) -> String {
+    let last = slide.last_step();
+    if last == 0 {
+        return String::new();
+    }
+    let mut id = 1u32;
+    let mut next = || {
+        id += 1;
+        id
+    };
+    let mut clicks = String::new();
+    for step in 1..=last {
+        let mut effects = String::new();
+        for (k, element) in slide.elements.iter().enumerate() {
+            let shape_id = k + 2;
+            for s in element.steps().iter().filter(|s| s.at == step) {
+                let o = &s.set;
+                if o.x.is_some()
+                    || o.y.is_some()
+                    || o.w.is_some()
+                    || o.h.is_some()
+                    || o.rotation.is_some()
+                    || o.fill.is_some()
+                {
+                    warnings.push(format!(
+                        "slide {slide_no}: step {step} of element {k} changes geometry or color, not exported"
+                    ));
+                }
+                let (class, preset, to) = match o.opacity {
+                    Some(a) if a >= 1.0 => ("entr", "entr", "visible"),
+                    Some(a) if a <= 0.0 => ("exit", "exit", "hidden"),
+                    _ => continue,
+                };
+                let dur = ((if s.duration > 0.0 { s.duration } else { 0.5 }) * 1000.0) as u64;
+                let delay = (s.delay * 1000.0) as u64;
+                let node_type = if effects.is_empty() { "clickEffect" } else { "withEffect" };
+                let _ = write!(
+                    effects,
+                    r#"<p:par><p:cTn id="{}" presetID="10" presetClass="{class}" presetSubtype="0" fill="hold" nodeType="{node_type}"><p:stCondLst><p:cond delay="{delay}"/></p:stCondLst><p:childTnLst><p:set><p:cBhvr><p:cTn id="{}" dur="1" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn><p:tgtEl><p:spTgt spid="{shape_id}"/></p:tgtEl><p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr><p:to><p:strVal val="{}"/></p:to></p:set><p:animEffect transition="{}" filter="fade"><p:cBhvr><p:cTn id="{}" dur="{dur}"/><p:tgtEl><p:spTgt spid="{shape_id}"/></p:tgtEl></p:cBhvr></p:animEffect></p:childTnLst></p:cTn></p:par>"#,
+                    next(),
+                    next(),
+                    to,
+                    if preset == "entr" { "in" } else { "out" },
+                    next()
+                );
+            }
+        }
+        if effects.is_empty() {
+            continue;
+        }
+        let _ = write!(
+            clicks,
+            r#"<p:par><p:cTn id="{}" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="{}" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>{effects}</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>"#,
+            next(),
+            next()
+        );
+    }
+    if clicks.is_empty() {
+        return String::new();
+    }
+    format!(
+        r#"<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst><p:seq concurrent="1" nextAc="seek"><p:cTn id="{}" dur="indefinite" nodeType="mainSeq"><p:childTnLst>{clicks}</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>"#,
+        next()
+    )
 }
 
 fn emu(pt: f64) -> i64 {
@@ -330,25 +428,35 @@ mod tests {
         tb.paragraphs[0].align = Align::Center;
         let bullet = Paragraph { runs: vec![Run::plain("item")], bullet: Some(0), ..Default::default() };
         tb.paragraphs.push(bullet);
+        tb.steps = vec![Step::disappear(0), Step::appear(1)];
         deck.slides.push(Slide {
             name: "first".into(),
             background: Some(Color::rgb(0x11, 0x22, 0x33)),
             notes: "note line".into(),
             elements: vec![
                 Element::Text(tb),
-                Element::Image(Image { rect: Rect::new(600.0, 300.0, 100.0, 80.0), src }),
+                Element::Image(Image { rect: Rect::new(600.0, 300.0, 100.0, 80.0), src, steps: vec![] }),
                 Element::Shape(Shape {
                     rect: Rect::new(10.0, 400.0, 100.0, 50.0),
                     kind: ShapeKind::Ellipse,
                     fill: Some(Color::rgb(1, 2, 3)),
                     stroke: Some(Stroke { color: Color::BLACK, width: 2.0 }),
                     paragraphs: vec![Paragraph::plain("in")],
+                    steps: vec![Step::disappear(2)],
+                }),
+                Element::Math(MathBlock {
+                    rect: Rect::new(300.0, 300.0, 200.0, 60.0),
+                    source: "x^2".into(),
+                    syntax: MathSyntax::Latex,
+                    ..Default::default()
                 }),
             ],
+            ..Default::default()
         });
         native::save(&deck, &dir).unwrap();
         let pptx = tmp.join("out.pptx");
-        export(&deck, &dir, &pptx).unwrap();
+        let warnings = export(&deck, &dir, &pptx).unwrap();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
 
         let back_dir = tmp.join("back.deck");
         let (back, report) = super::super::import(&pptx, &back_dir).unwrap();
@@ -358,13 +466,16 @@ mod tests {
         assert_eq!(s.name, "first");
         assert_eq!(s.background, Some(Color::rgb(0x11, 0x22, 0x33)));
         assert_eq!(s.notes, "note line");
-        assert_eq!(s.elements.len(), 3);
+        assert_eq!(s.elements.len(), 4);
         let Element::Text(t) = &s.elements[0] else { panic!("text") };
         assert_eq!(t.rect, Rect::new(50.0, 40.0, 400.0, 60.0));
         assert_eq!(t.paragraphs[0].align, Align::Center);
         assert!(t.paragraphs[0].runs[0].bold);
         assert_eq!(t.paragraphs[0].runs[0].size, Some(32.0));
         assert_eq!(t.paragraphs[1].bullet, Some(0));
+        assert_eq!(t.steps.len(), 2, "{:?}", t.steps);
+        assert_eq!(t.steps[0].set.opacity, Some(0.0));
+        assert_eq!((t.steps[1].at, t.steps[1].set.opacity), (1, Some(1.0)));
         let Element::Image(i) = &s.elements[1] else { panic!("image") };
         assert_eq!(i.rect.w, 100.0);
         assert_eq!(std::fs::read(back_dir.join(&i.src)).unwrap(), include_bytes!("../../../../tests/fixtures/red.png"));
@@ -372,6 +483,10 @@ mod tests {
         assert_eq!(sh.kind, ShapeKind::Ellipse);
         assert_eq!(sh.stroke, Some(Stroke { color: Color::BLACK, width: 2.0 }));
         assert_eq!(sh.paragraphs[0].text(), "in");
+        assert_eq!((sh.steps.len(), sh.steps[0].at, sh.steps[0].set.opacity), (1, 2, Some(0.0)));
+        assert_eq!(s.last_step(), 2);
+        let Element::Text(m) = &s.elements[3] else { panic!("math as text") };
+        assert_eq!(m.text(), "x^2");
         std::fs::remove_dir_all(&tmp).unwrap();
     }
 }

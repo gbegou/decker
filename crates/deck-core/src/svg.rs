@@ -17,8 +17,15 @@ const GLYPH_WIDTH: f64 = 0.55;
 const LINE_HEIGHT: f64 = 1.2;
 const PADDING: f64 = 4.0;
 
-/// Renders one slide as a standalone SVG document.
+/// Renders one slide at its final build step, as a standalone SVG document.
 pub fn render_slide(deck: &Deck, slide: &Slide) -> String {
+    render_step(deck, slide, slide.last_step())
+}
+
+/// Renders one slide at build step `step`. Every element is wrapped in a
+/// `<g id="e{index}">` carrying its opacity and rotation, so that a
+/// presentation window can transition each element in place between steps.
+pub fn render_step(deck: &Deck, slide: &Slide, step: u32) -> String {
     let mut out = String::new();
     let _ = write!(
         out,
@@ -29,31 +36,69 @@ pub fn render_slide(deck: &Deck, slide: &Slide) -> String {
     );
     let bg = slide.background.unwrap_or(Color::WHITE);
     let _ = write!(out, r#"<rect width="100%" height="100%" fill="{}"/>"#, bg.to_hex());
-    for element in &slide.elements {
+    for (index, element) in slide.elements.iter().enumerate() {
+        let st = element.state_at(step);
+        let r = &st.rect;
+        let _ = write!(out, r#"<g id="e{index}""#);
+        if st.opacity != 1.0 {
+            let _ = write!(out, r#" opacity="{}""#, fmt(st.opacity));
+        }
+        if st.rotation != 0.0 {
+            let _ = write!(
+                out,
+                r#" transform="rotate({} {} {})""#,
+                fmt(st.rotation),
+                fmt(r.x + r.w / 2.0),
+                fmt(r.y + r.h / 2.0)
+            );
+        }
+        out.push('>');
         match element {
             Element::Text(t) => {
-                shape_body(&mut out, &t.rect, ShapeKind::Rectangle, t.fill, t.stroke);
-                text_body(&mut out, &t.rect, &t.paragraphs);
+                shape_body(&mut out, r, ShapeKind::Rectangle, st.fill.or(t.fill), t.stroke);
+                text_body(&mut out, r, &t.paragraphs);
             }
             Element::Image(i) => {
                 let _ = write!(
                     out,
                     r#"<image x="{}" y="{}" width="{}" height="{}" preserveAspectRatio="none" xlink:href="{}"/>"#,
-                    fmt(i.rect.x),
-                    fmt(i.rect.y),
-                    fmt(i.rect.w),
-                    fmt(i.rect.h),
+                    fmt(r.x),
+                    fmt(r.y),
+                    fmt(r.w),
+                    fmt(r.h),
                     escape(&i.src)
                 );
             }
             Element::Shape(s) => {
-                shape_body(&mut out, &s.rect, s.kind, s.fill, s.stroke);
-                text_body(&mut out, &s.rect, &s.paragraphs);
+                shape_body(&mut out, r, s.kind, st.fill.or(s.fill), s.stroke);
+                text_body(&mut out, r, &s.paragraphs);
             }
+            Element::Math(m) => math_body(&mut out, r, m),
         }
+        out.push_str("</g>");
     }
     out.push_str("</svg>\n");
     out
+}
+
+/// Until a math engine is embedded, a formula is drawn as its source in a
+/// monospace font, centered, tagged with `data-math` so a web front-end
+/// can replace it (KaTeX for LaTeX, Typst for Typst).
+fn math_body(out: &mut String, r: &Rect, m: &MathBlock) {
+    let size = m.size.unwrap_or(DEFAULT_FONT_SIZE);
+    let color = m.color.unwrap_or(Color::BLACK).to_hex();
+    let syntax = match m.syntax {
+        MathSyntax::Typst => "typst",
+        MathSyntax::Latex => "latex",
+    };
+    let _ = write!(
+        out,
+        r#"<text x="{}" y="{}" font-size="{}" font-family="monospace" fill="{color}" text-anchor="middle" dominant-baseline="middle" data-math="{syntax}">{}</text>"#,
+        fmt(r.x + r.w / 2.0),
+        fmt(r.y + r.h / 2.0),
+        fmt(size),
+        escape(&m.source)
+    );
 }
 
 fn shape_body(out: &mut String, r: &Rect, kind: ShapeKind, fill: Option<Color>, stroke: Option<Stroke>) {
@@ -135,6 +180,13 @@ fn text_body(out: &mut String, r: &Rect, paragraphs: &[Paragraph]) {
                 if let Some(f) = &run.font {
                     let _ = write!(attrs, r#" font-family="{}""#, escape(f));
                 }
+                if let Some(m) = run.math {
+                    let syntax = match m {
+                        MathSyntax::Typst => "typst",
+                        MathSyntax::Latex => "latex",
+                    };
+                    let _ = write!(attrs, r#" font-family="monospace" data-math="{syntax}""#);
+                }
                 let _ = write!(out, r#"<tspan xml:space="preserve"{attrs}>{}</tspan>"#, escape(text));
             }
             out.push_str("</tspan></text>");
@@ -211,7 +263,11 @@ mod tests {
         let mut tb = TextBox::plain(Rect::new(10.0, 10.0, 500.0, 100.0), "Hello <world>");
         tb.paragraphs[0].runs[0].bold = true;
         slide.elements.push(Element::Text(tb));
-        slide.elements.push(Element::Image(Image { rect: Rect::new(0.0, 0.0, 1.0, 1.0), src: "assets/a.png".into() }));
+        slide.elements.push(Element::Image(Image {
+            rect: Rect::new(0.0, 0.0, 1.0, 1.0),
+            src: "assets/a.png".into(),
+            steps: vec![],
+        }));
         slide.elements.push(Element::Shape(Shape {
             rect: Rect::new(1.0, 2.0, 3.0, 4.0),
             kind: ShapeKind::Ellipse,
@@ -226,6 +282,34 @@ mod tests {
         assert!(svg.contains(r#"font-weight="bold""#));
         assert!(svg.contains(r#"xlink:href="assets/a.png""#));
         assert!(svg.contains(r#"<ellipse cx="2.5" cy="4" rx="1.5" ry="2""#));
+    }
+
+    #[test]
+    fn renders_steps_and_math() {
+        let mut deck = Deck::new("t");
+        let mut shape = Shape { rect: Rect::new(0.0, 0.0, 10.0, 10.0), fill: Some(Color::BLACK), ..Default::default() };
+        shape.steps.push(Step::disappear(0));
+        shape.steps.push(Step::appear(1));
+        shape.steps.push(Step {
+            at: 2,
+            set: Overrides { rotation: Some(45.0), ..Default::default() },
+            ..Default::default()
+        });
+        let math = MathBlock {
+            rect: Rect::new(0.0, 0.0, 100.0, 50.0),
+            source: "a < b".into(),
+            syntax: MathSyntax::Latex,
+            ..Default::default()
+        };
+        deck.slides.push(Slide { elements: vec![Element::Shape(shape), Element::Math(math)], ..Default::default() });
+        let slide = &deck.slides[0];
+        let s0 = render_step(&deck, slide, 0);
+        assert!(s0.contains(r#"<g id="e0" opacity="0">"#), "{s0}");
+        let s1 = render_step(&deck, slide, 1);
+        assert!(s1.contains(r#"<g id="e0">"#));
+        let s2 = render_slide(&deck, slide);
+        assert!(s2.contains(r#"transform="rotate(45 5 5)""#), "{s2}");
+        assert!(s2.contains(r#"data-math="latex">a &lt; b</text>"#));
     }
 
     #[test]

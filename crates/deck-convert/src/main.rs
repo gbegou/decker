@@ -66,7 +66,9 @@ fn main() -> Result<()> {
         Command::Export { deck, out } => {
             let out = out.unwrap_or_else(|| deck.with_extension("pptx"));
             let d = native::load(&deck)?;
-            pptx::export(&d, &deck, &out)?;
+            for w in pptx::export(&d, &deck, &out)? {
+                eprintln!("warning: {w}");
+            }
             println!("{}: {} slides written to {}", deck.display(), d.slides.len(), out.display());
         }
         Command::Render { deck, out } => {
@@ -99,7 +101,8 @@ fn main() -> Result<()> {
                     })
                     .unwrap_or_default();
                 let notes = if s.notes.is_empty() { "" } else { " [notes]" };
-                println!("{:3}  {:<40} {} elements{notes}", i + 1, title, s.elements.len());
+                let steps = if s.last_step() == 0 { String::new() } else { format!(", {} steps", s.last_step()) };
+                println!("{:3}  {:<40} {} elements{steps}{notes}", i + 1, title, s.elements.len());
             }
         }
     }

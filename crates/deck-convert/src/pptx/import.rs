@@ -103,7 +103,11 @@ fn import_slide(pkg: &Package, part: &str, images: &mut ImageStore, report: &mut
         let ph = placeholder(node)?;
         [layout.as_ref(), master.as_ref()].into_iter().flatten().find_map(|d| placeholder_rect(d.root_element(), &ph))
     };
-    import_tree(tree, part, pkg, images, report, &inherit, &mut slide.elements, Rect::default())?;
+    let mut shape_ids = vec![];
+    import_tree(tree, part, pkg, images, report, &inherit, &mut slide.elements, Rect::default(), &mut shape_ids)?;
+    if let Some(timing) = child(doc.root_element(), NS_P, "timing") {
+        import_timing(timing, &shape_ids, &mut slide.elements, part, report);
+    }
 
     if let Some(notes_part) = pkg.rel_by_type(part, REL_NOTES)? {
         let notes_xml = pkg.xml(&notes_part)?;
@@ -132,9 +136,11 @@ fn import_tree(
     inherit: &dyn Fn(Node) -> Option<Rect>,
     elements: &mut Vec<Element>,
     offset: Rect,
+    shape_ids: &mut Vec<Option<String>>,
 ) -> Result<()> {
     for node in tree.children().filter(Node::is_element) {
         let tag = node.tag_name().name();
+        let before = elements.len();
         match tag {
             "sp" => {
                 if let Some(e) = import_shape(node, inherit, offset, report) {
@@ -160,7 +166,7 @@ fn import_tree(
                             || media.ends_with(".bmp")
                             || media.ends_with(".webp") =>
                     {
-                        elements.push(Element::Image(Image { rect, src: images.copy(&media)? }));
+                        elements.push(Element::Image(Image { rect, src: images.copy(&media)?, steps: vec![] }));
                     }
                     Some(media) => report.warnings.push(format!("{part}: unsupported media {media} skipped")),
                     None => report.warnings.push(format!("{part}: picture without image skipped")),
@@ -170,7 +176,7 @@ fn import_tree(
                 // Child coordinates are in the group's own space; map them
                 // onto the slide with the group's transform.
                 let group_offset = group_offset(node, offset);
-                import_tree(node, part, pkg, images, report, inherit, elements, group_offset)?;
+                import_tree(node, part, pkg, images, report, inherit, elements, group_offset, shape_ids)?;
             }
             "nvGrpSpPr" | "grpSpPr" => {}
             "graphicFrame" => report.warnings.push(format!("{part}: table, chart or diagram skipped")),
@@ -187,8 +193,98 @@ fn import_tree(
             }
             other => report.warnings.push(format!("{part}: element {other} skipped")),
         }
+        // Remember the PowerPoint shape id of each imported element, for
+        // the timing tree. Group children keep their own ids.
+        if tag != "grpSp" {
+            let id = node
+                .descendants()
+                .find(|n| n.has_tag_name((NS_P, "cNvPr")))
+                .and_then(|n| n.attribute("id"))
+                .map(str::to_string);
+            for _ in before..elements.len() {
+                shape_ids.push(id.clone());
+            }
+        }
     }
+    debug_assert_eq!(shape_ids.len(), elements.len());
     Ok(())
+}
+
+/// Reads the slide's timing tree. Every click-triggered `<p:par>` under the
+/// main sequence is one build step; entrance effects (`presetClass="entr"`)
+/// hide the target from step 0 and show it at that step, exit effects hide
+/// it at that step, emphasis and motion paths are reported and skipped.
+fn import_timing(
+    timing: Node,
+    shape_ids: &[Option<String>],
+    elements: &mut [Element],
+    part: &str,
+    report: &mut ImportReport,
+) {
+    let Some(main_seq) = timing.descendants().find(|n| {
+        n.has_tag_name((NS_P, "seq"))
+            && n.children().any(|c| c.has_tag_name((NS_P, "cTn")) && c.attribute("nodeType") == Some("mainSeq"))
+    }) else {
+        return;
+    };
+    let Some(root_par) =
+        main_seq.children().find(|n| n.has_tag_name((NS_P, "cTn"))).and_then(|c| child(c, NS_P, "childTnLst"))
+    else {
+        return;
+    };
+    let mut step = 0u32;
+    for click_par in root_par.children().filter(|n| n.has_tag_name((NS_P, "par"))) {
+        step += 1;
+        // Within a click: the first group starts on click, the others
+        // after the previous one or with it; all land in the same step.
+        for effect in
+            click_par.descendants().filter(|n| n.has_tag_name((NS_P, "cTn")) && n.attribute("presetClass").is_some())
+        {
+            let class = effect.attribute("presetClass").unwrap_or("");
+            let Some(target) =
+                effect.descendants().find(|n| n.has_tag_name((NS_P, "spTgt"))).and_then(|t| t.attribute("spid"))
+            else {
+                continue;
+            };
+            let Some(index) = shape_ids.iter().position(|id| id.as_deref() == Some(target)) else {
+                continue;
+            };
+            let duration = effect
+                .descendants()
+                .filter(|n| n.has_tag_name((NS_P, "cTn")))
+                .filter_map(|n| n.attribute("dur"))
+                .filter_map(|d| d.parse::<f64>().ok())
+                .fold(0.0, f64::max)
+                / 1000.0;
+            let steps = steps_mut(&mut elements[index]);
+            match class {
+                "entr" => {
+                    if !steps.iter().any(|s| s.at == 0 && s.set.opacity == Some(0.0)) {
+                        steps.insert(
+                            0,
+                            Step {
+                                at: 0,
+                                set: Overrides { opacity: Some(0.0), ..Default::default() },
+                                ..Default::default()
+                            },
+                        );
+                    }
+                    steps.push(Step { at: step, duration, ..Step::appear(step) });
+                }
+                "exit" => steps.push(Step { at: step, duration, ..Step::disappear(step) }),
+                other => report.warnings.push(format!("{part}: {other} animation on shape {target} skipped")),
+            }
+        }
+    }
+}
+
+fn steps_mut(e: &mut Element) -> &mut Vec<Step> {
+    match e {
+        Element::Text(t) => &mut t.steps,
+        Element::Image(i) => &mut i.steps,
+        Element::Shape(s) => &mut s.steps,
+        Element::Math(m) => &mut m.steps,
+    }
 }
 
 /// Group transform: children at `chOff`/`chExt` map onto `off`/`ext`.
@@ -262,7 +358,7 @@ fn import_shape(
         .unwrap_or(false)
         || ph.is_some();
     if is_text_box && geom == "rect" {
-        return Some(Element::Text(TextBox { rect, paragraphs, fill, stroke }));
+        return Some(Element::Text(TextBox { rect, paragraphs, fill, stroke, steps: vec![] }));
     }
     let kind = match geom {
         "ellipse" => ShapeKind::Ellipse,
@@ -277,7 +373,7 @@ fn import_shape(
     if fill.is_none() && stroke.is_none() && paragraphs.iter().all(|p| p.text().is_empty()) {
         return None;
     }
-    Some(Element::Shape(Shape { rect, kind, fill, stroke, paragraphs }))
+    Some(Element::Shape(Shape { rect, kind, fill, stroke, paragraphs, steps: vec![] }))
 }
 
 fn shape_name(node: Node) -> String {
@@ -413,6 +509,7 @@ fn paragraph(p: Node) -> (Paragraph, bool) {
                     .and_then(|r| child(r, NS_A, "latin"))
                     .and_then(|l| l.attribute("typeface"))
                     .map(str::to_string),
+                math: None,
             });
         } else if n.has_tag_name((NS_A, "br")) {
             runs.push(Run::plain("\n"));

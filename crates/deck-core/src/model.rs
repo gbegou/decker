@@ -55,6 +55,18 @@ pub struct Slide {
     /// Speaker notes, plain text.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub notes: String,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub transition: Transition,
+    /// Transition duration in seconds.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub transition_duration: f64,
+}
+
+impl Slide {
+    /// The number of "next" presses the slide consumes before moving on.
+    pub fn last_step(&self) -> u32 {
+        self.elements.iter().map(Element::last_step).max().unwrap_or(0)
+    }
 }
 
 /// Anything placed on a slide, in drawing order (first is at the back).
@@ -64,6 +76,7 @@ pub enum Element {
     Text(TextBox),
     Image(Image),
     Shape(Shape),
+    Math(MathBlock),
 }
 
 impl Element {
@@ -72,8 +85,178 @@ impl Element {
             Element::Text(t) => &t.rect,
             Element::Image(i) => &i.rect,
             Element::Shape(s) => &s.rect,
+            Element::Math(m) => &m.rect,
         }
     }
+
+    pub fn rect_mut(&mut self) -> &mut Rect {
+        match self {
+            Element::Text(t) => &mut t.rect,
+            Element::Image(i) => &mut i.rect,
+            Element::Shape(s) => &mut s.rect,
+            Element::Math(m) => &mut m.rect,
+        }
+    }
+
+    /// The build steps of the element, empty when it is static.
+    pub fn steps(&self) -> &[Step] {
+        match self {
+            Element::Text(t) => &t.steps,
+            Element::Image(i) => &i.steps,
+            Element::Shape(s) => &s.steps,
+            Element::Math(m) => &m.steps,
+        }
+    }
+
+    /// The element as drawn at build step `step`: its base rect with the
+    /// overrides of every step up to `step` applied in order.
+    pub fn state_at(&self, step: u32) -> State {
+        let mut state = State { rect: *self.rect(), ..Default::default() };
+        for s in self.steps().iter().filter(|s| s.at <= step) {
+            state.apply(&s.set);
+        }
+        state
+    }
+
+    /// The last step that changes this element (0 when static).
+    pub fn last_step(&self) -> u32 {
+        self.steps().iter().map(|s| s.at).max().unwrap_or(0)
+    }
+}
+
+/// Markup language of a formula.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MathSyntax {
+    #[default]
+    Typst,
+    Latex,
+}
+
+/// A displayed formula, stored as source and rendered on display.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct MathBlock {
+    pub rect: Rect,
+    pub source: String,
+    #[serde(default)]
+    pub syntax: MathSyntax,
+    /// Font size in points.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<Color>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<Step>,
+}
+
+/// A change of an element at a build step. Steps are reached by "next";
+/// step 0 is the slide as first shown. Playing a step interpolates from the
+/// previous state over `duration`, after `delay` (both in seconds).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Step {
+    pub at: u32,
+    #[serde(default)]
+    pub set: Overrides,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub duration: f64,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub delay: f64,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub easing: Easing,
+}
+
+impl Step {
+    /// A fade-in at `at`.
+    pub fn appear(at: u32) -> Self {
+        Self { at, set: Overrides { opacity: Some(1.0), ..Default::default() }, duration: 0.3, ..Default::default() }
+    }
+
+    /// A fade-out at `at`.
+    pub fn disappear(at: u32) -> Self {
+        Self { at, set: Overrides { opacity: Some(0.0), ..Default::default() }, duration: 0.3, ..Default::default() }
+    }
+}
+
+/// What a step changes. Unset fields keep the previous state.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Overrides {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub w: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub h: Option<f64>,
+    /// Rotation around the center, in degrees.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<f64>,
+    /// 0 is invisible, 1 fully drawn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<Color>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Easing {
+    #[default]
+    EaseInOut,
+    Linear,
+    EaseIn,
+    EaseOut,
+}
+
+/// An element's drawn state at a step.
+#[derive(Debug, Clone, PartialEq)]
+pub struct State {
+    pub rect: Rect,
+    pub rotation: f64,
+    pub opacity: f64,
+    pub fill: Option<Color>,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self { rect: Rect::default(), rotation: 0.0, opacity: 1.0, fill: None }
+    }
+}
+
+impl State {
+    pub fn apply(&mut self, o: &Overrides) {
+        if let Some(x) = o.x {
+            self.rect.x = x;
+        }
+        if let Some(y) = o.y {
+            self.rect.y = y;
+        }
+        if let Some(w) = o.w {
+            self.rect.w = w;
+        }
+        if let Some(h) = o.h {
+            self.rect.h = h;
+        }
+        if let Some(r) = o.rotation {
+            self.rotation = r;
+        }
+        if let Some(a) = o.opacity {
+            self.opacity = a;
+        }
+        if o.fill.is_some() {
+            self.fill = o.fill;
+        }
+    }
+}
+
+/// Transition from the previous slide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Transition {
+    #[default]
+    None,
+    Fade,
+    Push,
 }
 
 /// Position and size, in points.
@@ -144,6 +327,8 @@ impl From<Color> for String {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct TextBox {
     pub rect: Rect,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<Step>,
     #[serde(default)]
     pub paragraphs: Vec<Paragraph>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -211,6 +396,9 @@ pub struct Run {
     pub color: Option<Color>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font: Option<String>,
+    /// When set, `text` is formula source in that syntax, rendered inline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub math: Option<MathSyntax>,
 }
 
 impl Run {
@@ -223,6 +411,8 @@ impl Run {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Image {
     pub rect: Rect,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<Step>,
     /// Path relative to the deck folder, e.g. `assets/image1.png`.
     pub src: String,
 }
@@ -248,6 +438,8 @@ pub struct Stroke {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Shape {
     pub rect: Rect,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<Step>,
     #[serde(default)]
     pub kind: ShapeKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -291,11 +483,50 @@ mod tests {
                 }),
             ],
             notes: "say hi".into(),
+            ..Default::default()
         });
         let json = serde_json::to_string_pretty(&deck).unwrap();
         let back: Deck = serde_json::from_str(&json).unwrap();
         assert_eq!(back, deck);
         assert!(json.contains("\"version\": 1"));
         assert!(json.contains("\"type\": \"text\""));
+    }
+
+    #[test]
+    fn steps_build_the_state() {
+        let mut shape = Shape { rect: Rect::new(0.0, 0.0, 10.0, 10.0), ..Default::default() };
+        shape.steps.push(Step::disappear(0)); // hidden from the start
+        shape.steps.push(Step::appear(1));
+        shape.steps.push(Step {
+            at: 2,
+            set: Overrides { x: Some(50.0), fill: Some(Color::WHITE), ..Default::default() },
+            ..Default::default()
+        });
+        let e = Element::Shape(shape);
+        assert_eq!(e.last_step(), 2);
+        assert_eq!(e.state_at(0).opacity, 0.0);
+        let s1 = e.state_at(1);
+        assert_eq!((s1.opacity, s1.rect.x), (1.0, 0.0));
+        let s2 = e.state_at(2);
+        assert_eq!((s2.opacity, s2.rect.x, s2.fill), (1.0, 50.0, Some(Color::WHITE)));
+        assert_eq!(e.state_at(9), s2);
+        let slide = Slide { elements: vec![e], ..Default::default() };
+        assert_eq!(slide.last_step(), 2);
+    }
+
+    #[test]
+    fn math_round_trips() {
+        let m = Element::Math(MathBlock {
+            rect: Rect::new(1.0, 2.0, 3.0, 4.0),
+            source: "x^2".into(),
+            syntax: MathSyntax::Latex,
+            ..Default::default()
+        });
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(json.contains("\"syntax\":\"latex\""));
+        assert_eq!(serde_json::from_str::<Element>(&json).unwrap(), m);
+        let r = Run { text: "a/b".into(), math: Some(MathSyntax::Typst), ..Default::default() };
+        let json = serde_json::to_string(&r).unwrap();
+        assert!(json.contains("\"math\":\"typst\""));
     }
 }
