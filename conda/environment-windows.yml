@@ -26,5 +26,4 @@ dependencies:
   - mdbook
   - pkg-config
   - gcc_win-64
-  - m2w64-binutils   # unprefixed windres.exe, which Tauri's icon embedding looks for by that name
   - nsis
