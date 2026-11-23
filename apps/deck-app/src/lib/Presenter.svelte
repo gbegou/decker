@@ -33,7 +33,7 @@
 <div class="presenter">
   {#if view}
     <div class="current">
-      <div class="label">Current · slide {view.slide + 1} / {view.slide_count}{#if view.last_step}, step {view.step} / {view.last_step}{/if}{#if view.blank} · {view.blank.toUpperCase()} SCREEN{/if}</div>
+      <div class="label">Current · slide {view.slide + 1} / {view.slide_count}{#if view.in_section} · {view.in_section}{#if view.in_subsection} › {view.in_subsection}{/if}{/if}{#if view.last_step}, step {view.step} / {view.last_step}{/if}{#if view.blank} · {view.blank.toUpperCase()} SCREEN{/if}</div>
       <SlideView svg={view.svg} width={view.width} height={view.height} animated />
     </div>
     <div class="side">

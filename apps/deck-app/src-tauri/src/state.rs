@@ -75,6 +75,12 @@ pub struct View {
     pub layouts: Vec<String>,
     /// The current slide's layout.
     pub layout: Option<String>,
+    /// The section and subsection the current slide starts (editable).
+    pub section: Option<String>,
+    pub subsection: Option<String>,
+    /// The section and subsection the current slide belongs to.
+    pub in_section: Option<String>,
+    pub in_subsection: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -185,6 +191,10 @@ impl AppState {
                 warnings: self.warnings.clone(),
                 layouts: vec![],
                 layout: None,
+                section: None,
+                subsection: None,
+                in_section: None,
+                in_subsection: None,
             };
         };
         let render = |s: &Slide, step: u32| self.render(deck, s, step);
@@ -232,7 +242,42 @@ impl AppState {
             warnings: self.warnings.clone(),
             layouts: deck.layouts.iter().map(|l| l.name.clone()).collect(),
             layout: slide.layout.clone(),
+            section: slide.section.clone(),
+            subsection: slide.subsection.clone(),
+            in_section: deck.position(self.slide).0.map(str::to_string),
+            in_subsection: deck.position(self.slide).1.map(str::to_string),
         }
+    }
+
+    pub fn set_section(&mut self, section: Option<String>, subsection: Option<String>) -> Result<(), String> {
+        let slide = self.slide_mut()?;
+        slide.section = section.filter(|s| !s.trim().is_empty());
+        slide.subsection = subsection.filter(|s| !s.trim().is_empty());
+        Ok(())
+    }
+
+    /// Writes the deck as a PDF with bookmarks (Typst feature), else an error.
+    pub fn export_pdf(&mut self, out: &Path) -> Result<(), String> {
+        let Some(deck) = self.deck.take() else { return Err("no deck open".into()) };
+        for slide in &deck.slides {
+            self.cache_assets(slide);
+        }
+        let result = self.pdf(&deck, out);
+        self.deck = Some(deck);
+        result
+    }
+
+    #[cfg(feature = "typst")]
+    fn pdf(&self, deck: &Deck, out: &Path) -> Result<(), String> {
+        let engine = deck_typst::Engine::for_deck(&self.dir);
+        engine
+            .export_pdf(deck, |i| self.render(deck, &deck.slides[i], deck.slides[i].last_step()), out)
+            .map_err(|e| e.to_string())
+    }
+
+    #[cfg(not(feature = "typst"))]
+    fn pdf(&self, _deck: &Deck, _out: &Path) -> Result<(), String> {
+        Err("PDF export needs the typst feature".into())
     }
 
     pub fn navigate(&mut self, action: &str) {

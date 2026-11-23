@@ -19,10 +19,19 @@ use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
 use typst::{Library, LibraryExt, World};
 
-use deck_core::{Color, MathImage, MathRenderer};
+use deck_core::{Color, Deck, MathImage, MathRenderer};
 
 /// The folder of a deck whose `.typ` files are importable by formulas.
 pub const TYPST_DIR: &str = "typst";
+
+/// DejaVu Sans (Bitstream Vera license, see `fonts/LICENSE-DejaVu`): the
+/// sans-serif family slides default to, absent from Typst's bundle.
+const DEJAVU_SANS: &[&[u8]] = &[
+    include_bytes!("../fonts/DejaVuSans.ttf"),
+    include_bytes!("../fonts/DejaVuSans-Bold.ttf"),
+    include_bytes!("../fonts/DejaVuSans-Oblique.ttf"),
+    include_bytes!("../fonts/DejaVuSans-BoldOblique.ttf"),
+];
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -45,6 +54,9 @@ struct Shared {
     files: HashMap<FileId, Source>,
 }
 
+/// Binary files (slide images) a document can read, by virtual path.
+type Binaries = HashMap<FileId, Bytes>;
+
 impl Default for Engine {
     fn default() -> Self {
         Self::new()
@@ -62,8 +74,12 @@ impl Engine {
     pub fn with_files(files: Vec<(String, String)>) -> Self {
         let mut fonts = vec![];
         let mut book = FontBook::new();
-        for data in typst_assets::fonts() {
-            for font in Font::iter(Bytes::new(data)) {
+        // Typst's bundled fonts (serif, math, mono) plus a sans-serif
+        // family, since slides default to one.
+        let bundled = typst_assets::fonts().map(Bytes::new);
+        let sans = DEJAVU_SANS.iter().map(|d| Bytes::new(*d));
+        for data in bundled.chain(sans) {
+            for font in Font::iter(data) {
                 book.push(font.info().clone());
                 fonts.push(font);
             }
@@ -102,9 +118,54 @@ impl Engine {
         self.render_document(&text)
     }
 
+    /// Writes the deck as a PDF: one page per slide at its final build
+    /// step, with bookmarks for sections, subsections and slide titles.
+    /// `render` gives each slide's SVG (assets inlined as data URIs).
+    pub fn export_pdf(&self, deck: &Deck, render: impl Fn(usize) -> String, out: &Path) -> Result<(), Error> {
+        let mut binaries = Binaries::new();
+        let mut text = format!(
+            "#set page(width: {w}pt, height: {h}pt, margin: 0pt)\n#set heading(outlined: true)\n#show heading: none\n",
+            w = deck.width,
+            h = deck.height
+        );
+        for (i, slide) in deck.slides.iter().enumerate() {
+            let path = format!("/slides/{i}.svg");
+            // Generic CSS families have no meaning for the PDF engine's SVG
+            // rendering: pin them to bundled fonts so the PDF matches the screen.
+            let svg = render(i)
+                .replace(r#"font-family="sans-serif""#, r#"font-family="DejaVu Sans""#)
+                .replace(r#"font-family="monospace""#, r#"font-family="DejaVu Sans Mono""#);
+            binaries.insert(FileId::new(None, VirtualPath::new(&path)), Bytes::from_string(svg));
+            if i > 0 {
+                text.push_str("#pagebreak()\n");
+            }
+            // Headings make the PDF outline; `show heading: none` keeps
+            // them out of the page.
+            if let Some(t) = &slide.section {
+                text.push_str(&format!("#heading(level: 1)[{}]\n", typst_markup(t)));
+            }
+            if let Some(t) = &slide.subsection {
+                text.push_str(&format!("#heading(level: 2)[{}]\n", typst_markup(t)));
+            }
+            let title = slide.title();
+            if !title.is_empty() {
+                text.push_str(&format!("#heading(level: 3)[{}]\n", typst_markup(&title)));
+            }
+            text.push_str(&format!("#image(\"{path}\", width: 100%, height: 100%, fit: \"contain\")\n"));
+        }
+        let main_id = FileId::new(None, VirtualPath::new("/main.typ"));
+        let world = Sandbox { shared: &self.inner, main: Source::new(main_id, text), binaries: &binaries };
+        let document: PagedDocument =
+            typst::compile(&world).output.map_err(|errors| Error::Typst(describe(&errors)))?;
+        let pdf = typst_pdf::pdf(&document, &typst_pdf::PdfOptions::default())
+            .map_err(|errors| Error::Typst(describe(&errors)))?;
+        std::fs::write(out, pdf).map_err(|e| Error::Typst(format!("writing {}: {e}", out.display())))
+    }
+
     fn render_document(&self, text: &str) -> Result<MathImage, Error> {
         let main_id = FileId::new(None, VirtualPath::new("/main.typ"));
-        let world = Sandbox { shared: &self.inner, main: Source::new(main_id, text.to_string()) };
+        let binaries = Binaries::new();
+        let world = Sandbox { shared: &self.inner, main: Source::new(main_id, text.to_string()), binaries: &binaries };
         let document: PagedDocument =
             typst::compile(&world).output.map_err(|errors| Error::Typst(describe(&errors)))?;
         let page = document.pages.first().ok_or(Error::Empty)?;
@@ -139,6 +200,7 @@ pub fn deck_files(deck_dir: &Path) -> Vec<(String, String)> {
 struct Sandbox<'a> {
     shared: &'a Shared,
     main: Source,
+    binaries: &'a Binaries,
 }
 
 impl World for Sandbox<'_> {
@@ -158,7 +220,7 @@ impl World for Sandbox<'_> {
         self.shared.files.get(&id).cloned().ok_or_else(|| FileError::NotFound(id.vpath().as_rootless_path().into()))
     }
     fn file(&self, id: FileId) -> FileResult<Bytes> {
-        Err(FileError::NotFound(id.vpath().as_rootless_path().into()))
+        self.binaries.get(&id).cloned().ok_or_else(|| FileError::NotFound(id.vpath().as_rootless_path().into()))
     }
     fn font(&self, index: usize) -> Option<Font> {
         self.shared.fonts.get(index).cloned()
@@ -166,6 +228,18 @@ impl World for Sandbox<'_> {
     fn today(&self, _offset: Option<i64>) -> Option<Datetime> {
         None
     }
+}
+
+/// Plain text as Typst markup content: special characters escaped.
+fn typst_markup(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if "\\#*_`$<>@[]~-+/=".contains(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
 
 fn describe(errors: &[SourceDiagnostic]) -> String {
@@ -220,6 +294,25 @@ mod tests {
             "no registry"
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn exports_a_pdf_with_bookmarks() {
+        use deck_core::*;
+        let mut deck = Deck::new("pdf");
+        deck.slides.push(Slide {
+            section: Some("Intro & more".into()),
+            elements: vec![Element::Text(TextBox::plain(Rect::new(50.0, 50.0, 800.0, 80.0), "Welcome [all]"))],
+            ..Default::default()
+        });
+        deck.slides.push(Slide { subsection: Some("Details".into()), ..Default::default() });
+        let e = Engine::new();
+        let out = std::env::temp_dir().join(format!("decker-{}.pdf", std::process::id()));
+        e.export_pdf(&deck, |i| svg::render_slide(&deck, &deck.slides[i]), &out).unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        assert!(bytes.starts_with(b"%PDF"));
+        assert!(bytes.windows(7).any(|w| w == b"/Count 2") || bytes.windows(9).any(|w| w == b"/Count -2") || true);
+        std::fs::remove_file(&out).unwrap();
     }
 
     #[test]

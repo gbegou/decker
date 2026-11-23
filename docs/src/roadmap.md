@@ -5,6 +5,6 @@
 2. Embedded Python (PyO3) exposing the document model as a macro API.
 3. Editor: styles (font, size, color, alignment), shapes and images, undo, step editing,
    a layout editor.
-4. PDF export from the SVG renderer; single-file `.deck` zip.
+4. PDF export options (one page per build step, notes pages); single-file `.deck` zip.
 5. Master text styles, theme colors and tables in the PPTX import; motion paths as steps.
 6. Installers published from CI for Linux and Windows.

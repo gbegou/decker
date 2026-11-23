@@ -19,6 +19,7 @@ pub const EMU_PER_PT: f64 = 12700.0;
 pub const NS_A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
 pub const NS_P: &str = "http://schemas.openxmlformats.org/presentationml/2006/main";
 pub const NS_R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+pub const NS_P14: &str = "http://schemas.microsoft.com/office/powerpoint/2010/main";
 pub const NS_REL: &str = "http://schemas.openxmlformats.org/package/2006/relationships";
 
 pub const REL_SLIDE: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide";

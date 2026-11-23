@@ -59,6 +59,45 @@ impl Deck {
     pub fn layout_of(&self, slide: &Slide) -> Option<&Layout> {
         slide.layout.as_deref().and_then(|n| self.layout(n))
     }
+
+    /// Sections and subsections in slide order, each with the index of
+    /// the slide that starts it.
+    pub fn outline(&self) -> Vec<OutlineEntry> {
+        let mut out = vec![];
+        for (i, s) in self.slides.iter().enumerate() {
+            if let Some(t) = &s.section {
+                out.push(OutlineEntry { level: 1, title: t.clone(), slide: i });
+            }
+            if let Some(t) = &s.subsection {
+                out.push(OutlineEntry { level: 2, title: t.clone(), slide: i });
+            }
+        }
+        out
+    }
+
+    /// The section and subsection a slide belongs to.
+    pub fn position(&self, slide: usize) -> (Option<&str>, Option<&str>) {
+        let mut section = None;
+        let mut subsection = None;
+        for s in self.slides.iter().take(slide + 1) {
+            if s.section.is_some() {
+                section = s.section.as_deref();
+                subsection = None;
+            }
+            if s.subsection.is_some() {
+                subsection = s.subsection.as_deref();
+            }
+        }
+        (section, subsection)
+    }
+}
+
+/// A section (level 1) or subsection (level 2) heading.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutlineEntry {
+    pub level: u8,
+    pub title: String,
+    pub slide: usize,
 }
 
 /// A slide layout: what every slide using it shares (background, static
@@ -147,6 +186,13 @@ pub struct Slide {
     /// The [`Layout`] this slide uses, by name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<String>,
+    /// This slide starts a section of that name (PDF bookmarks, PowerPoint
+    /// sections, the presenter view).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
+    /// This slide starts a subsection of that name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subsection: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<Color>,
     #[serde(default)]
@@ -165,6 +211,25 @@ impl Slide {
     /// The number of "next" presses the slide consumes before moving on.
     pub fn last_step(&self) -> u32 {
         self.elements.iter().map(Element::last_step).max().unwrap_or(0)
+    }
+
+    /// The slide's title: its name, else the first line of its first
+    /// non-empty text box.
+    pub fn title(&self) -> String {
+        if !self.name.is_empty() {
+            return self.name.clone();
+        }
+        self.elements
+            .iter()
+            .find_map(|e| match e {
+                Element::Text(t) => {
+                    let text = t.text();
+                    let line = text.lines().find(|l| !l.trim().is_empty())?.trim().to_string();
+                    Some(line)
+                }
+                _ => None,
+            })
+            .unwrap_or_default()
     }
 }
 
@@ -627,6 +692,29 @@ mod tests {
         let json = serde_json::to_string(&deck).unwrap();
         assert!(json.contains("\"layouts\""));
         assert_eq!(serde_json::from_str::<Deck>(&json).unwrap(), deck);
+    }
+
+    #[test]
+    fn outline_follows_slide_order() {
+        let mut deck = Deck::new("t");
+        deck.slides.push(Slide { section: Some("Intro".into()), ..Default::default() });
+        deck.slides.push(Slide::default());
+        deck.slides.push(Slide {
+            section: Some("Method".into()),
+            subsection: Some("Model".into()),
+            ..Default::default()
+        });
+        deck.slides.push(Slide { subsection: Some("Results".into()), ..Default::default() });
+        let o = deck.outline();
+        let flat: Vec<(u8, &str, usize)> = o.iter().map(|e| (e.level, e.title.as_str(), e.slide)).collect();
+        assert_eq!(flat, [(1, "Intro", 0), (1, "Method", 2), (2, "Model", 2), (2, "Results", 3)]);
+        assert_eq!(deck.position(1), (Some("Intro"), None));
+        assert_eq!(deck.position(3), (Some("Method"), Some("Results")));
+        let titled = Slide {
+            elements: vec![Element::Text(TextBox::plain(Rect::default(), "  Hello\nworld"))],
+            ..Default::default()
+        };
+        assert_eq!(titled.title(), "Hello");
     }
 
     #[test]

@@ -8,11 +8,12 @@ description = "Converter between decker's native format and PPTX / SVG"
 
 [features]
 # `render` draws formulas with the embedded Typst engine.
-typst = ["dep:deck-typst"]
+typst = ["dep:deck-typst", "dep:base64"]
 
 [dependencies]
 deck-core = { path = "../deck-core" }
 deck-typst = { path = "../deck-typst", optional = true }
+base64 = { workspace = true, optional = true }
 anyhow.workspace = true
 clap.workspace = true
 roxmltree.workspace = true

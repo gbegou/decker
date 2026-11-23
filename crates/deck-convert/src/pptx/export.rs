@@ -82,10 +82,9 @@ pub fn export(deck: &Deck, deck_dir: &Path, pptx: &Path) -> Result<Vec<String>> 
         let _ = write!(pres, r#"<p:sldId id="{}" r:id="rId{i}"/>"#, 255 + i);
         let _ = write!(pres_rels, r#"<Relationship Id="rId{i}" Type="{REL_SLIDE}" Target="slides/slide{i}.xml"/>"#);
     }
-    let _ = write!(
-        pres,
-        r#"</p:sldIdLst><p:sldSz cx="{cx}" cy="{cy}"/><p:notesSz cx="6858000" cy="9144000"/></p:presentation>"#
-    );
+    let _ = write!(pres, r#"</p:sldIdLst><p:sldSz cx="{cx}" cy="{cy}"/><p:notesSz cx="6858000" cy="9144000"/>"#);
+    pres.push_str(&sections_xml(deck));
+    pres.push_str("</p:presentation>");
     pres_rels.push_str("</Relationships>");
     add("ppt/presentation.xml", pres.as_bytes())?;
     add("ppt/_rels/presentation.xml.rels", pres_rels.as_bytes())?;
@@ -457,6 +456,40 @@ fn write_element(
     Ok(())
 }
 
+/// PowerPoint sections (a 2010 extension): one per slide that starts a
+/// section, holding the slide ids up to the next one. Slides before the
+/// first section go into a default section, as PowerPoint does.
+fn sections_xml(deck: &Deck) -> String {
+    if deck.slides.iter().all(|s| s.section.is_none()) {
+        return String::new();
+    }
+    let mut sections: Vec<(String, Vec<usize>)> = vec![];
+    for (i, slide) in deck.slides.iter().enumerate() {
+        match (&slide.section, sections.last_mut()) {
+            (Some(name), _) => sections.push((name.clone(), vec![i])),
+            (None, Some((_, ids))) => ids.push(i),
+            (None, None) => sections.push(("Default Section".into(), vec![i])),
+        }
+    }
+    let mut out = String::from(
+        r#"<p:extLst><p:ext uri="{521415D9-36F7-43E2-AB2F-B90AF26B5E84}"><p14:sectionLst xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main">"#,
+    );
+    for (k, (name, ids)) in sections.iter().enumerate() {
+        let _ = write!(
+            out,
+            r#"<p14:section name="{}" id="{{{:08X}-0000-4000-8000-000000000000}}"><p14:sldIdLst>"#,
+            esc(name),
+            0x1000_0000u32 + k as u32
+        );
+        for i in ids {
+            let _ = write!(out, r#"<p14:sldId id="{}"/>"#, 256 + i);
+        }
+        out.push_str("</p14:sldIdLst></p14:section>");
+    }
+    out.push_str("</p14:sectionLst></p:ext></p:extLst>");
+    out
+}
+
 fn emu(pt: f64) -> i64 {
     (pt * EMU_PER_PT).round() as i64
 }
@@ -666,6 +699,7 @@ mod tests {
         });
         let mut from_layout = deck.layouts[0].new_slide();
         from_layout.name = "second".into();
+        from_layout.section = Some("Part <2>".into());
         deck.slides.push(from_layout);
         native::save(&deck, &dir).unwrap();
         let pptx = tmp.join("out.pptx");
@@ -696,6 +730,8 @@ mod tests {
             .collect();
         assert_eq!(names, [Some("title"), Some("body1")]);
         assert_eq!(back.slides[0].layout, None);
+        assert_eq!(back.slides[0].section.as_deref(), Some("Default Section"), "slides before the first section");
+        assert_eq!(back.slides[1].section.as_deref(), Some("Part <2>"));
         let s = &back.slides[0];
         assert_eq!(s.name, "first");
         assert_eq!(s.background, Some(Color::rgb(0x11, 0x22, 0x33)));

@@ -32,6 +32,10 @@ export interface View {
   warnings: string[];
   layouts: string[];
   layout: string | null;
+  section: string | null;
+  subsection: string | null;
+  in_section: string | null;
+  in_subsection: string | null;
 }
 
 export const api = {
@@ -39,6 +43,8 @@ export const api = {
   newDeck: () => invoke<View>("new_deck"),
   save: (path?: string) => invoke<string>("save", { path: path ?? null }),
   exportPptx: (path: string) => invoke<string[]>("export_pptx", { path }),
+  exportPdf: (path: string) => invoke<void>("export_pdf", { path }),
+  setSection: (section: string | null, subsection: string | null) => invoke<View>("set_section", { section, subsection }),
   getView: () => invoke<View>("get_view"),
   getThumbnails: () => invoke<string[]>("get_thumbnails"),
   navigate: (action: "next" | "prev" | "first" | "last" | "next_slide" | "prev_slide" | "black" | "white") =>

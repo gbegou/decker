@@ -97,6 +97,28 @@ fn export_pptx(state: Shared, path: String) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
+fn export_pdf(state: Shared, path: String) -> Result<(), String> {
+    let mut s = state.lock().map_err(err)?;
+    s.export_pdf(&PathBuf::from(path))
+}
+
+#[tauri::command]
+fn set_section(
+    app: AppHandle,
+    state: Shared,
+    section: Option<String>,
+    subsection: Option<String>,
+) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.set_section(section, subsection)?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+#[tauri::command]
 fn get_view(state: Shared) -> Result<View, String> {
     Ok(state.lock().map_err(err)?.view())
 }
@@ -376,6 +398,8 @@ pub fn run() {
             new_deck,
             save,
             export_pptx,
+            export_pdf,
+            set_section,
             get_view,
             get_thumbnails,
             navigate,

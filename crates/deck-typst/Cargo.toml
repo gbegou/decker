@@ -10,5 +10,6 @@ description = "Typst embedded as decker's math (and later text) engine"
 deck-core = { path = "../deck-core" }
 typst = "0.14"
 typst-svg = "0.14"
+typst-pdf = "0.14"
 typst-assets = { version = "0.14", features = ["fonts"] }
 thiserror.workspace = true

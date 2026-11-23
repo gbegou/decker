@@ -6,7 +6,7 @@ only the audience window opens.
 
 ![Windows during a presentation](images/windows.svg)
 
-The presenter window shows the current slide, what the next press of a key will show (the
+The presenter window shows the current section, the current slide, what the next press of a key will show (the
 next build step or the next slide), the notes with adjustable text size, an elapsed-time
 counter and the clock, and a strip of thumbnails to jump anywhere.
 

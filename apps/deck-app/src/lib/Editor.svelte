@@ -87,6 +87,12 @@
     if (indices.length) await run(`Inserted ${indices.length} slide(s)`, () => api.importSlides(p.path, indices));
   }
 
+  async function exportPdf() {
+    const picked = await saveDialog({ defaultPath: "talk.pdf", filters: [{ name: "PDF", extensions: ["pdf"] }] });
+    if (!picked) return;
+    await run(`Exported ${picked}`, () => api.exportPdf(picked));
+  }
+
   // Dragging an element on the canvas. Canvas pixels map to slide points
   // through the rendered width.
   let drag: { index: number; startX: number; startY: number; rect: Rect; mode: "move" | "resize" } | null = null;
@@ -151,6 +157,7 @@
     <button onclick={save} disabled={!view?.slide_count}>Save</button>
     <button onclick={saveAs} disabled={!view?.slide_count}>Save as…</button>
     <button onclick={exportPptx} disabled={!view?.slide_count}>Export PPTX…</button>
+    <button onclick={exportPdf} disabled={!view?.slide_count}>Export PDF…</button>
     <span class="spacer"></span>
     {#if view?.slide_count}
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
@@ -224,6 +231,16 @@
       {:else}
         <p class="muted">Click an element to edit it. Drag to move, corner handle to resize, Delete to remove.</p>
       {/if}
+      <h3>Section</h3>
+      <label>starts section
+        <input type="text" value={view.section ?? ""} placeholder={view.in_section ?? "none"}
+               onchange={(e) => run("Section set", () => api.setSection(e.currentTarget.value || null, view!.subsection))} />
+      </label>
+      <label>starts subsection
+        <input type="text" value={view.subsection ?? ""} placeholder={view.in_subsection ?? "none"}
+               onchange={(e) => run("Subsection set", () => api.setSection(view!.section, e.currentTarget.value || null))} />
+      </label>
+      <p class="muted">Sections become PDF bookmarks and PowerPoint sections.</p>
       <h3>Layout</h3>
       {#if view.layouts.length}
         <select value={view.layout ?? ""} onchange={(e) => run("Layout set", () => api.setLayout(e.currentTarget.value || null))}>

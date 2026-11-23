@@ -80,6 +80,29 @@ pub fn import(pptx: &Path, out: &Path) -> Result<(Deck, ImportReport)> {
         deck.slides.push(slide);
     }
 
+    // PowerPoint sections: each names the slide ids it starts with.
+    let id_order: Vec<String> = child(root, NS_P, "sldIdLst")
+        .map(|l| {
+            l.children()
+                .filter(|n| n.has_tag_name((NS_P, "sldId")))
+                .filter_map(|n| n.attribute("id").map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    for section in root.descendants().filter(|n| n.has_tag_name((NS_P14, "section"))) {
+        let Some(name) = section.attribute("name") else { continue };
+        let first = section
+            .descendants()
+            .find(|n| n.has_tag_name((NS_P14, "sldId")))
+            .and_then(|n| n.attribute("id"))
+            .and_then(|id| id_order.iter().position(|x| x == id));
+        if let Some(i) = first {
+            if let Some(slide) = deck.slides.get_mut(i) {
+                slide.section = Some(name.to_string());
+            }
+        }
+    }
+
     native::save(&deck, out)?;
     Ok((deck, report))
 }
@@ -769,6 +792,8 @@ mod tests {
         assert_eq!(l1.name, "Title and Content");
         assert!(l1.placeholder("body1").map(|p| p.bullets).unwrap_or(false), "{:?}", l1.placeholders);
         assert_eq!(deck.slides[1].layout.as_deref(), Some("Title and Content"));
+        assert_eq!(deck.slides[0].section.as_deref(), Some("Opening"));
+        assert_eq!(deck.slides[1].section.as_deref(), Some("Content"));
 
         // Slide 2: bullets, runs, picture, shape, free text box.
         let s2 = &deck.slides[1];

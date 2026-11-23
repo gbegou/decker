@@ -22,6 +22,10 @@ target/release/deck-convert render talk.deck          # → talk.deck/svg/slideN
 target/release/deck-convert info talk.deck
 ```
 
+```bash
+target/release/deck-convert pdf talk.deck             # with --features typst
+```
+
 ## What the PPTX import handles
 
 - Slide size and order, slide names, solid background colors, speaker notes.
@@ -37,6 +41,7 @@ target/release/deck-convert info talk.deck
 - Animations: entrance and exit effects of the main sequence become build steps, one click
   per step.
 - Masters and layouts, as decker [layouts](layouts.md), with their placeholders.
+- PowerPoint sections, as the `section` of the slide that starts each.
 
 Skipped, with a warning: tables, charts, SmartArt, embedded objects, gradients, theme
 colors, emphasis and motion-path animations, transitions. The old binary `.ppt` format is not

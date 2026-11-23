@@ -45,6 +45,14 @@ enum Command {
         #[arg(short, long)]
         out: Option<PathBuf>,
     },
+    /// Export a deck folder to PDF, with bookmarks for sections and slides
+    /// (needs the `typst` feature).
+    Pdf {
+        deck: PathBuf,
+        /// Output file (default: the deck name with a .pdf suffix).
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
     /// Print a summary of a deck folder.
     Info { deck: PathBuf },
     /// List the layouts of a deck folder, with their placeholders.
@@ -104,6 +112,30 @@ fn main() -> Result<()> {
             }
             println!("{} slides rendered to {}", d.slides.len(), out.display());
         }
+        Command::Pdf { deck, out } => {
+            #[cfg(not(feature = "typst"))]
+            {
+                let _ = (deck, out);
+                bail!("PDF export needs deck-convert built with the typst feature: cargo build -p deck-convert --features typst");
+            }
+            #[cfg(feature = "typst")]
+            {
+                let out = out.unwrap_or_else(|| deck.with_extension("pdf"));
+                let d = native::load(&deck)?;
+                let engine = deck_typst::Engine::for_deck(&deck);
+                let assets: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+                let _ = &assets;
+                engine.export_pdf(
+                    &d,
+                    |i| {
+                        let slide = &d.slides[i];
+                        inline_for_pdf(&svg::render_step_with(&d, slide, slide.last_step(), &engine), &deck)
+                    },
+                    &out,
+                )?;
+                println!("{}: {} pages written to {}", deck.display(), d.slides.len(), out.display());
+            }
+        }
         Command::Info { deck } => {
             let d = native::load(&deck)?;
             println!("{} ({} x {} pt, {} slides)", d.title, d.width, d.height, d.slides.len());
@@ -119,6 +151,12 @@ fn main() -> Result<()> {
                     })
                     .unwrap_or_default();
                 let notes = if s.notes.is_empty() { "" } else { " [notes]" };
+                if let Some(sec) = &s.section {
+                    println!("     ── {sec}");
+                }
+                if let Some(sub) = &s.subsection {
+                    println!("        ── {sub}");
+                }
                 let steps = if s.last_step() == 0 { String::new() } else { format!(", {} steps", s.last_step()) };
                 let layout = s.layout.as_deref().map(|l| format!(" [{l}]")).unwrap_or_default();
                 println!("{:3}  {:<40} {} elements{steps}{notes}{layout}", i + 1, title, s.elements.len());
@@ -178,6 +216,45 @@ fn parse_slides(spec: &str, count: usize) -> Result<Vec<usize>> {
         out.extend((a - 1)..b);
     }
     Ok(out)
+}
+
+/// Images as data URIs, so that the PDF engine does not read the disk.
+#[cfg(feature = "typst")]
+fn inline_for_pdf(svg: &str, dir: &std::path::Path) -> String {
+    let marker = r#"xlink:href="assets/"#;
+    let mut out = String::with_capacity(svg.len());
+    let mut rest = svg;
+    while let Some(i) = rest.find(marker) {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + r#"xlink:href=""#.len()..];
+        let Some(end) = after.find('"') else {
+            out.push_str(&rest[i..]);
+            return out;
+        };
+        let src = &after[..end];
+        let path = dir.join(src);
+        let mime = match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+            Some("png") => "image/png",
+            Some("jpg") | Some("jpeg") => "image/jpeg",
+            Some("gif") => "image/gif",
+            Some("svg") => "image/svg+xml",
+            Some("webp") => "image/webp",
+            _ => "application/octet-stream",
+        };
+        match std::fs::read(&path) {
+            Ok(bytes) => {
+                use base64::Engine as _;
+                out.push_str(&format!(
+                    r#"xlink:href="data:{mime};base64,{}""#,
+                    base64::engine::general_purpose::STANDARD.encode(bytes)
+                ));
+            }
+            Err(_) => out.push_str(&rest[i..i + r#"xlink:href=""#.len() + end + 1]),
+        }
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// A relative path from `to` up to `from`'s directory, with `..` segments.
