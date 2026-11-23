@@ -8,3 +8,10 @@
 #   not start on every machine.
 [target.x86_64-pc-windows-gnu]
 rustflags = ["-C", "link-self-contained=yes", "-C", "dlltool=x86_64-w64-mingw32-dlltool.exe"]
+
+# The C compiler for the dependencies' build scripts (cc-rs), by conda's
+# prefixed name, so the build does not depend on conda's activation hook
+# having set CC. Only applies when the host is the GNU Windows target.
+[env]
+CC_x86_64-pc-windows-gnu = "x86_64-w64-mingw32-gcc.exe"
+AR_x86_64-pc-windows-gnu = "x86_64-w64-mingw32-ar.exe"
