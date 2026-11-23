@@ -1,0 +1,12 @@
+[package]
+name = "deck-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Document model, native format and SVG renderer of decker"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

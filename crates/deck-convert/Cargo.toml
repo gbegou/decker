@@ -1,0 +1,15 @@
+[package]
+name = "deck-convert"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Converter between decker's native format and PPTX / SVG"
+
+[dependencies]
+deck-core = { path = "../deck-core" }
+anyhow.workspace = true
+clap.workspace = true
+roxmltree.workspace = true
+zip.workspace = true
+serde_json.workspace = true
