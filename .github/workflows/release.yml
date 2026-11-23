@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: conda-incubator/setup-miniconda@v3
         with:
-          environment-file: environment-windows.yml
+          environment-file: conda/environment-windows.yml
           activate-environment: decker
           auto-activate-base: false
       - name: Rust GNU toolchain (rustup, per user)

@@ -115,3 +115,9 @@ and round-trip a deck through export and import.
 3. Editor: styles (font, size, color, alignment), shapes and images, undo, step editing.
 4. PDF export from the SVG renderer; single-file `.deck` zip.
 5. Master text styles, theme colors and tables in the PPTX import; motion paths as steps.
+
+## Building without admin rights
+
+Per-user build environments from conda-forge are in `conda/`: `conda env create -f
+conda/environment-windows.yml` (or `-linux`), then rustup per user; on Windows the GNU
+toolchain, as the manual's "Windows without admin rights" section describes.

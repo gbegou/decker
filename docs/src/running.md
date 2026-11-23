@@ -26,14 +26,14 @@ npm run tauri build
 
 They land in `target/release/bundle/` at the workspace root. The Installers workflow builds them
 on every push and attaches them to the run as artifacts; the Windows one is built without
-Visual Studio, the way a user without admin rights would (see `environment-windows.yml`).
+Visual Studio, the way a user without admin rights would (see `conda/environment-windows.yml`).
 
 ## Windows without admin rights
 
 Everything installs into the user profile: Miniconda, then from the repository root
 
 ```powershell
-conda env create -f environment-windows.yml
+conda env create -f conda/environment-windows.yml
 ```
 
 ```powershell
