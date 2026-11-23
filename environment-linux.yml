@@ -1,0 +1,23 @@
+# Per-user build environment (no admin rights needed), from conda-forge.
+#
+#   conda env create -f environment.yml && conda activate decker
+#
+# Rust is not taken from conda: conda-forge's Windows rust is the MSVC
+# flavour, which needs the Visual Studio linker. Install rustup per user
+# (rustup-init.exe, no admin) and, on Windows, the GNU toolchain:
+#
+#   rustup toolchain install stable-x86_64-pc-windows-gnu
+#   rustup default stable-x86_64-pc-windows-gnu
+#
+# On Linux the system WebKitGTK development package is still required
+# (conda-forge has no webkit2gtk).
+name: decker
+channels:
+  - conda-forge
+dependencies:
+  - nodejs>=22
+  - python>=3.12
+  - mdbook
+  - pkg-config
+  - gxx_linux-64
+  - librsvg
