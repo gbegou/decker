@@ -18,6 +18,7 @@ Keys work in every window, so a clicker does too:
 | Left, Up, Page Up, Backspace, right click | Previous step or slide |
 | Home, End | First, last slide |
 | B, `.` | Black screen on and off |
+| W, `,` | White screen on and off, to write on a whiteboard under the projector |
 | Escape | End the presentation |
 
 Both windows draw the same state held by the Rust side, so they can never disagree.

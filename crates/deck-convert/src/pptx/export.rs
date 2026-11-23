@@ -30,8 +30,17 @@ pub fn export(deck: &Deck, deck_dir: &Path, pptx: &Path) -> Result<Vec<String>> 
     let cy = emu(deck.height);
 
     let mut ct = String::from(
-        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="jpg" ContentType="image/jpeg"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="gif" ContentType="image/gif"/><Default Extension="bmp" ContentType="image/bmp"/><Default Extension="svg" ContentType="image/svg+xml"/><Default Extension="webp" ContentType="image/webp"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>"#,
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="jpg" ContentType="image/jpeg"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="gif" ContentType="image/gif"/><Default Extension="bmp" ContentType="image/bmp"/><Default Extension="svg" ContentType="image/svg+xml"/><Default Extension="webp" ContentType="image/webp"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>"#,
     );
+    // Layout k (0-based) is slideLayout{k+1}; the blank layout, for slides
+    // without one, is the last.
+    let n_layouts = deck.layouts.len() + 1;
+    for l in 1..=n_layouts {
+        let _ = write!(
+            ct,
+            r#"<Override PartName="/ppt/slideLayouts/slideLayout{l}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>"#
+        );
+    }
     for i in 1..=n {
         let _ = write!(
             ct,
@@ -81,122 +90,121 @@ pub fn export(deck: &Deck, deck_dir: &Path, pptx: &Path) -> Result<Vec<String>> 
     add("ppt/presentation.xml", pres.as_bytes())?;
     add("ppt/_rels/presentation.xml.rels", pres_rels.as_bytes())?;
 
-    add("ppt/slideMasters/slideMaster1.xml", master_xml().as_bytes())?;
-    add("ppt/slideMasters/_rels/slideMaster1.xml.rels", format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{NS_REL}"><Relationship Id="rId1" Type="{REL_LAYOUT}" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>"#).as_bytes())?;
-    add("ppt/slideLayouts/slideLayout1.xml", layout_xml().as_bytes())?;
-    add("ppt/slideLayouts/_rels/slideLayout1.xml.rels", format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{NS_REL}"><Relationship Id="rId1" Type="{REL_MASTER}" Target="../slideMasters/slideMaster1.xml"/></Relationships>"#).as_bytes())?;
+    add("ppt/slideMasters/slideMaster1.xml", master_xml(n_layouts).as_bytes())?;
+    let mut master_rels =
+        format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{NS_REL}">"#);
+    for l in 1..=n_layouts {
+        let _ = write!(
+            master_rels,
+            r#"<Relationship Id="rId{l}" Type="{REL_LAYOUT}" Target="../slideLayouts/slideLayout{l}.xml"/>"#
+        );
+    }
+    let _ = write!(
+        master_rels,
+        r#"<Relationship Id="rIdT" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>"#
+    );
+    add("ppt/slideMasters/_rels/slideMaster1.xml.rels", master_rels.as_bytes())?;
+
+    let mut media_count = 0u32;
+    for (k, layout) in deck.layouts.iter().enumerate() {
+        let l = k + 1;
+        let mut part = Part::new(format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{NS_REL}"><Relationship Id="rId1" Type="{REL_MASTER}" Target="../slideMasters/slideMaster1.xml"/>"#
+        ));
+        let _ = write!(
+            part.xml,
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sldLayout xmlns:a="{NS_A}" xmlns:r="{NS_R}" xmlns:p="{NS_P}" preserve="1"><p:cSld name="{}">"#,
+            esc(&layout.name)
+        );
+        part.background(layout.background);
+        part.open_tree();
+        for (e, element) in layout.elements.iter().enumerate() {
+            write_element(
+                &mut part,
+                &mut media_count,
+                &mut add,
+                deck_dir,
+                element,
+                e + 2,
+                None,
+                &format!("layout {}", layout.name),
+                &mut warnings,
+            )?;
+        }
+        let base_id = layout.elements.len() + 2;
+        for (pi, ph) in layout.placeholders.iter().enumerate() {
+            let _ = write!(
+                part.xml,
+                r#"<p:sp><p:nvSpPr><p:cNvPr id="{}" name="{}"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr>{}</p:nvPr></p:nvSpPr><p:spPr>{}</p:spPr>{}</p:sp>"#,
+                base_id + pi,
+                esc(&ph.name),
+                ph_tag(layout, &ph.name),
+                xfrm(&ph.rect),
+                placeholder_body(ph)
+            );
+        }
+        part.xml.push_str("</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>");
+        part.rels.push_str("</Relationships>");
+        add(&format!("ppt/slideLayouts/slideLayout{l}.xml"), part.xml.as_bytes())?;
+        add(&format!("ppt/slideLayouts/_rels/slideLayout{l}.xml.rels"), part.rels.as_bytes())?;
+    }
+    add(&format!("ppt/slideLayouts/slideLayout{n_layouts}.xml"), blank_layout_xml().as_bytes())?;
+    add(&format!("ppt/slideLayouts/_rels/slideLayout{n_layouts}.xml.rels"), format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{NS_REL}"><Relationship Id="rId1" Type="{REL_MASTER}" Target="../slideMasters/slideMaster1.xml"/></Relationships>"#).as_bytes())?;
     add("ppt/theme/theme1.xml", theme_xml().as_bytes())?;
     if has_notes {
         add("ppt/notesMasters/notesMaster1.xml", notes_master_xml().as_bytes())?;
         add("ppt/notesMasters/_rels/notesMaster1.xml.rels", format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{NS_REL}"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>"#).as_bytes())?;
     }
 
-    let mut media_count = 0u32;
     for (i, slide) in deck.slides.iter().enumerate() {
         let i = i + 1;
-        let mut rels = format!(
-            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{NS_REL}"><Relationship Id="rId1" Type="{REL_LAYOUT}" Target="../slideLayouts/slideLayout1.xml"/>"#
-        );
-        let mut xml = format!(
+        let layout = deck.layout_of(slide);
+        let layout_no =
+            layout.and_then(|l| deck.layouts.iter().position(|x| x.name == l.name)).map(|k| k + 1).unwrap_or(n_layouts);
+        let mut part = Part::new(format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{NS_REL}"><Relationship Id="rId1" Type="{REL_LAYOUT}" Target="../slideLayouts/slideLayout{layout_no}.xml"/>"#
+        ));
+        let _ = write!(
+            part.xml,
             r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="{NS_A}" xmlns:r="{NS_R}" xmlns:p="{NS_P}"><p:cSld{}>"#,
             if slide.name.is_empty() { String::new() } else { format!(r#" name="{}""#, esc(&slide.name)) }
         );
-        if let Some(bg) = slide.background {
-            let _ = write!(
-                xml,
-                r#"<p:bg><p:bgPr><a:solidFill><a:srgbClr val="{}"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>"#,
-                hex(bg)
-            );
-        }
-        xml.push_str(r#"<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>"#);
-        let mut rel_id = 1;
+        part.background(slide.background);
+        part.open_tree();
         for (k, element) in slide.elements.iter().enumerate() {
-            let id = k + 2;
-            match element {
-                Element::Text(t) => {
-                    let _ = write!(
-                        xml,
-                        r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="TextBox {id}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>{}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>{}{}</p:spPr>{}</p:sp>"#,
-                        xfrm(&t.rect),
-                        fill(t.fill),
-                        line(t.stroke),
-                        tx_body(&t.paragraphs)
-                    );
+            let ph = match (element, layout) {
+                (Element::Text(t), Some(layout)) => {
+                    t.placeholder.as_deref().filter(|n| layout.placeholder(n).is_some()).map(|n| ph_tag(layout, n))
                 }
-                Element::Shape(s) => {
-                    let prst = match s.kind {
-                        ShapeKind::Rectangle => "rect",
-                        ShapeKind::Ellipse => "ellipse",
-                        ShapeKind::Line => "line",
-                    };
-                    let _ = write!(
-                        xml,
-                        r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Shape {id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>{}<a:prstGeom prst="{prst}"><a:avLst/></a:prstGeom>{}{}</p:spPr>{}</p:sp>"#,
-                        xfrm(&s.rect),
-                        fill(s.fill),
-                        line(s.stroke),
-                        tx_body(&s.paragraphs)
-                    );
-                }
-                Element::Math(m) => {
-                    warnings.push(format!("slide {i}: formula exported as its source text"));
-                    let p = Paragraph {
-                        runs: vec![Run {
-                            text: m.source.clone(),
-                            size: m.size,
-                            color: m.color,
-                            font: Some("Consolas".into()),
-                            ..Default::default()
-                        }],
-                        align: Align::Center,
-                        bullet: None,
-                    };
-                    let _ = write!(
-                        xml,
-                        r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Math {id}" descr="typst:{}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>{}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>{}</p:sp>"#,
-                        esc(&m.source),
-                        xfrm(&m.rect),
-                        tx_body(&[p])
-                    );
-                }
-                Element::Image(img) => {
-                    let src = deck_dir.join(&img.src);
-                    let bytes = std::fs::read(&src).with_context(|| format!("reading asset {}", src.display()))?;
-                    media_count += 1;
-                    let ext = Path::new(&img.src)
-                        .extension()
-                        .map(|e| e.to_string_lossy().to_lowercase())
-                        .unwrap_or_else(|| "png".into());
-                    let media = format!("ppt/media/image{media_count}.{ext}");
-                    add(&media, &bytes)?;
-                    rel_id += 1;
-                    let _ = write!(
-                        rels,
-                        r#"<Relationship Id="rId{rel_id}" Type="{REL_IMAGE}" Target="../media/image{media_count}.{ext}"/>"#
-                    );
-                    let _ = write!(
-                        xml,
-                        r#"<p:pic><p:nvPicPr><p:cNvPr id="{id}" name="Picture {id}"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rId{rel_id}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>{}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>"#,
-                        xfrm(&img.rect)
-                    );
-                }
-            }
+                _ => None,
+            };
+            write_element(
+                &mut part,
+                &mut media_count,
+                &mut add,
+                deck_dir,
+                element,
+                k + 2,
+                ph.as_deref(),
+                &format!("slide {i}"),
+                &mut warnings,
+            )?;
         }
-        xml.push_str("</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>");
-        xml.push_str(&timing_xml(slide, i, &mut warnings));
-        xml.push_str("</p:sld>");
+        part.xml.push_str("</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>");
+        part.xml.push_str(&timing_xml(slide, i, &mut warnings));
+        part.xml.push_str("</p:sld>");
         if !slide.notes.is_empty() {
-            rel_id += 1;
+            let rel = part.next_rel();
             let _ = write!(
-                rels,
-                r#"<Relationship Id="rId{rel_id}" Type="{REL_NOTES}" Target="../notesSlides/notesSlide{i}.xml"/>"#
+                part.rels,
+                r#"<Relationship Id="rId{rel}" Type="{REL_NOTES}" Target="../notesSlides/notesSlide{i}.xml"/>"#
             );
             add(&format!("ppt/notesSlides/notesSlide{i}.xml"), notes_xml(&slide.notes).as_bytes())?;
             add(&format!("ppt/notesSlides/_rels/notesSlide{i}.xml.rels"), format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{NS_REL}"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster" Target="../notesMasters/notesMaster1.xml"/><Relationship Id="rId2" Type="{REL_SLIDE}" Target="../slides/slide{i}.xml"/></Relationships>"#).as_bytes())?;
         }
-        rels.push_str("</Relationships>");
-        add(&format!("ppt/slides/slide{i}.xml"), xml.as_bytes())?;
-        add(&format!("ppt/slides/_rels/slide{i}.xml.rels"), rels.as_bytes())?;
+        part.rels.push_str("</Relationships>");
+        add(&format!("ppt/slides/slide{i}.xml"), part.xml.as_bytes())?;
+        add(&format!("ppt/slides/_rels/slide{i}.xml.rels"), part.rels.as_bytes())?;
     }
     zip.finish()?;
     Ok(warnings)
@@ -268,6 +276,185 @@ fn timing_xml(slide: &Slide, slide_no: usize, warnings: &mut Vec<String>) -> Str
         r#"<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst><p:seq concurrent="1" nextAc="seek"><p:cTn id="{}" dur="indefinite" nodeType="mainSeq"><p:childTnLst>{clicks}</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>"#,
         next()
     )
+}
+
+/// A slide or layout part being written: its XML and its relationships.
+struct Part {
+    xml: String,
+    rels: String,
+    rel_id: usize,
+}
+
+impl Part {
+    fn new(rels: String) -> Self {
+        Self { xml: String::new(), rels, rel_id: 1 }
+    }
+
+    fn next_rel(&mut self) -> usize {
+        self.rel_id += 1;
+        self.rel_id
+    }
+
+    fn background(&mut self, color: Option<Color>) {
+        if let Some(bg) = color {
+            let _ = write!(
+                self.xml,
+                r#"<p:bg><p:bgPr><a:solidFill><a:srgbClr val="{}"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>"#,
+                hex(bg)
+            );
+        }
+    }
+
+    fn open_tree(&mut self) {
+        self.xml.push_str(r#"<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>"#);
+    }
+}
+
+/// The `<p:ph>` tag of a layout placeholder: `title` and `subtitle` map
+/// to PowerPoint's types, the others are body placeholders numbered by
+/// their position, so that slides and layouts agree.
+fn ph_tag(layout: &Layout, name: &str) -> String {
+    match name {
+        "title" => r#"<p:ph type="title"/>"#.into(),
+        "subtitle" => r#"<p:ph type="subTitle" idx="1"/>"#.into(),
+        _ => {
+            // `body3` keeps idx 3, so that a re-import gives the same name;
+            // other names get an index past the usual ones.
+            let idx = name
+                .strip_prefix("body")
+                .and_then(|n| n.parse::<usize>().ok())
+                .filter(|n| *n > 0)
+                .unwrap_or_else(|| layout.placeholders.iter().position(|p| p.name == name).unwrap_or(0) + 10);
+            format!(r#"<p:ph type="body" idx="{idx}"/>"#)
+        }
+    }
+}
+
+/// A layout placeholder's text body: its default style as a list style,
+/// and one empty paragraph.
+fn placeholder_body(ph: &Placeholder) -> String {
+    let mut lvl = String::from("<a:lvl1pPr");
+    match ph.align {
+        Align::Left => {}
+        Align::Center => lvl.push_str(r#" algn="ctr""#),
+        Align::Right => lvl.push_str(r#" algn="r""#),
+        Align::Justify => lvl.push_str(r#" algn="just""#),
+    }
+    lvl.push('>');
+    if ph.bullets {
+        lvl.push_str(r#"<a:buChar char="&#8226;"/>"#);
+    } else {
+        lvl.push_str("<a:buNone/>");
+    }
+    lvl.push_str("<a:defRPr");
+    if let Some(size) = ph.size {
+        let _ = write!(lvl, r#" sz="{}""#, (size * 100.0).round() as i64);
+    }
+    if ph.bold {
+        lvl.push_str(r#" b="1""#);
+    }
+    lvl.push('>');
+    if let Some(c) = ph.color {
+        let _ = write!(lvl, r#"<a:solidFill><a:srgbClr val="{}"/></a:solidFill>"#, hex(c));
+    }
+    if let Some(f) = &ph.font {
+        let _ = write!(lvl, r#"<a:latin typeface="{}"/>"#, esc(f));
+    }
+    lvl.push_str("</a:defRPr></a:lvl1pPr>");
+    format!(r#"<p:txBody><a:bodyPr/><a:lstStyle>{lvl}</a:lstStyle><a:p><a:endParaRPr/></a:p></p:txBody>"#)
+}
+
+/// Writes one element into a slide or layout part. `ph` is the `<p:ph>`
+/// tag when a text box fills a layout placeholder.
+#[allow(clippy::too_many_arguments)]
+fn write_element(
+    part: &mut Part,
+    media_count: &mut u32,
+    add: &mut dyn FnMut(&str, &[u8]) -> Result<()>,
+    deck_dir: &Path,
+    element: &Element,
+    id: usize,
+    ph: Option<&str>,
+    where_: &str,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    let xml = &mut part.xml;
+    match element {
+        Element::Text(t) => {
+            let (cnv, nv) = match ph {
+                Some(tag) => {
+                    (r#"<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>"#.to_string(), format!("<p:nvPr>{tag}</p:nvPr>"))
+                }
+                None => (r#"<p:cNvSpPr txBox="1"/>"#.to_string(), "<p:nvPr/>".to_string()),
+            };
+            let _ = write!(
+                xml,
+                r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="TextBox {id}"/>{cnv}{nv}</p:nvSpPr><p:spPr>{}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>{}{}</p:spPr>{}</p:sp>"#,
+                xfrm(&t.rect),
+                fill(t.fill),
+                line(t.stroke),
+                tx_body(&t.paragraphs)
+            );
+        }
+        Element::Shape(s) => {
+            let prst = match s.kind {
+                ShapeKind::Rectangle => "rect",
+                ShapeKind::Ellipse => "ellipse",
+                ShapeKind::Line => "line",
+            };
+            let _ = write!(
+                xml,
+                r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Shape {id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>{}<a:prstGeom prst="{prst}"><a:avLst/></a:prstGeom>{}{}</p:spPr>{}</p:sp>"#,
+                xfrm(&s.rect),
+                fill(s.fill),
+                line(s.stroke),
+                tx_body(&s.paragraphs)
+            );
+        }
+        Element::Math(m) => {
+            warnings.push(format!("{where_}: formula exported as its source text"));
+            let p = Paragraph {
+                runs: vec![Run {
+                    text: m.source.clone(),
+                    size: m.size,
+                    color: m.color,
+                    font: Some("Consolas".into()),
+                    ..Default::default()
+                }],
+                align: Align::Center,
+                bullet: None,
+            };
+            let _ = write!(
+                xml,
+                r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Math {id}" descr="typst:{}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>{}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>{}</p:sp>"#,
+                esc(&m.source),
+                xfrm(&m.rect),
+                tx_body(&[p])
+            );
+        }
+        Element::Image(img) => {
+            let src = deck_dir.join(&img.src);
+            let bytes = std::fs::read(&src).with_context(|| format!("reading asset {}", src.display()))?;
+            *media_count += 1;
+            let ext = Path::new(&img.src)
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_else(|| "png".into());
+            let media = format!("ppt/media/image{media_count}.{ext}");
+            add(&media, &bytes)?;
+            let rel = part.next_rel();
+            let _ = write!(
+                part.rels,
+                r#"<Relationship Id="rId{rel}" Type="{REL_IMAGE}" Target="../media/image{media_count}.{ext}"/>"#
+            );
+            let _ = write!(
+                part.xml,
+                r#"<p:pic><p:nvPicPr><p:cNvPr id="{id}" name="Picture {id}"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rId{rel}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>{}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>"#,
+                xfrm(&img.rect)
+            );
+        }
+    }
+    Ok(())
 }
 
 fn emu(pt: f64) -> i64 {
@@ -377,13 +564,17 @@ fn notes_xml(notes: &str) -> String {
 
 const CLR_MAP: &str = r#"<p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>"#;
 
-fn master_xml() -> String {
+fn master_xml(n_layouts: usize) -> String {
+    let mut ids = String::new();
+    for l in 1..=n_layouts {
+        let _ = write!(ids, r#"<p:sldLayoutId id="{}" r:id="rId{l}"/>"#, 2147483648u64 + l as u64);
+    }
     format!(
-        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sldMaster xmlns:a="{NS_A}" xmlns:r="{NS_R}" xmlns:p="{NS_P}"><p:cSld><p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld>{CLR_MAP}<p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst><p:txStyles><p:titleStyle><a:lvl1pPr><a:defRPr sz="4400"/></a:lvl1pPr></p:titleStyle><p:bodyStyle><a:lvl1pPr><a:defRPr sz="1800"/></a:lvl1pPr></p:bodyStyle><p:otherStyle><a:lvl1pPr><a:defRPr sz="1800"/></a:lvl1pPr></p:otherStyle></p:txStyles></p:sldMaster>"#
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sldMaster xmlns:a="{NS_A}" xmlns:r="{NS_R}" xmlns:p="{NS_P}"><p:cSld><p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld>{CLR_MAP}<p:sldLayoutIdLst>{ids}</p:sldLayoutIdLst><p:txStyles><p:titleStyle><a:lvl1pPr><a:defRPr sz="4400"/></a:lvl1pPr></p:titleStyle><p:bodyStyle><a:lvl1pPr><a:defRPr sz="1800"/></a:lvl1pPr></p:bodyStyle><p:otherStyle><a:lvl1pPr><a:defRPr sz="1800"/></a:lvl1pPr></p:otherStyle></p:txStyles></p:sldMaster>"#
     )
 }
 
-fn layout_xml() -> String {
+fn blank_layout_xml() -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sldLayout xmlns:a="{NS_A}" xmlns:r="{NS_R}" xmlns:p="{NS_P}" type="blank" preserve="1"><p:cSld name="Blank"><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>"#
     )
@@ -448,6 +639,34 @@ mod tests {
             ],
             ..Default::default()
         });
+        deck.layouts.push(Layout {
+            name: "Corp".into(),
+            background: Some(Color::rgb(0xEE, 0xEE, 0xEE)),
+            elements: vec![Element::Shape(Shape {
+                rect: Rect::new(0.0, 500.0, 960.0, 40.0),
+                fill: Some(Color::rgb(0x10, 0x20, 0x30)),
+                ..Default::default()
+            })],
+            placeholders: vec![
+                Placeholder {
+                    name: "title".into(),
+                    rect: Rect::new(40.0, 30.0, 880.0, 80.0),
+                    size: Some(40.0),
+                    bold: true,
+                    align: Align::Center,
+                    ..Default::default()
+                },
+                Placeholder {
+                    name: "body1".into(),
+                    rect: Rect::new(40.0, 130.0, 880.0, 340.0),
+                    bullets: true,
+                    ..Default::default()
+                },
+            ],
+        });
+        let mut from_layout = deck.layouts[0].new_slide();
+        from_layout.name = "second".into();
+        deck.slides.push(from_layout);
         native::save(&deck, &dir).unwrap();
         let pptx = tmp.join("out.pptx");
         let warnings = export(&deck, &dir, &pptx).unwrap();
@@ -456,7 +675,27 @@ mod tests {
         let back_dir = tmp.join("back.deck");
         let (back, report) = super::super::import(&pptx, &back_dir).unwrap();
         assert!(report.warnings.is_empty(), "{:?}", report.warnings);
-        assert_eq!(back.slides.len(), 1);
+        assert_eq!(back.slides.len(), 2);
+        // The layout came back with its background, static shape and placeholders.
+        assert_eq!(back.layouts.len(), 1, "{:?}", back.layouts);
+        let corp = &back.layouts[0];
+        assert_eq!(corp.name, "Corp");
+        assert_eq!(corp.background, Some(Color::rgb(0xEE, 0xEE, 0xEE)));
+        assert_eq!(corp.elements.len(), 1);
+        assert_eq!(corp.placeholders.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["title", "body1"]);
+        let title = corp.placeholder("title").unwrap();
+        assert_eq!(title.rect, Rect::new(40.0, 30.0, 880.0, 80.0));
+        assert_eq!((title.size, title.bold, title.align), (Some(40.0), true, Align::Center));
+        assert!(corp.placeholder("body1").unwrap().bullets);
+        let second = &back.slides[1];
+        assert_eq!(second.layout.as_deref(), Some("Corp"));
+        let names: Vec<Option<&str>> = second
+            .elements
+            .iter()
+            .map(|e| if let Element::Text(t) = e { t.placeholder.as_deref() } else { None })
+            .collect();
+        assert_eq!(names, [Some("title"), Some("body1")]);
+        assert_eq!(back.slides[0].layout, None);
         let s = &back.slides[0];
         assert_eq!(s.name, "first");
         assert_eq!(s.background, Some(Color::rgb(0x11, 0x22, 0x33)));

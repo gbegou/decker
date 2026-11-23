@@ -28,8 +28,11 @@ export interface View {
   notes: string;
   elements: ElementInfo[];
   presenting: boolean;
-  blackout: boolean;
+  /** "", "black" or "white": the audience window shows that instead of the slide. */
+  blank: string;
   warnings: string[];
+  layouts: string[];
+  layout: string | null;
 }
 
 export const api = {
@@ -38,7 +41,7 @@ export const api = {
   save: (path?: string) => invoke<string>("save", { path: path ?? null }),
   exportPptx: (path: string) => invoke<string[]>("export_pptx", { path }),
   getView: () => invoke<View>("get_view"),
-  navigate: (action: "next" | "prev" | "first" | "last" | "next_slide" | "prev_slide" | "blackout") =>
+  navigate: (action: "next" | "prev" | "first" | "last" | "next_slide" | "prev_slide" | "black" | "white") =>
     invoke<View>("navigate", { action }),
   goto: (slide: number, step = 0) => invoke<View>("goto", { slide, step }),
   setRect: (element: number, rect: Rect) => invoke<View>("set_rect", { element, rect }),
@@ -46,6 +49,10 @@ export const api = {
   setNotes: (notes: string) => invoke<View>("set_notes", { notes }),
   addSlide: () => invoke<View>("add_slide"),
   deleteSlide: () => invoke<View>("delete_slide"),
+  duplicateSlide: () => invoke<View>("duplicate_slide"),
+  setLayout: (name: string | null) => invoke<View>("set_layout", { name }),
+  peekDeck: (path: string) => invoke<string[]>("peek_deck", { path }),
+  importSlides: (path: string, indices: number[]) => invoke<View>("import_slides", { path, indices }),
   addText: () => invoke<View>("add_text"),
   deleteElement: (element: number) => invoke<View>("delete_element", { element }),
   startPresentation: (withPresenter = false) => invoke<void>("start_presentation", { withPresenter }),
@@ -75,7 +82,8 @@ export function presentationKeys(e: KeyboardEvent): boolean {
       api.navigate("prev"); return true;
     case "Home": api.navigate("first"); return true;
     case "End": api.navigate("last"); return true;
-    case "b": case "B": case ".": api.navigate("blackout"); return true;
+    case "b": case "B": case ".": api.navigate("black"); return true;
+    case "w": case "W": case ",": api.navigate("white"); return true;
     case "Escape": api.stopPresentation(); return true;
   }
   return false;

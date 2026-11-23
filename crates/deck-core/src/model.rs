@@ -26,6 +26,9 @@ pub struct Deck {
     /// `typst/` folder.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub math_preamble: String,
+    /// The layouts (PowerPoint's masters and layouts) slides can use.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layouts: Vec<Layout>,
     pub slides: Vec<Slide>,
 }
 
@@ -37,6 +40,7 @@ impl Default for Deck {
             width: DEFAULT_WIDTH,
             height: DEFAULT_HEIGHT,
             math_preamble: String::new(),
+            layouts: Vec::new(),
             slides: Vec::new(),
         }
     }
@@ -46,6 +50,92 @@ impl Deck {
     pub fn new(title: impl Into<String>) -> Self {
         Self { title: title.into(), ..Default::default() }
     }
+
+    pub fn layout(&self, name: &str) -> Option<&Layout> {
+        self.layouts.iter().find(|l| l.name == name)
+    }
+
+    /// The layout of a slide, when it names one that exists.
+    pub fn layout_of(&self, slide: &Slide) -> Option<&Layout> {
+        slide.layout.as_deref().and_then(|n| self.layout(n))
+    }
+}
+
+/// A slide layout: what every slide using it shares (background, static
+/// elements such as a logo or a footer) and the placeholders a new slide
+/// starts from.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Layout {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background: Option<Color>,
+    /// Drawn under the slide's own elements, not editable from a slide.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub elements: Vec<Element>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub placeholders: Vec<Placeholder>,
+}
+
+impl Layout {
+    pub fn placeholder(&self, name: &str) -> Option<&Placeholder> {
+        self.placeholders.iter().find(|p| p.name == name)
+    }
+
+    /// A new slide: one text box per placeholder, carrying the
+    /// placeholder's name, position and default style.
+    pub fn new_slide(&self) -> Slide {
+        Slide {
+            layout: Some(self.name.clone()),
+            elements: self.placeholders.iter().map(|p| Element::Text(p.text_box())).collect(),
+            ..Default::default()
+        }
+    }
+}
+
+/// A named slot of a layout, e.g. `title` or `body`, with the style its
+/// text starts with.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Placeholder {
+    pub name: String,
+    pub rect: Rect,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<f64>,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub bold: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<String>,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub align: Align,
+    /// Paragraphs start bulleted (a body placeholder).
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub bullets: bool,
+}
+
+impl Placeholder {
+    /// An empty text box in this placeholder, showing the placeholder's
+    /// name as its text.
+    pub fn text_box(&self) -> TextBox {
+        let run = Run {
+            text: self.name.clone(),
+            bold: self.bold,
+            size: self.size,
+            color: self.color,
+            font: self.font.clone(),
+            ..Default::default()
+        };
+        TextBox {
+            rect: self.rect,
+            paragraphs: vec![Paragraph {
+                runs: vec![run],
+                align: self.align,
+                bullet: if self.bullets { Some(0) } else { None },
+            }],
+            placeholder: Some(self.name.clone()),
+            ..Default::default()
+        }
+    }
 }
 
 /// One slide.
@@ -54,6 +144,9 @@ pub struct Slide {
     /// Optional name, shown in the editor and usable from macros.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
+    /// The [`Layout`] this slide uses, by name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<Color>,
     #[serde(default)]
@@ -325,6 +418,9 @@ pub struct TextBox {
     pub rect: Rect,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<Step>,
+    /// The layout placeholder this box fills, by name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<String>,
     #[serde(default)]
     pub paragraphs: Vec<Paragraph>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -486,6 +582,51 @@ mod tests {
         assert_eq!(back, deck);
         assert!(json.contains("\"version\": 1"));
         assert!(json.contains("\"type\": \"text\""));
+    }
+
+    #[test]
+    fn layouts_make_slides() {
+        let mut deck = Deck::new("t");
+        deck.layouts.push(Layout {
+            name: "Title".into(),
+            background: Some(Color::WHITE),
+            elements: vec![Element::Shape(Shape {
+                rect: Rect::new(0.0, 500.0, 960.0, 40.0),
+                fill: Some(Color::BLACK),
+                ..Default::default()
+            })],
+            placeholders: vec![
+                Placeholder {
+                    name: "title".into(),
+                    rect: Rect::new(50.0, 100.0, 860.0, 120.0),
+                    size: Some(44.0),
+                    bold: true,
+                    align: Align::Center,
+                    ..Default::default()
+                },
+                Placeholder {
+                    name: "body".into(),
+                    rect: Rect::new(50.0, 250.0, 860.0, 200.0),
+                    bullets: true,
+                    ..Default::default()
+                },
+            ],
+        });
+        let slide = deck.layouts[0].new_slide();
+        assert_eq!(slide.layout.as_deref(), Some("Title"));
+        assert_eq!(slide.elements.len(), 2);
+        let Element::Text(t) = &slide.elements[0] else { panic!() };
+        assert_eq!(t.placeholder.as_deref(), Some("title"));
+        assert_eq!(t.rect, Rect::new(50.0, 100.0, 860.0, 120.0));
+        assert!(t.paragraphs[0].runs[0].bold);
+        assert_eq!(t.paragraphs[0].align, Align::Center);
+        let Element::Text(b) = &slide.elements[1] else { panic!() };
+        assert_eq!(b.paragraphs[0].bullet, Some(0));
+        deck.slides.push(slide);
+        assert_eq!(deck.layout_of(&deck.slides[0]).map(|l| l.name.as_str()), Some("Title"));
+        let json = serde_json::to_string(&deck).unwrap();
+        assert!(json.contains("\"layouts\""));
+        assert_eq!(serde_json::from_str::<Deck>(&json).unwrap(), deck);
     }
 
     #[test]

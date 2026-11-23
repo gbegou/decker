@@ -56,7 +56,8 @@ A minimal deck:
 Element types are `text`, `image`, `shape` (`rectangle`, `ellipse`, `line`) and `math`
 (Typst math source). A run may carry `"math": true` to be rendered as an inline formula.
 Every element may carry `steps`; see [Build steps](steps.md). The deck may carry a
-`math_preamble` and a `typst/` folder of importable files; see [Math](math.md).
+`math_preamble` and a `typst/` folder of importable files; see [Math](math.md), and
+`layouts` that slides name; see [Layouts](layouts.md).
 
 The authoritative definition is the `Deck` type in `deck-core`, documented in the
 [API reference](api.md).

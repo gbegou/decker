@@ -6,6 +6,8 @@ A free, fast, modern alternative to PowerPoint, written in Rust, for Linux and W
   what it skipped, so decks from colleagues open and go back to them.
 - **Presents** on a projector with a presenter view: current slide, what comes next, notes,
   timer, black screen.
+- **Layouts**, the equivalent of masters, imported from and exported to PPTX; slides copy
+  between decks with their images and layouts.
 - **Build steps** reveal, move, grow or recolor elements click by click, with one mechanism.
 - **Formulas** in Typst math, rendered by Typst embedded, with the deck's own notations.
 - **Python macros** (planned) see the same document model as the editor.

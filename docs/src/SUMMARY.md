@@ -6,6 +6,8 @@
 
 - [Installing and running](running.md)
 - [Presenting](presenting.md)
+- [Layouts](layouts.md)
+- [Copying slides between decks](copying.md)
 - [The converter](converter.md)
 - [The native format](format.md)
 

@@ -31,7 +31,7 @@
 <div class="presenter">
   {#if view}
     <div class="current">
-      <div class="label">Current · slide {view.slide + 1} / {view.slide_count}{#if view.last_step}, step {view.step} / {view.last_step}{/if}{#if view.blackout} · BLACK{/if}</div>
+      <div class="label">Current · slide {view.slide + 1} / {view.slide_count}{#if view.last_step}, step {view.step} / {view.last_step}{/if}{#if view.blank} · {view.blank.toUpperCase()} SCREEN{/if}</div>
       <SlideView svg={view.svg} width={view.width} height={view.height} animated />
     </div>
     <div class="side">
@@ -58,7 +58,8 @@
       <div class="controls">
         <button onclick={() => api.navigate("prev")}>◀ Prev</button>
         <button class="primary" onclick={() => api.navigate("next")}>Next ▶</button>
-        <button onclick={() => api.navigate("blackout")}>Black (B)</button>
+        <button onclick={() => api.navigate("black")}>Black (B)</button>
+        <button onclick={() => api.navigate("white")}>White (W)</button>
         <button onclick={() => api.stopPresentation()}>End (Esc)</button>
       </div>
       <div class="strip">

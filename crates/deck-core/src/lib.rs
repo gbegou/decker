@@ -10,6 +10,7 @@
 pub mod model;
 pub mod native;
 pub mod svg;
+pub mod transfer;
 
 pub use model::*;
 pub use svg::{MathImage, MathRenderer, NoMath};

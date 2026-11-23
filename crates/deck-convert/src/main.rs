@@ -13,7 +13,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 
 use deck_convert::pptx;
-use deck_core::{native, svg, Element};
+use deck_core::{native, svg, transfer, Element};
 
 #[derive(Parser)]
 #[command(version, about = "Convert between decker decks and PPTX / SVG")]
@@ -47,6 +47,21 @@ enum Command {
     },
     /// Print a summary of a deck folder.
     Info { deck: PathBuf },
+    /// List the layouts of a deck folder, with their placeholders.
+    Layouts { deck: PathBuf },
+    /// Copy slides from one deck folder into another, with their images
+    /// and layouts.
+    Copy {
+        /// Source deck folder.
+        from: PathBuf,
+        /// Slides to copy, 1-based: `3`, `2,5`, `4-7`, or `all`.
+        slides: String,
+        /// Destination deck folder.
+        into: PathBuf,
+        /// Insert before this 1-based position (default: at the end).
+        #[arg(long)]
+        at: Option<usize>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -105,11 +120,64 @@ fn main() -> Result<()> {
                     .unwrap_or_default();
                 let notes = if s.notes.is_empty() { "" } else { " [notes]" };
                 let steps = if s.last_step() == 0 { String::new() } else { format!(", {} steps", s.last_step()) };
-                println!("{:3}  {:<40} {} elements{steps}{notes}", i + 1, title, s.elements.len());
+                let layout = s.layout.as_deref().map(|l| format!(" [{l}]")).unwrap_or_default();
+                println!("{:3}  {:<40} {} elements{steps}{notes}{layout}", i + 1, title, s.elements.len());
             }
+        }
+        Command::Layouts { deck } => {
+            let d = native::load(&deck)?;
+            if d.layouts.is_empty() {
+                println!("no layouts");
+            }
+            for l in &d.layouts {
+                let used = d.slides.iter().filter(|s| s.layout.as_deref() == Some(l.name.as_str())).count();
+                println!("{} ({} static elements, used by {used} slides)", l.name, l.elements.len());
+                for p in &l.placeholders {
+                    println!(
+                        "    {:<12} at {},{} {}x{}",
+                        p.name,
+                        p.rect.x.round(),
+                        p.rect.y.round(),
+                        p.rect.w.round(),
+                        p.rect.h.round()
+                    );
+                }
+            }
+        }
+        Command::Copy { from, slides, into, at } => {
+            let src = native::load(&from)?;
+            let mut dst = native::load(&into)?;
+            let indices = parse_slides(&slides, src.slides.len())?;
+            let at = at.map(|a| a.saturating_sub(1)).unwrap_or(dst.slides.len());
+            let n = transfer::copy_slides(&src, &from, &indices, &mut dst, &into, at)?;
+            native::save(&dst, &into)?;
+            println!("{n} slides copied into {} ({} slides now)", into.display(), dst.slides.len());
         }
     }
     Ok(())
+}
+
+/// `3`, `2,5`, `4-7`, `all` → 0-based indices, in the order given.
+fn parse_slides(spec: &str, count: usize) -> Result<Vec<usize>> {
+    if spec == "all" {
+        return Ok((0..count).collect());
+    }
+    let mut out = vec![];
+    for part in spec.split(',') {
+        let part = part.trim();
+        let (a, b) = match part.split_once('-') {
+            Some((a, b)) => (a.trim().parse::<usize>()?, b.trim().parse::<usize>()?),
+            None => {
+                let n = part.parse::<usize>()?;
+                (n, n)
+            }
+        };
+        if a == 0 || b < a || b > count {
+            bail!("slide range {part} is outside 1..={count}");
+        }
+        out.extend((a - 1)..b);
+    }
+    Ok(out)
 }
 
 /// A relative path from `to` up to `from`'s directory, with `..` segments.

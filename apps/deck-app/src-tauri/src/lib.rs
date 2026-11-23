@@ -7,7 +7,7 @@
 
 mod state;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
@@ -89,7 +89,7 @@ fn get_view(state: Shared) -> Result<View, String> {
     Ok(state.lock().map_err(err)?.view())
 }
 
-/// `next`, `prev`, `first`, `last`, `next_slide`, `prev_slide`, `blackout`.
+/// `next`, `prev`, `first`, `last`, `next_slide`, `prev_slide`, `black`, `white`.
 #[tauri::command]
 fn navigate(app: AppHandle, state: Shared, action: String) -> Result<View, String> {
     let view = {
@@ -170,6 +170,57 @@ fn delete_slide(app: AppHandle, state: Shared) -> Result<View, String> {
 }
 
 #[tauri::command]
+fn duplicate_slide(app: AppHandle, state: Shared) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.duplicate_slide()?;
+        s.view()
+    };
+    changed(&app);
+    Ok(view)
+}
+
+#[tauri::command]
+fn set_layout(app: AppHandle, state: Shared, name: Option<String>) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.set_layout(name.filter(|n| !n.is_empty()))?;
+        s.view()
+    };
+    changed(&app);
+    Ok(view)
+}
+
+/// Thumbnails of the slides of another deck folder.
+#[tauri::command]
+fn peek_deck(state: Shared, path: String) -> Result<Vec<String>, String> {
+    let s = state.lock().map_err(err)?;
+    s.peek(&deck_dir(&path))
+}
+
+/// Copies slides (0-based indices) of another deck folder after the current slide.
+#[tauri::command]
+fn import_slides(app: AppHandle, state: Shared, path: String, indices: Vec<usize>) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.import_slides(&deck_dir(&path), &indices)?;
+        s.view()
+    };
+    changed(&app);
+    Ok(view)
+}
+
+/// A deck folder, from the folder or its `deck.json`.
+fn deck_dir(path: &str) -> PathBuf {
+    let p = PathBuf::from(path);
+    if p.file_name().map(|f| f == "deck.json").unwrap_or(false) {
+        p.parent().map(Path::to_path_buf).unwrap_or(p)
+    } else {
+        p
+    }
+}
+
+#[tauri::command]
 fn add_text(app: AppHandle, state: Shared) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
@@ -247,7 +298,7 @@ fn stop_presentation(app: AppHandle, state: Shared) -> Result<(), String> {
     {
         let mut s = state.lock().map_err(err)?;
         s.presenting = false;
-        s.blackout = false;
+        s.blank.clear();
     }
     for label in ["audience", "presenter"] {
         if let Some(w) = app.get_webview_window(label) {
@@ -315,6 +366,10 @@ pub fn run() {
             set_notes,
             add_slide,
             delete_slide,
+            duplicate_slide,
+            set_layout,
+            peek_deck,
+            import_slides,
             add_text,
             delete_element,
             start_presentation,

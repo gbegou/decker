@@ -36,6 +36,7 @@ target/release/deck-convert info talk.deck
 - Groups, with their child-to-slide transform.
 - Animations: entrance and exit effects of the main sequence become build steps, one click
   per step.
+- Masters and layouts, as decker [layouts](layouts.md), with their placeholders.
 
 Skipped, with a warning: tables, charts, SmartArt, embedded objects, gradients, theme
 colors, emphasis and motion-path animations, transitions. The old binary `.ppt` format is not
@@ -47,6 +48,7 @@ soffice --headless --convert-to pptx old.ppt
 
 ## Export
 
-Writes a minimal package (one blank master and layout, a theme, notes) with every element as
-an explicit shape, build steps as fade entrances and exits, and formulas as their source
-text. What cannot be expressed is reported: geometry or color changes in a step, formulas.
+Writes a package with one master, one PowerPoint layout per decker layout (placeholders and
+static shapes) plus a blank one, a theme and notes; slide elements as explicit shapes, text
+boxes bound to their layout placeholders, build steps as fade entrances and exits, and
+formulas as their source text. What cannot be expressed is reported: geometry or color changes in a step, formulas.

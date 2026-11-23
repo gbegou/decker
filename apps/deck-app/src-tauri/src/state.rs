@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use base64::Engine;
 use serde::Serialize;
 
-use deck_core::{svg, Deck, Element, MathRenderer, Paragraph, Rect, Slide, TextBox};
+use deck_core::{native, svg, transfer, Deck, Element, MathRenderer, Paragraph, Rect, Slide, TextBox};
 
 #[derive(Default)]
 pub struct AppState {
@@ -17,7 +17,9 @@ pub struct AppState {
     pub slide: usize,
     pub step: u32,
     pub presenting: bool,
-    pub blackout: bool,
+    /// `""`, `"black"` or `"white"`: the audience window shows a blank
+    /// screen of that color instead of the slide (B and W keys).
+    pub blank: String,
     pub warnings: Vec<String>,
 }
 
@@ -64,8 +66,12 @@ pub struct View {
     /// The current slide's elements, for selection and editing.
     pub elements: Vec<ElementInfo>,
     pub presenting: bool,
-    pub blackout: bool,
+    pub blank: String,
     pub warnings: Vec<String>,
+    /// The deck's layout names, for the layout selector.
+    pub layouts: Vec<String>,
+    /// The current slide's layout.
+    pub layout: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -110,8 +116,10 @@ impl AppState {
                 notes: String::new(),
                 elements: vec![],
                 presenting: self.presenting,
-                blackout: self.blackout,
+                blank: self.blank.clone(),
                 warnings: self.warnings.clone(),
+                layouts: vec![],
+                layout: None,
             };
         };
         let render =
@@ -157,8 +165,10 @@ impl AppState {
                 })
                 .collect(),
             presenting: self.presenting,
-            blackout: self.blackout,
+            blank: self.blank.clone(),
             warnings: self.warnings.clone(),
+            layouts: deck.layouts.iter().map(|l| l.name.clone()).collect(),
+            layout: slide.layout.clone(),
         }
     }
 
@@ -204,7 +214,8 @@ impl AppState {
                 self.slide = count.saturating_sub(1);
                 self.step = 0;
             }
-            "blackout" => self.blackout = !self.blackout,
+            "black" | "blackout" => self.blank = if self.blank == "black" { String::new() } else { "black".into() },
+            "white" => self.blank = if self.blank == "white" { String::new() } else { "white".into() },
             _ => {}
         }
     }
@@ -260,14 +271,66 @@ impl AppState {
         Ok(())
     }
 
+    /// A new slide after the current one, from the current slide's layout
+    /// (its placeholders) when it has one.
     pub fn add_slide(&mut self) -> Result<(), String> {
         let at = self.slide + 1;
         let deck = self.deck.as_mut().ok_or("no deck")?;
         let at = at.min(deck.slides.len());
-        deck.slides.insert(at, Slide::default());
+        let slide =
+            deck.slides.get(self.slide).and_then(|s| deck.layout_of(s)).map(|l| l.new_slide()).unwrap_or_default();
+        deck.slides.insert(at, slide);
         self.slide = at;
         self.step = 0;
         Ok(())
+    }
+
+    pub fn duplicate_slide(&mut self) -> Result<(), String> {
+        let deck = self.deck.as_mut().ok_or("no deck")?;
+        let copy = deck.slides.get(self.slide).cloned().ok_or("no slide")?;
+        deck.slides.insert(self.slide + 1, copy);
+        self.slide += 1;
+        self.step = 0;
+        Ok(())
+    }
+
+    /// Sets the current slide's layout (`None` for none). Existing
+    /// elements are kept; placeholders are not re-created.
+    pub fn set_layout(&mut self, name: Option<String>) -> Result<(), String> {
+        let deck = self.deck.as_ref().ok_or("no deck")?;
+        if let Some(n) = &name {
+            if deck.layout(n).is_none() {
+                return Err(format!("no layout named {n}"));
+            }
+        }
+        self.slide_mut()?.layout = name;
+        Ok(())
+    }
+
+    /// Thumbnails of another deck, for the slide picker.
+    pub fn peek(&self, dir: &Path) -> Result<Vec<String>, String> {
+        let other = native::load(dir).map_err(|e| e.to_string())?;
+        Ok(other
+            .slides
+            .iter()
+            .map(|s| inline_assets(&svg::render_step_with(&other, s, s.last_step(), &*self.math.0), dir))
+            .collect())
+    }
+
+    /// Copies slides of another deck after the current slide.
+    pub fn import_slides(&mut self, dir: &Path, indices: &[usize]) -> Result<usize, String> {
+        let other = native::load(dir).map_err(|e| e.to_string())?;
+        if self.dir.as_os_str().is_empty() {
+            return Err("save this deck first, so that images have a folder to be copied into".into());
+        }
+        let at = self.slide + 1;
+        let deck = self.deck.as_mut().ok_or("no deck")?;
+        let n = transfer::copy_slides(&other, dir, indices, deck, &self.dir, at).map_err(|e| e.to_string())?;
+        if n > 0 {
+            self.slide = at;
+            self.step = 0;
+        }
+        Ok(n)
     }
 
     pub fn delete_slide(&mut self) -> Result<(), String> {
@@ -372,6 +435,12 @@ mod tests {
         assert_eq!(pos(&s), (1, 0));
         s.navigate("prev");
         assert_eq!(pos(&s), (0, 2), "prev lands on the last step");
+        s.navigate("black");
+        assert_eq!(s.blank, "black");
+        s.navigate("white");
+        assert_eq!(s.blank, "white", "white replaces black");
+        s.navigate("white");
+        assert_eq!(s.blank, "", "a second press restores the slide");
         s.navigate("first");
         assert_eq!(pos(&s), (0, 0));
         let v = s.view();

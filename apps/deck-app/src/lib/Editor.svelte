@@ -7,6 +7,8 @@
   let view = $state<View | null>(null);
   let selected = $state<number | null>(null);
   let status = $state("");
+  // The "insert slides from another deck" picker.
+  let picker = $state<{ path: string; thumbs: string[]; chosen: boolean[] } | null>(null);
   let canvas = $state<HTMLDivElement>();
 
   onMount(() => watchView((v) => {
@@ -57,6 +59,27 @@
       const warnings = await api.exportPptx(picked);
       if (warnings.length) status = `Exported with ${warnings.length} warnings: ${warnings.join("; ")}`;
     });
+  }
+
+  async function pickDeck() {
+    const picked = await openDialog({
+      multiple: false,
+      filters: [{ name: "decker deck", extensions: ["json"] }],
+      title: "Choose the deck.json of the deck to copy slides from",
+    });
+    if (!picked) return;
+    await run(`Reading ${picked}`, async () => {
+      const thumbs = await api.peekDeck(picked);
+      picker = { path: picked, thumbs, chosen: thumbs.map(() => false) };
+    });
+  }
+
+  async function insertPicked() {
+    if (!picker) return;
+    const indices = picker.chosen.map((c, i) => (c ? i : -1)).filter((i) => i >= 0);
+    const p = picker;
+    picker = null;
+    if (indices.length) await run(`Inserted ${indices.length} slide(s)`, () => api.importSlides(p.path, indices));
   }
 
   // Dragging an element on the canvas. Canvas pixels map to slide points
@@ -127,7 +150,9 @@
     {#if view?.slide_count}
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
       <button onclick={() => run("Added slide", api.addSlide)}>+ Slide</button>
+      <button onclick={() => run("Duplicated slide", api.duplicateSlide)}>Duplicate</button>
       <button onclick={() => run("Deleted slide", api.deleteSlide)}>− Slide</button>
+      <button onclick={pickDeck} disabled={!view.dir}>Insert from deck…</button>
       {#if view.presenting}
         <button class="primary" onclick={() => api.stopPresentation()}>Stop (Esc)</button>
       {:else}
@@ -194,6 +219,16 @@
       {:else}
         <p class="muted">Click an element to edit it. Drag to move, corner handle to resize, Delete to remove.</p>
       {/if}
+      <h3>Layout</h3>
+      {#if view.layouts.length}
+        <select value={view.layout ?? ""} onchange={(e) => run("Layout set", () => api.setLayout(e.currentTarget.value || null))}>
+          <option value="">none</option>
+          {#each view.layouts as name}<option value={name}>{name}</option>{/each}
+        </select>
+        <p class="muted">"+ Slide" starts from this layout's placeholders.</p>
+      {:else}
+        <p class="muted">No layouts in this deck. Importing a PPTX brings its masters along.</p>
+      {/if}
       <h3>Notes</h3>
       <textarea rows="8" value={view.notes} onchange={(e) => api.setNotes(e.currentTarget.value)}></textarea>
       {#if view.warnings.length}
@@ -208,6 +243,28 @@
   {/if}
 
   <footer>{status}</footer>
+
+  {#if picker}
+    <div class="modal">
+      <div class="dialog">
+        <h3>Insert slides from {picker.path}</h3>
+        <div class="grid">
+          {#each picker.thumbs as thumb, i}
+            <label class="pick" class:on={picker.chosen[i]}>
+              <input type="checkbox" bind:checked={picker.chosen[i]} />
+              <span class="num">{i + 1}</span>
+              <SlideView svg={thumb} width={view?.width ?? 960} height={view?.height ?? 540} />
+            </label>
+          {/each}
+        </div>
+        <div class="actions">
+          <button onclick={() => (picker = null)}>Cancel</button>
+          <button onclick={() => picker && (picker.chosen = picker.chosen.map(() => true))}>All</button>
+          <button class="primary" onclick={insertPicked}>Insert after current slide</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -238,5 +295,15 @@
   .props label { display: block; margin-bottom: 6px; color: var(--muted); }
   .muted { color: var(--muted); }
   .empty { grid-area: main; display: flex; align-items: center; justify-content: center; color: var(--muted); grid-column: 1 / -1; }
+  select { width: 100%; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 6px; }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
+  .dialog { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; width: min(900px, 90vw); max-height: 85vh; display: flex; flex-direction: column; gap: 12px; }
+  .dialog h3 { margin: 0; font-size: 14px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; overflow-y: auto; }
+  .pick { position: relative; display: block; border: 2px solid var(--border); border-radius: 6px; padding: 2px; cursor: pointer; }
+  .pick.on { border-color: var(--accent); }
+  .pick input { position: absolute; left: 6px; top: 6px; z-index: 1; width: auto; }
+  .pick .num { position: absolute; right: 6px; top: 4px; font-size: 11px; background: var(--panel); padding: 1px 4px; border-radius: 4px; z-index: 1; }
+  .actions { display: flex; gap: 8px; justify-content: flex-end; }
   footer { grid-area: foot; padding: 4px 12px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; min-height: 24px; }
 </style>

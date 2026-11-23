@@ -45,4 +45,6 @@ Two environment variables help scripts and tests:
   resize it, press Delete to remove it.
 - The right panel edits the selected element's position, size and text (one paragraph per
   line), and the slide's speaker notes.
-- **+ Text**, **+ Slide** and **− Slide** do what they say. Page Up and Page Down change slide.
+- **+ Text**, **+ Slide**, **Duplicate** and **− Slide** do what they say; a new slide starts
+  from the current slide's [layout](layouts.md). **Insert from deck…** copies slides from
+  another deck. Page Up and Page Down change slide.

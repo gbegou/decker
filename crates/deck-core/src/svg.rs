@@ -64,12 +64,43 @@ pub fn render_step_with(deck: &Deck, slide: &Slide, step: u32, math: &dyn MathRe
         h = fmt(deck.height),
         font = DEFAULT_FONT
     );
-    let bg = slide.background.unwrap_or(Color::WHITE);
+    let layout = deck.layout_of(slide);
+    let bg = slide.background.or(layout.and_then(|l| l.background)).unwrap_or(Color::WHITE);
     let _ = write!(out, r#"<rect width="100%" height="100%" fill="{}"/>"#, bg.to_hex());
+    if let Some(layout) = layout {
+        // The layout's static elements, under the slide, at their final step.
+        out.push_str(r#"<g id="layout">"#);
+        for element in &layout.elements {
+            element_body(&mut out, deck, element, element.last_step(), math, None);
+        }
+        out.push_str("</g>");
+    }
     for (index, element) in slide.elements.iter().enumerate() {
+        element_body(&mut out, deck, element, step, math, Some(index));
+    }
+    out.push_str("</svg>\n");
+    out
+}
+
+/// One element at a step: a `<g>` (with `id="e{index}"` for slide
+/// elements) carrying its opacity and rotation.
+fn element_body(
+    out: &mut String,
+    deck: &Deck,
+    element: &Element,
+    step: u32,
+    math: &dyn MathRenderer,
+    index: Option<usize>,
+) {
+    {
         let st = element.state_at(step);
         let r = &st.rect;
-        let _ = write!(out, r#"<g id="e{index}""#);
+        match index {
+            Some(i) => {
+                let _ = write!(out, r#"<g id="e{i}""#);
+            }
+            None => out.push_str("<g"),
+        }
         if st.opacity != 1.0 {
             let _ = write!(out, r#" opacity="{}""#, fmt(st.opacity));
         }
@@ -85,8 +116,8 @@ pub fn render_step_with(deck: &Deck, slide: &Slide, step: u32, math: &dyn MathRe
         out.push('>');
         match element {
             Element::Text(t) => {
-                shape_body(&mut out, r, ShapeKind::Rectangle, st.fill.or(t.fill), t.stroke);
-                text_body(&mut out, r, &t.paragraphs);
+                shape_body(out, r, ShapeKind::Rectangle, st.fill.or(t.fill), t.stroke);
+                text_body(out, r, &t.paragraphs);
             }
             Element::Image(i) => {
                 let _ = write!(
@@ -100,15 +131,13 @@ pub fn render_step_with(deck: &Deck, slide: &Slide, step: u32, math: &dyn MathRe
                 );
             }
             Element::Shape(s) => {
-                shape_body(&mut out, r, s.kind, st.fill.or(s.fill), s.stroke);
-                text_body(&mut out, r, &s.paragraphs);
+                shape_body(out, r, s.kind, st.fill.or(s.fill), s.stroke);
+                text_body(out, r, &s.paragraphs);
             }
-            Element::Math(m) => math_body(&mut out, r, m, &deck.math_preamble, math),
+            Element::Math(m) => math_body(out, r, m, &deck.math_preamble, math),
         }
         out.push_str("</g>");
     }
-    out.push_str("</svg>\n");
-    out
 }
 
 /// A formula, centered in its box: rendered glyphs when a math renderer
@@ -323,6 +352,35 @@ mod tests {
         assert!(svg.contains(r#"font-weight="bold""#));
         assert!(svg.contains(r#"xlink:href="assets/a.png""#));
         assert!(svg.contains(r#"<ellipse cx="2.5" cy="4" rx="1.5" ry="2""#));
+    }
+
+    #[test]
+    fn layout_is_drawn_under_the_slide() {
+        let mut deck = Deck::new("t");
+        deck.layouts.push(Layout {
+            name: "L".into(),
+            background: Some(Color::rgb(1, 2, 3)),
+            elements: vec![Element::Shape(Shape {
+                rect: Rect::new(0.0, 500.0, 960.0, 40.0),
+                fill: Some(Color::BLACK),
+                ..Default::default()
+            })],
+            ..Default::default()
+        });
+        deck.slides.push(Slide {
+            layout: Some("L".into()),
+            elements: vec![Element::Text(TextBox::plain(Rect::new(0.0, 0.0, 10.0, 10.0), "x"))],
+            ..Default::default()
+        });
+        deck.slides.push(Slide { layout: Some("missing".into()), ..Default::default() });
+        let svg = render_slide(&deck, &deck.slides[0]);
+        let layout_at = svg.find(r#"<g id="layout">"#).expect("layout group");
+        let slide_at = svg.find(r#"<g id="e0">"#).expect("slide group");
+        assert!(layout_at < slide_at);
+        assert!(svg.contains(r##"fill="#010203""##), "layout background");
+        let svg = render_slide(&deck, &deck.slides[1]);
+        assert!(!svg.contains("layout"), "unknown layout is ignored");
+        assert!(svg.contains(r##"fill="#FFFFFF""##));
     }
 
     #[test]

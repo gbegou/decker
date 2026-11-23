@@ -41,6 +41,8 @@ pub fn import(pptx: &Path, out: &Path) -> Result<(Deck, ImportReport)> {
 
     std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
     let mut images = ImageStore { pkg: &pkg, out, copied: HashMap::new(), next: 1 };
+    // Layout part name → decker layout name, filled as slides reference them.
+    let mut layouts: HashMap<String, String> = HashMap::new();
 
     let ids: Vec<String> = child(root, NS_P, "sldIdLst")
         .map(|l| {
@@ -52,7 +54,29 @@ pub fn import(pptx: &Path, out: &Path) -> Result<(Deck, ImportReport)> {
         .unwrap_or_default();
     for id in ids {
         let part = pkg.rel_by_id(&pres_part, &id)?;
-        let slide = import_slide(&pkg, &part, &mut images, &mut report).with_context(|| format!("importing {part}"))?;
+        let (mut slide, layout_part) =
+            import_slide(&pkg, &part, &mut images, &mut report).with_context(|| format!("importing {part}"))?;
+        if let Some(layout_part) = layout_part {
+            if !layouts.contains_key(&layout_part) {
+                let mut layout = import_layout(&pkg, &layout_part, &mut images, &mut report)
+                    .with_context(|| format!("importing {layout_part}"))?;
+                // A blank layout brings nothing: the slide stays without one.
+                if layout.elements.is_empty() && layout.placeholders.is_empty() && layout.background.is_none() {
+                    layouts.insert(layout_part.clone(), String::new());
+                } else {
+                    // Names come from PowerPoint and can repeat across masters.
+                    let base = layout.name.clone();
+                    let mut n = 1;
+                    while deck.layouts.iter().any(|l| l.name == layout.name) {
+                        n += 1;
+                        layout.name = format!("{base} {n}");
+                    }
+                    layouts.insert(layout_part.clone(), layout.name.clone());
+                    deck.layouts.push(layout);
+                }
+            }
+            slide.layout = layouts.get(&layout_part).filter(|n| !n.is_empty()).cloned();
+        }
         deck.slides.push(slide);
     }
 
@@ -82,7 +106,124 @@ impl ImageStore<'_> {
     }
 }
 
-fn import_slide(pkg: &Package, part: &str, images: &mut ImageStore, report: &mut ImportReport) -> Result<Slide> {
+/// One layout = the slide layout's placeholders and static shapes, over
+/// the master's static shapes and background.
+fn import_layout(pkg: &Package, part: &str, images: &mut ImageStore, report: &mut ImportReport) -> Result<Layout> {
+    let xml = pkg.xml(part)?;
+    let doc = Document::parse(&xml).with_context(|| format!("parsing {part}"))?;
+    let master_part = pkg.rel_by_type(part, REL_MASTER)?;
+    let master_xml = master_part.as_deref().map(|p| pkg.xml(p)).transpose()?;
+    let master = master_xml.as_deref().map(Document::parse).transpose()?;
+
+    let csld = child(doc.root_element(), NS_P, "cSld").ok_or_else(|| anyhow!("no cSld"))?;
+    let mut layout = Layout {
+        name: csld.attribute("name").filter(|n| !n.is_empty()).map(str::to_string).unwrap_or_else(|| {
+            Path::new(part).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
+        }),
+        ..Default::default()
+    };
+    let background = |root: Node| {
+        child(root, NS_P, "cSld")
+            .and_then(|c| child(c, NS_P, "bg"))
+            .and_then(|b| child(b, NS_P, "bgPr"))
+            .and_then(solid_fill)
+    };
+    layout.background =
+        background(doc.root_element()).or_else(|| master.as_ref().and_then(|m| background(m.root_element())));
+
+    let no_inherit = |_: Node| -> Option<Rect> { None };
+    let mut ids = vec![];
+    if let (Some(master), Some(master_part)) = (&master, &master_part) {
+        if let Some(tree) = child(master.root_element(), NS_P, "cSld").and_then(|c| child(c, NS_P, "spTree")) {
+            import_tree(
+                tree,
+                master_part,
+                pkg,
+                images,
+                report,
+                &no_inherit,
+                &mut layout.elements,
+                Rect::default(),
+                &mut ids,
+                true,
+            )?;
+        }
+    }
+    let tree = child(csld, NS_P, "spTree").ok_or_else(|| anyhow!("no spTree"))?;
+    import_tree(tree, part, pkg, images, report, &no_inherit, &mut layout.elements, Rect::default(), &mut ids, true)?;
+
+    for sp in tree.children().filter(|n| n.has_tag_name((NS_P, "sp"))) {
+        let Some(ph) = placeholder(sp) else { continue };
+        if matches!(ph.kind.as_str(), "dt" | "ftr" | "sldNum") {
+            continue;
+        }
+        let rect = xfrm(sp).or_else(|| master.as_ref().and_then(|m| placeholder_rect(m.root_element(), &ph)));
+        let Some(rect) = rect else {
+            report.warnings.push(format!("{part}: placeholder {} without position skipped", ph.name()));
+            continue;
+        };
+        let name = ph.name();
+        if layout.placeholders.iter().any(|p| p.name == name) {
+            continue;
+        }
+        let (default_size, _) = placeholder_defaults(&ph.kind);
+        let mut placeholder = Placeholder {
+            name,
+            rect,
+            size: default_size,
+            bold: false,
+            color: None,
+            font: None,
+            align: Align::Left,
+            bullets: matches!(ph.kind.as_str(), "body" | "obj"),
+        };
+        // The placeholder's own first-level list style, when it has one.
+        let lvl1 = child(sp, NS_P, "txBody")
+            .and_then(|tb| child(tb, NS_A, "lstStyle"))
+            .and_then(|ls| child(ls, NS_A, "lvl1pPr"));
+        if let Some(lvl1) = lvl1 {
+            placeholder.align = match lvl1.attribute("algn") {
+                Some("ctr") => Align::Center,
+                Some("r") => Align::Right,
+                Some("just") => Align::Justify,
+                _ => Align::Left,
+            };
+            if child(lvl1, NS_A, "buNone").is_some() {
+                placeholder.bullets = false;
+            } else if child(lvl1, NS_A, "buChar").is_some() || child(lvl1, NS_A, "buAutoNum").is_some() {
+                placeholder.bullets = true;
+            }
+            if let Some(rpr) = child(lvl1, NS_A, "defRPr") {
+                if let Some(sz) = rpr.attribute("sz").and_then(|v| v.parse::<f64>().ok()) {
+                    placeholder.size = Some(sz / 100.0);
+                }
+                placeholder.bold = rpr.attribute("b").map(|v| v == "1" || v == "true").unwrap_or(false);
+                placeholder.color = solid_fill(rpr);
+                placeholder.font = child(rpr, NS_A, "latin").and_then(|l| l.attribute("typeface")).map(str::to_string);
+            }
+        }
+        layout.placeholders.push(placeholder);
+    }
+    Ok(layout)
+}
+
+/// PowerPoint's usual sizes for placeholders, since the master's text
+/// styles are not read.
+fn placeholder_defaults(kind: &str) -> (Option<f64>, bool) {
+    match kind {
+        "title" | "ctrTitle" => (Some(44.0), false),
+        "subTitle" => (Some(24.0), false),
+        _ => (None, false),
+    }
+}
+
+/// Returns the slide and the part name of its layout.
+fn import_slide(
+    pkg: &Package,
+    part: &str,
+    images: &mut ImageStore,
+    report: &mut ImportReport,
+) -> Result<(Slide, Option<String>)> {
     let xml = pkg.xml(part)?;
     let doc = Document::parse(&xml).with_context(|| format!("parsing {part}"))?;
     let layout_part = pkg.rel_by_type(part, REL_LAYOUT)?;
@@ -104,7 +245,18 @@ fn import_slide(pkg: &Package, part: &str, images: &mut ImageStore, report: &mut
         [layout.as_ref(), master.as_ref()].into_iter().flatten().find_map(|d| placeholder_rect(d.root_element(), &ph))
     };
     let mut shape_ids = vec![];
-    import_tree(tree, part, pkg, images, report, &inherit, &mut slide.elements, Rect::default(), &mut shape_ids)?;
+    import_tree(
+        tree,
+        part,
+        pkg,
+        images,
+        report,
+        &inherit,
+        &mut slide.elements,
+        Rect::default(),
+        &mut shape_ids,
+        false,
+    )?;
     if let Some(timing) = child(doc.root_element(), NS_P, "timing") {
         import_timing(timing, &shape_ids, &mut slide.elements, part, report);
     }
@@ -123,7 +275,7 @@ fn import_slide(pkg: &Package, part: &str, images: &mut ImageStore, report: &mut
             .trim()
             .to_string();
     }
-    Ok(slide)
+    Ok((slide, layout_part))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -137,12 +289,16 @@ fn import_tree(
     elements: &mut Vec<Element>,
     offset: Rect,
     shape_ids: &mut Vec<Option<String>>,
+    skip_placeholders: bool,
 ) -> Result<()> {
     for node in tree.children().filter(Node::is_element) {
         let tag = node.tag_name().name();
         let before = elements.len();
         match tag {
             "sp" => {
+                if skip_placeholders && placeholder(node).is_some() {
+                    continue;
+                }
                 if let Some(e) = import_shape(node, inherit, offset, report) {
                     elements.push(e);
                 }
@@ -176,7 +332,18 @@ fn import_tree(
                 // Child coordinates are in the group's own space; map them
                 // onto the slide with the group's transform.
                 let group_offset = group_offset(node, offset);
-                import_tree(node, part, pkg, images, report, inherit, elements, group_offset, shape_ids)?;
+                import_tree(
+                    node,
+                    part,
+                    pkg,
+                    images,
+                    report,
+                    inherit,
+                    elements,
+                    group_offset,
+                    shape_ids,
+                    skip_placeholders,
+                )?;
             }
             "nvGrpSpPr" | "grpSpPr" => {}
             "graphicFrame" => report.warnings.push(format!("{part}: table, chart or diagram skipped")),
@@ -358,7 +525,8 @@ fn import_shape(
         .unwrap_or(false)
         || ph.is_some();
     if is_text_box && geom == "rect" {
-        return Some(Element::Text(TextBox { rect, paragraphs, fill, stroke, steps: vec![] }));
+        let placeholder = ph.as_ref().map(PhRef::name);
+        return Some(Element::Text(TextBox { rect, paragraphs, fill, stroke, steps: vec![], placeholder }));
     }
     let kind = match geom {
         "ellipse" => ShapeKind::Ellipse,
@@ -384,15 +552,30 @@ fn shape_name(node: Node) -> String {
         .to_string()
 }
 
+/// A `<p:ph>` reference: PowerPoint's placeholder type and index.
 #[derive(Debug, Clone, PartialEq)]
-struct Placeholder {
+struct PhRef {
     kind: String,
     idx: Option<String>,
 }
 
-fn placeholder(sp: Node) -> Option<Placeholder> {
+impl PhRef {
+    /// The decker placeholder name: `title`, `subtitle`, `body1`, `pic2`…
+    /// The same function names layout and slide placeholders, so they match.
+    fn name(&self) -> String {
+        let idx = self.idx.as_deref().unwrap_or("");
+        match self.kind.as_str() {
+            "title" | "ctrTitle" => "title".into(),
+            "subTitle" => "subtitle".into(),
+            "body" | "obj" => format!("body{idx}"),
+            other => format!("{other}{idx}"),
+        }
+    }
+}
+
+fn placeholder(sp: Node) -> Option<PhRef> {
     let ph = child(sp, NS_P, "nvSpPr").and_then(|n| child(n, NS_P, "nvPr")).and_then(|n| child(n, NS_P, "ph"))?;
-    Some(Placeholder {
+    Some(PhRef {
         kind: ph.attribute("type").unwrap_or("body").to_string(),
         idx: ph.attribute("idx").map(str::to_string),
     })
@@ -400,8 +583,8 @@ fn placeholder(sp: Node) -> Option<Placeholder> {
 
 /// Finds the layout/master shape matching a placeholder: same idx when the
 /// slide gives one, else same type. Titles match `title` or `ctrTitle`.
-fn placeholder_rect(root: Node, ph: &Placeholder) -> Option<Rect> {
-    let shapes: Vec<(Placeholder, Node)> = root
+fn placeholder_rect(root: Node, ph: &PhRef) -> Option<Rect> {
+    let shapes: Vec<(PhRef, Node)> = root
         .descendants()
         .filter(|n| n.has_tag_name((NS_P, "sp")))
         .filter_map(|n| placeholder(n).map(|p| (p, n)))
@@ -452,7 +635,12 @@ fn stroke(sp_pr: Node) -> Option<Stroke> {
 }
 
 fn paragraphs(tx_body: Node) -> Vec<Paragraph> {
-    tx_body.children().filter(|n| n.has_tag_name((NS_A, "p"))).map(|p| paragraph(p).0).collect()
+    let out: Vec<Paragraph> =
+        tx_body.children().filter(|n| n.has_tag_name((NS_A, "p"))).map(|p| paragraph(p).0).collect();
+    if out.iter().all(|p| p.runs.is_empty()) {
+        return vec![];
+    }
+    out
 }
 
 /// Body placeholders are bulleted at every level by the master's text
@@ -561,6 +749,26 @@ mod tests {
         assert!(texts[1].rect.y > texts[0].rect.y);
         assert_eq!(texts[1].text(), "Subtitle & <xml>");
         assert_eq!(s1.notes, "Speaker notes one");
+        assert_eq!(texts[0].placeholder.as_deref(), Some("title"));
+        assert_eq!(texts[1].placeholder.as_deref(), Some("subtitle"));
+
+        // Layouts: the two python-pptx layouts used, with their placeholders.
+        assert_eq!(deck.layouts.len(), 2, "{:?}", deck.layouts.iter().map(|l| &l.name).collect::<Vec<_>>());
+        assert_eq!(s1.layout.as_deref(), Some(deck.layouts[0].name.as_str()));
+        let l0 = &deck.layouts[0];
+        assert_eq!(l0.name, "Title Slide");
+        let title = l0.placeholder("title").expect("title placeholder");
+        assert_eq!(title.rect, texts[0].rect, "the slide inherited the layout's rect");
+        assert_eq!(title.size, Some(44.0));
+        assert!(l0.placeholder("subtitle").is_some());
+        assert!(l0
+            .placeholders
+            .iter()
+            .all(|p| !p.name.starts_with("dt") && !p.name.starts_with("ftr") && !p.name.starts_with("sldNum")));
+        let l1 = &deck.layouts[1];
+        assert_eq!(l1.name, "Title and Content");
+        assert!(l1.placeholder("body1").map(|p| p.bullets).unwrap_or(false), "{:?}", l1.placeholders);
+        assert_eq!(deck.slides[1].layout.as_deref(), Some("Title and Content"));
 
         // Slide 2: bullets, runs, picture, shape, free text box.
         let s2 = &deck.slides[1];

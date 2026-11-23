@@ -16,8 +16,8 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="audience" onclick={() => api.navigate("next")} oncontextmenu={(e) => { e.preventDefault(); api.navigate("prev"); }}>
-  {#if view && !view.blackout}
+<div class="audience" style="background: {view?.blank === 'white' ? 'white' : 'black'}" onclick={() => api.navigate("next")} oncontextmenu={(e) => { e.preventDefault(); api.navigate("prev"); }}>
+  {#if view && !view.blank}
     <div class="frame" style="aspect-ratio: {view.width} / {view.height}">
       <SlideView svg={view.svg} width={view.width} height={view.height} animated />
     </div>
