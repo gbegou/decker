@@ -12,3 +12,4 @@ pub mod native;
 pub mod svg;
 
 pub use model::*;
+pub use svg::{MathImage, MathRenderer, NoMath};

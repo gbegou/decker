@@ -24,7 +24,7 @@ jobs:
       - name: Build the manual
         run: mdbook build docs
       - name: Build the API reference
-        run: cargo doc --no-deps -p deck-core -p deck-convert
+        run: cargo doc --no-deps -p deck-core -p deck-convert -p deck-typst
       - name: Assemble the site
         run: |
           mkdir -p site

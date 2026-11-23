@@ -509,7 +509,7 @@ fn paragraph(p: Node) -> (Paragraph, bool) {
                     .and_then(|r| child(r, NS_A, "latin"))
                     .and_then(|l| l.attribute("typeface"))
                     .map(str::to_string),
-                math: None,
+                math: false,
             });
         } else if n.has_tag_name((NS_A, "br")) {
             runs.push(Run::plain("\n"));

@@ -74,9 +74,13 @@ fn main() -> Result<()> {
             let out = out.unwrap_or_else(|| deck.join("svg"));
             let d = native::load(&deck)?;
             std::fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
+            #[cfg(feature = "typst")]
+            let math: Box<dyn deck_core::MathRenderer> = Box::new(deck_typst::Engine::for_deck(&deck));
+            #[cfg(not(feature = "typst"))]
+            let math: Box<dyn deck_core::MathRenderer> = Box::new(deck_core::NoMath);
             for (i, slide) in d.slides.iter().enumerate() {
                 let path = out.join(format!("slide{}.svg", i + 1));
-                let mut text = svg::render_slide(&d, slide);
+                let mut text = svg::render_step_with(&d, slide, slide.last_step(), &*math);
                 // Image hrefs are deck-relative; make them relative to the SVG.
                 if let Ok(rel) = pathdiff(&deck, &out) {
                     text = text.replace(r#"xlink:href="assets/"#, &format!(r#"xlink:href="{rel}/assets/"#));

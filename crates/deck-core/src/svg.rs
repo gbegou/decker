@@ -17,15 +17,45 @@ const GLYPH_WIDTH: f64 = 0.55;
 const LINE_HEIGHT: f64 = 1.2;
 const PADDING: f64 = 4.0;
 
+/// A rendered formula: the children of an SVG root (glyph outlines), and
+/// its natural size in points.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MathImage {
+    pub content: String,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// Renders formulas. `deck-typst` implements it; without one, formulas
+/// are drawn as their source.
+pub trait MathRenderer {
+    /// Renders Typst math `source` with the deck's `preamble` in scope.
+    fn render_math(&self, preamble: &str, source: &str, size: f64, color: Color) -> Option<MathImage>;
+}
+
+/// The renderer that draws formulas as their source text.
+pub struct NoMath;
+
+impl MathRenderer for NoMath {
+    fn render_math(&self, _: &str, _: &str, _: f64, _: Color) -> Option<MathImage> {
+        None
+    }
+}
+
 /// Renders one slide at its final build step, as a standalone SVG document.
 pub fn render_slide(deck: &Deck, slide: &Slide) -> String {
     render_step(deck, slide, slide.last_step())
 }
 
+/// Renders one slide at build step `step`, formulas as their source.
+pub fn render_step(deck: &Deck, slide: &Slide, step: u32) -> String {
+    render_step_with(deck, slide, step, &NoMath)
+}
+
 /// Renders one slide at build step `step`. Every element is wrapped in a
 /// `<g id="e{index}">` carrying its opacity and rotation, so that a
 /// presentation window can transition each element in place between steps.
-pub fn render_step(deck: &Deck, slide: &Slide, step: u32) -> String {
+pub fn render_step_with(deck: &Deck, slide: &Slide, step: u32, math: &dyn MathRenderer) -> String {
     let mut out = String::new();
     let _ = write!(
         out,
@@ -73,7 +103,7 @@ pub fn render_step(deck: &Deck, slide: &Slide, step: u32) -> String {
                 shape_body(&mut out, r, s.kind, st.fill.or(s.fill), s.stroke);
                 text_body(&mut out, r, &s.paragraphs);
             }
-            Element::Math(m) => math_body(&mut out, r, m),
+            Element::Math(m) => math_body(&mut out, r, m, &deck.math_preamble, math),
         }
         out.push_str("</g>");
     }
@@ -81,19 +111,34 @@ pub fn render_step(deck: &Deck, slide: &Slide, step: u32) -> String {
     out
 }
 
-/// Until a math engine is embedded, a formula is drawn as its source in a
-/// monospace font, centered, tagged with `data-math` so a web front-end
-/// can replace it (KaTeX for LaTeX, Typst for Typst).
-fn math_body(out: &mut String, r: &Rect, m: &MathBlock) {
+/// A formula, centered in its box: rendered glyphs when a math renderer
+/// succeeds, scaled down to fit when larger than the box; otherwise its
+/// source in a monospace font, tagged with `data-math`.
+fn math_body(out: &mut String, r: &Rect, m: &MathBlock, preamble: &str, math: &dyn MathRenderer) {
     let size = m.size.unwrap_or(DEFAULT_FONT_SIZE);
-    let color = m.color.unwrap_or(Color::BLACK).to_hex();
-    let syntax = match m.syntax {
-        MathSyntax::Typst => "typst",
-        MathSyntax::Latex => "latex",
-    };
+    let color_value = m.color.unwrap_or(Color::BLACK);
+    if let Some(img) = math.render_math(preamble, &m.source, size, color_value) {
+        if img.width > 0.0 && img.height > 0.0 {
+            let scale = (r.w / img.width).min(r.h / img.height).min(1.0);
+            let (w, h) = (img.width * scale, img.height * scale);
+            let _ = write!(
+                out,
+                r#"<svg x="{}" y="{}" width="{}" height="{}" viewBox="0 0 {} {}" data-math="rendered">{}</svg>"#,
+                fmt(r.x + (r.w - w) / 2.0),
+                fmt(r.y + (r.h - h) / 2.0),
+                fmt(w),
+                fmt(h),
+                fmt(img.width),
+                fmt(img.height),
+                img.content
+            );
+            return;
+        }
+    }
+    let color = color_value.to_hex();
     let _ = write!(
         out,
-        r#"<text x="{}" y="{}" font-size="{}" font-family="monospace" fill="{color}" text-anchor="middle" dominant-baseline="middle" data-math="{syntax}">{}</text>"#,
+        r#"<text x="{}" y="{}" font-size="{}" font-family="monospace" fill="{color}" text-anchor="middle" dominant-baseline="middle" data-math="source">{}</text>"#,
         fmt(r.x + r.w / 2.0),
         fmt(r.y + r.h / 2.0),
         fmt(size),
@@ -180,12 +225,8 @@ fn text_body(out: &mut String, r: &Rect, paragraphs: &[Paragraph]) {
                 if let Some(f) = &run.font {
                     let _ = write!(attrs, r#" font-family="{}""#, escape(f));
                 }
-                if let Some(m) = run.math {
-                    let syntax = match m {
-                        MathSyntax::Typst => "typst",
-                        MathSyntax::Latex => "latex",
-                    };
-                    let _ = write!(attrs, r#" font-family="monospace" data-math="{syntax}""#);
+                if run.math {
+                    attrs.push_str(r#" font-family="monospace" data-math="source""#);
                 }
                 let _ = write!(out, r#"<tspan xml:space="preserve"{attrs}>{}</tspan>"#, escape(text));
             }
@@ -295,12 +336,7 @@ mod tests {
             set: Overrides { rotation: Some(45.0), ..Default::default() },
             ..Default::default()
         });
-        let math = MathBlock {
-            rect: Rect::new(0.0, 0.0, 100.0, 50.0),
-            source: "a < b".into(),
-            syntax: MathSyntax::Latex,
-            ..Default::default()
-        };
+        let math = MathBlock { rect: Rect::new(0.0, 0.0, 100.0, 50.0), source: "a < b".into(), ..Default::default() };
         deck.slides.push(Slide { elements: vec![Element::Shape(shape), Element::Math(math)], ..Default::default() });
         let slide = &deck.slides[0];
         let s0 = render_step(&deck, slide, 0);
@@ -309,7 +345,29 @@ mod tests {
         assert!(s1.contains(r#"<g id="e0">"#));
         let s2 = render_slide(&deck, slide);
         assert!(s2.contains(r#"transform="rotate(45 5 5)""#), "{s2}");
-        assert!(s2.contains(r#"data-math="latex">a &lt; b</text>"#));
+        assert!(s2.contains(r#"data-math="source">a &lt; b</text>"#));
+    }
+
+    struct FakeMath;
+    impl MathRenderer for FakeMath {
+        fn render_math(&self, preamble: &str, source: &str, size: f64, _: Color) -> Option<MathImage> {
+            Some(MathImage { content: format!("<path d=\"{preamble}{source}\"/>"), width: size * 10.0, height: size })
+        }
+    }
+
+    #[test]
+    fn rendered_math_is_nested_and_fitted() {
+        let mut deck = Deck::new("t");
+        let math = MathBlock {
+            rect: Rect::new(100.0, 100.0, 100.0, 50.0),
+            source: "M".into(),
+            size: Some(20.0),
+            ..Default::default()
+        };
+        deck.slides.push(Slide { elements: vec![Element::Math(math)], ..Default::default() });
+        let svg = render_step_with(&deck, &deck.slides[0], 0, &FakeMath);
+        // natural 200 x 20 scaled by 0.5 to fit the 100 wide box, centered vertically
+        assert!(svg.contains(r#"<svg x="100" y="120" width="100" height="10" viewBox="0 0 200 20" data-math="rendered"><path d="M"/></svg>"#), "{svg}");
     }
 
     #[test]

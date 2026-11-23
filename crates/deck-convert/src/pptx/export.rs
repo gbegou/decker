@@ -153,11 +153,7 @@ pub fn export(deck: &Deck, deck_dir: &Path, pptx: &Path) -> Result<Vec<String>> 
                     };
                     let _ = write!(
                         xml,
-                        r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Math {id}" descr="{}:{}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>{}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>{}</p:sp>"#,
-                        match m.syntax {
-                            MathSyntax::Typst => "typst",
-                            MathSyntax::Latex => "latex",
-                        },
+                        r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Math {id}" descr="typst:{}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>{}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>{}</p:sp>"#,
                         esc(&m.source),
                         xfrm(&m.rect),
                         tx_body(&[p])
@@ -447,7 +443,6 @@ mod tests {
                 Element::Math(MathBlock {
                     rect: Rect::new(300.0, 300.0, 200.0, 60.0),
                     source: "x^2".into(),
-                    syntax: MathSyntax::Latex,
                     ..Default::default()
                 }),
             ],

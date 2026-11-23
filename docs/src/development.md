@@ -28,7 +28,7 @@ mdbook serve docs            # live preview at http://localhost:3000
 ```
 
 ```bash
-cargo doc --no-deps -p deck-core -p deck-convert --open
+cargo doc --no-deps -p deck-core -p deck-convert -p deck-typst --open
 ```
 
 The diagrams are generated:

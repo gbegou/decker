@@ -3,9 +3,9 @@
 A free, fast, modern alternative to PowerPoint, written in Rust, for Linux and Windows.
 Python macros, a presenter mode, and a converter for PPTX files.
 
-Status: first draft. The document model (with math and build steps), the native format, an
-SVG renderer, the PPTX converter and a Tauri application with an editor, a fullscreen
-audience window and a presenter view exist.
+Status: first draft. The document model (with build steps), the native format, an SVG
+renderer, Typst embedded for formulas, the PPTX converter and a Tauri application with an
+editor, a fullscreen audience window and a presenter view exist.
 
 Manual and API reference: https://gbegou.github.io/decker/ (built from `docs/` by mdBook and
 rustdoc, see `docs/src/development.md`).

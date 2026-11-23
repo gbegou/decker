@@ -6,8 +6,13 @@ license.workspace = true
 repository.workspace = true
 description = "Converter between decker's native format and PPTX / SVG"
 
+[features]
+# `render` draws formulas with the embedded Typst engine.
+typst = ["dep:deck-typst"]
+
 [dependencies]
 deck-core = { path = "../deck-core" }
+deck-typst = { path = "../deck-typst", optional = true }
 anyhow.workspace = true
 clap.workspace = true
 roxmltree.workspace = true

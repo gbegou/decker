@@ -5,11 +5,13 @@ use std::path::{Path, PathBuf};
 use base64::Engine;
 use serde::Serialize;
 
-use deck_core::{svg, Deck, Element, Paragraph, Rect, Slide, TextBox};
+use deck_core::{svg, Deck, Element, MathRenderer, Paragraph, Rect, Slide, TextBox};
 
 #[derive(Default)]
 pub struct AppState {
     pub deck: Option<Deck>,
+    /// The formula renderer: Typst when the `typst` feature is on.
+    pub math: Math,
     /// The `.deck` folder, empty for an unsaved new deck.
     pub dir: PathBuf,
     pub slide: usize,
@@ -17,6 +19,28 @@ pub struct AppState {
     pub presenting: bool,
     pub blackout: bool,
     pub warnings: Vec<String>,
+}
+
+/// The formula renderer, chosen at compile time. With Typst, it serves
+/// the `typst/*.typ` files of the open deck.
+pub struct Math(Box<dyn MathRenderer + Send + Sync>);
+
+impl Default for Math {
+    fn default() -> Self {
+        Self::for_deck(Path::new(""))
+    }
+}
+
+impl Math {
+    #[cfg(feature = "typst")]
+    pub fn for_deck(dir: &Path) -> Self {
+        Math(Box::new(deck_typst::Engine::for_deck(dir)))
+    }
+
+    #[cfg(not(feature = "typst"))]
+    pub fn for_deck(_dir: &Path) -> Self {
+        Math(Box::new(deck_core::NoMath))
+    }
 }
 
 /// Everything a window needs to draw itself.
@@ -55,6 +79,7 @@ pub struct ElementInfo {
 
 impl AppState {
     pub fn load(&mut self, deck: Deck, dir: PathBuf) {
+        self.math = Math::for_deck(&dir);
         self.deck = Some(deck);
         self.dir = dir;
         self.slide = 0;
@@ -89,7 +114,8 @@ impl AppState {
                 warnings: self.warnings.clone(),
             };
         };
-        let render = |s: &Slide, step: u32| inline_assets(&svg::render_step(deck, s, step), &self.dir);
+        let render =
+            |s: &Slide, step: u32| inline_assets(&svg::render_step_with(deck, s, step, &*self.math.0), &self.dir);
         let next_svg = if self.step < slide.last_step() {
             Some(render(slide, self.step + 1))
         } else {

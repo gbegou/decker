@@ -21,6 +21,11 @@ pub struct Deck {
     pub width: f64,
     /// Slide height in points.
     pub height: f64,
+    /// Typst code prepended to every formula: `#let` definitions of the
+    /// deck's notations, `#import "file.typ": *` of files in the deck's
+    /// `typst/` folder.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub math_preamble: String,
     pub slides: Vec<Slide>,
 }
 
@@ -31,6 +36,7 @@ impl Default for Deck {
             title: String::new(),
             width: DEFAULT_WIDTH,
             height: DEFAULT_HEIGHT,
+            math_preamble: String::new(),
             slides: Vec::new(),
         }
     }
@@ -124,22 +130,12 @@ impl Element {
     }
 }
 
-/// Markup language of a formula.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MathSyntax {
-    #[default]
-    Typst,
-    Latex,
-}
-
-/// A displayed formula, stored as source and rendered on display.
+/// A displayed formula: Typst math source, rendered on display. The deck's
+/// [`Deck::math_preamble`] and its `typst/*.typ` files are in scope.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct MathBlock {
     pub rect: Rect,
     pub source: String,
-    #[serde(default)]
-    pub syntax: MathSyntax,
     /// Font size in points.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<f64>,
@@ -396,9 +392,9 @@ pub struct Run {
     pub color: Option<Color>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font: Option<String>,
-    /// When set, `text` is formula source in that syntax, rendered inline.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub math: Option<MathSyntax>,
+    /// When set, `text` is Typst math source, rendered inline.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub math: bool,
 }
 
 impl Run {
@@ -519,14 +515,17 @@ mod tests {
         let m = Element::Math(MathBlock {
             rect: Rect::new(1.0, 2.0, 3.0, 4.0),
             source: "x^2".into(),
-            syntax: MathSyntax::Latex,
             ..Default::default()
         });
         let json = serde_json::to_string(&m).unwrap();
-        assert!(json.contains("\"syntax\":\"latex\""));
+        assert!(json.contains("\"type\":\"math\""));
         assert_eq!(serde_json::from_str::<Element>(&json).unwrap(), m);
-        let r = Run { text: "a/b".into(), math: Some(MathSyntax::Typst), ..Default::default() };
+        let r = Run { text: "a/b".into(), math: true, ..Default::default() };
         let json = serde_json::to_string(&r).unwrap();
-        assert!(json.contains("\"math\":\"typst\""));
+        assert!(json.contains("\"math\":true"));
+        let d = Deck { math_preamble: "#let vb(x) = bold(x)".into(), ..Default::default() };
+        let json = serde_json::to_string(&d).unwrap();
+        assert!(json.contains("math_preamble"));
+        assert_eq!(serde_json::from_str::<Deck>(&json).unwrap(), d);
     }
 }

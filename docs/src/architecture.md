@@ -12,6 +12,7 @@ front-end only draws what Rust sends and turns user actions into commands.
 | --- | --- | --- |
 | `crates/deck-core` | Rust | `Deck` → `Slide` → `Element` (text, image, shape, math), build steps, JSON on disk, SVG renderer |
 | `crates/deck-convert` | Rust | Library and CLI: PPTX ↔ deck, SVG render |
+| `crates/deck-typst` | Rust | Typst embedded: formulas, with the deck's notations (feature `typst`) |
 | `apps/deck-app/src-tauri` | Rust | Tauri application: state, commands, the three windows |
 | `apps/deck-app/src` | Svelte + TypeScript | The three views, served in the webview |
 
