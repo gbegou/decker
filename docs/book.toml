@@ -1,0 +1,16 @@
+[book]
+title = "decker"
+description = "A free, fast, modern alternative to PowerPoint, in Rust"
+authors = ["Guillaume Begou"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/gbegou/decker"
+edit-url-template = "https://github.com/gbegou/decker/edit/main/docs/{path}"
+site-url = "/decker/"

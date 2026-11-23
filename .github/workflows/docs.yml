@@ -1,0 +1,46 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install mdBook
+        run: cargo install mdbook --locked
+      - name: Check the diagrams are up to date
+        run: python3 docs/diagrams/generate.py && git diff --exit-code docs/src/images
+      - name: Build the manual
+        run: mdbook build docs
+      - name: Build the API reference
+        run: cargo doc --no-deps -p deck-core -p deck-convert
+      - name: Assemble the site
+        run: |
+          mkdir -p site
+          cp -r docs/book/. site/
+          cp -r target/doc site/api
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
