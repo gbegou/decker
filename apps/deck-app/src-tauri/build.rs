@@ -3,6 +3,9 @@
 //! toolchain from conda (the no-admin setup), the tool exists only as
 //! `x86_64-w64-mingw32-windres.exe`: provide the plain name from a copy in
 //! the build directory, on the PATH of this build script and its children.
+//! A `windres` named that way preprocesses with a bare `gcc`, which conda
+//! does not provide either: a `gcc.bat` next to the copy forwards to the
+//! prefixed compiler.
 
 use std::env;
 use std::path::PathBuf;
@@ -32,6 +35,18 @@ fn provide_windres() {
     {
         println!("cargo:warning=could not copy {} into the build directory", prefixed.display());
         return;
+    }
+    if Command::new("gcc").arg("--version").output().is_err() {
+        let gcc = env::split_paths(&path).map(|d| d.join("x86_64-w64-mingw32-gcc.exe")).find(|p| p.is_file());
+        match gcc {
+            Some(gcc) => {
+                let bat = format!("@echo off\r\n\"{}\" %*\r\n", gcc.display());
+                if std::fs::write(shim_dir.join("gcc.bat"), bat).is_err() {
+                    println!("cargo:warning=could not write the gcc shim in the build directory");
+                }
+            }
+            None => println!("cargo:warning=x86_64-w64-mingw32-gcc.exe not found on PATH; windres cannot preprocess"),
+        }
     }
     let new_path = env::join_paths(std::iter::once(shim_dir).chain(env::split_paths(&path))).expect("PATH");
     // Inherited by the resource compiler Tauri spawns from this process.
