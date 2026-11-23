@@ -97,6 +97,37 @@
   // through the rendered width.
   let drag: { index: number; startX: number; startY: number; rect: Rect; mode: "move" | "resize" } | null = null;
 
+  // In-place text editing: a textarea laid over the element, in slide
+  // coordinates, so it scales with the canvas.
+  let editing = $state<{ index: number; text: string; size: number } | null>(null);
+  let editor = $state<HTMLTextAreaElement>();
+
+  function startEdit(index: number) {
+    if (!view) return;
+    const el = view.elements[index];
+    if (el.kind === "image") return;
+    selected = index;
+    // The first run's size, read from the rendered SVG: a reasonable default for the overlay.
+    const m = new RegExp(`<g id="e${index}"[\\s\\S]*?font-size="([\\d.]+)"`).exec(view.svg);
+    editing = { index, text: el.text, size: m ? parseFloat(m[1]) : 18 };
+    queueMicrotask(() => { editor?.focus(); editor?.select(); });
+  }
+
+  async function commitEdit() {
+    if (!editing) return;
+    const { index, text } = editing;
+    editing = null;
+    if (view && view.elements[index] && text !== view.elements[index].text) {
+      await run("Text changed", () => api.setText(index, text));
+    }
+  }
+
+  function editorKey(e: KeyboardEvent) {
+    e.stopPropagation();
+    if (e.key === "Escape") { editing = null; }
+    else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { commitEdit(); }
+  }
+
   function scale(): number {
     return view && canvas ? canvas.clientWidth / view.width : 1;
   }
@@ -195,7 +226,8 @@
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <rect class="hit" class:selected={el.index === selected}
                     x={el.rect.x} y={el.rect.y} width={el.rect.w} height={el.rect.h}
-                    onpointerdown={(e) => startDrag(e, el.index, "move")} />
+                    onpointerdown={(e) => startDrag(e, el.index, "move")}
+                    ondblclick={(e) => { e.stopPropagation(); startEdit(el.index); }} />
               {#if el.index === selected}
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <rect class="handle" x={el.rect.x + el.rect.w - 6} y={el.rect.y + el.rect.h - 6} width="12" height="12"
@@ -203,6 +235,14 @@
               {/if}
             {/each}
           </svg>
+          {#if editing && view.elements[editing.index]}
+            {@const r = view.elements[editing.index].rect}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <textarea class="inline-editor" bind:this={editor} bind:value={editing.text}
+                      style="left: {(r.x / view.width) * 100}%; top: {(r.y / view.height) * 100}%; width: {(r.w / view.width) * 100}%; height: {(r.h / view.height) * 100}%; font-size: {editing.size * scale()}px"
+                      onkeydown={editorKey} onblur={commitEdit} onclick={(e) => e.stopPropagation()} onpointerdown={(e) => e.stopPropagation()}
+                      spellcheck="false"></textarea>
+          {/if}
         </div>
       </div>
       <div class="steps">
@@ -229,7 +269,7 @@
         {/if}
         {#if sel.last_step > 0}<p class="muted">{sel.last_step} build step(s)</p>{/if}
       {:else}
-        <p class="muted">Click an element to edit it. Drag to move, corner handle to resize, Delete to remove.</p>
+        <p class="muted">Click an element to select it, double-click to edit its text in place (Ctrl+Enter applies, Escape cancels). Drag to move, corner handle to resize, Delete to remove.</p>
       {/if}
       <h3>Section</h3>
       <label>starts section
@@ -311,6 +351,11 @@
   .hit:hover { stroke: var(--accent); stroke-dasharray: 4 2; }
   .hit.selected { stroke: var(--accent); stroke-width: 2; }
   .handle { fill: var(--accent); cursor: nwse-resize; }
+  .inline-editor {
+    position: absolute; box-sizing: border-box; margin: 0; padding: 4px; resize: none; overflow: hidden;
+    background: rgba(255, 255, 255, 0.92); color: black; border: 2px solid var(--accent); border-radius: 0;
+    font-family: sans-serif; line-height: 1.2; outline: none;
+  }
   .steps { padding: 6px 16px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
   .props { grid-area: props; overflow-y: auto; padding: 12px; border-left: 1px solid var(--border); }
   .props h3 { margin: 12px 0 6px; font-size: 13px; color: var(--muted); text-transform: uppercase; }

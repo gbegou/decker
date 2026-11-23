@@ -73,7 +73,8 @@ Two environment variables help scripts and tests:
 
 - The left column lists the slides; click one to edit it.
 - On the canvas, click an element to select it, drag it to move it, drag the corner handle to
-  resize it, press Delete to remove it.
+  resize it, press Delete to remove it. Double-click a text box to edit its text in place:
+  Enter starts a paragraph, Ctrl+Enter or a click elsewhere applies, Escape cancels.
 - The right panel edits the selected element's position, size and text (one paragraph per
   line), and the slide's speaker notes.
 - **+ Text**, **+ Slide**, **Duplicate** and **− Slide** do what they say; a new slide starts
