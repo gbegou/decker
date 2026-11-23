@@ -49,7 +49,10 @@ admin install). From the folder where `rustup-init.exe` was downloaded:
 
 The repository's `.cargo/config.toml` makes Rust link with the MinGW runtime it ships and
 use conda's `x86_64-w64-mingw32-dlltool.exe` for import libraries, since conda's gcc only
-compiles C files and the `dlltool.exe` rustup ships does not start on every machine.
+compiles C files and the `dlltool.exe` rustup ships does not start on every machine. The
+environment also brings `m2w64-binutils` for an unprefixed `windres.exe`, which Tauri's
+icon embedding looks for by that name. Do not add rustup's `bin\self-contained` folder to
+the PATH: its gcc stub shadows conda's compiler and cannot compile C.
 
 Then, in a new terminal with the environment active, `npm install` and `npm run tauri dev` in
 `apps/deck-app`. The first build compiles about 400 crates and takes 10 to 15 minutes.

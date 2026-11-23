@@ -11,7 +11,9 @@
 #
 # The repository's .cargo/config.toml links with the MinGW runtime rustup
 # ships and uses this environment's x86_64-w64-mingw32-dlltool.exe for
-# import libraries. Steps in docs/src/running.md.
+# import libraries. Do not put rustup's bin/self-contained folder on the
+# PATH: its gcc stub would shadow conda's compiler. Steps in
+# docs/src/running.md.
 #
 # On Linux the system WebKitGTK development package is still required
 # (conda-forge has no webkit2gtk).
@@ -24,4 +26,5 @@ dependencies:
   - mdbook
   - pkg-config
   - gcc_win-64
+  - m2w64-binutils   # unprefixed windres.exe, which Tauri's icon embedding looks for by that name
   - nsis
