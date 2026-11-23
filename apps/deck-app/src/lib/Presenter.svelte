@@ -1,18 +1,20 @@
 <script lang="ts">
   // Presenter view: current slide, what comes next, notes, timer.
   import { onMount } from "svelte";
-  import { api, watchView, presentationKeys, type View } from "./api";
+  import { api, watchView, watchThumbnails, presentationKeys, type View } from "./api";
   import SlideView from "./SlideView.svelte";
 
   let view = $state<View | null>(null);
+  let thumbnails = $state<string[]>([]);
   let started = Date.now();
   let now = $state(Date.now());
   let fontSize = $state(20);
 
   onMount(() => {
     const stop = watchView((v) => (view = v));
+    const stopThumbs = watchThumbnails((t) => (thumbnails = t));
     const tick = setInterval(() => (now = Date.now()), 1000);
-    return () => { stop(); clearInterval(tick); };
+    return () => { stop(); stopThumbs(); clearInterval(tick); };
   });
 
   function elapsed(): string {
@@ -63,7 +65,7 @@
         <button onclick={() => api.stopPresentation()}>End (Esc)</button>
       </div>
       <div class="strip">
-        {#each view.thumbnails as thumb, i}
+        {#each thumbnails as thumb, i}
           <button class="thumb" class:current={i === view.slide} onclick={() => api.goto(i)}>
             <SlideView svg={thumb} width={view.width} height={view.height} />
           </button>

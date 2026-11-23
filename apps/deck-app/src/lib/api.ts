@@ -24,7 +24,6 @@ export interface View {
   last_step: number;
   svg: string;
   next_svg: string | null;
-  thumbnails: string[];
   notes: string;
   elements: ElementInfo[];
   presenting: boolean;
@@ -41,6 +40,7 @@ export const api = {
   save: (path?: string) => invoke<string>("save", { path: path ?? null }),
   exportPptx: (path: string) => invoke<string[]>("export_pptx", { path }),
   getView: () => invoke<View>("get_view"),
+  getThumbnails: () => invoke<string[]>("get_thumbnails"),
   navigate: (action: "next" | "prev" | "first" | "last" | "next_slide" | "prev_slide" | "black" | "white") =>
     invoke<View>("navigate", { action }),
   goto: (slide: number, step = 0) => invoke<View>("goto", { slide, step }),
@@ -66,6 +66,20 @@ export function watchView(cb: (v: View) => void): () => void {
   const un = listen("view-changed", async () => {
     const v = await api.getView();
     if (alive) cb(v);
+  });
+  return () => {
+    alive = false;
+    un.then((f) => f());
+  };
+}
+
+/** Calls `cb` with the thumbnails now and after every content change. */
+export function watchThumbnails(cb: (t: string[]) => void): () => void {
+  let alive = true;
+  api.getThumbnails().then((t) => alive && cb(t));
+  const un = listen("deck-changed", async () => {
+    const t = await api.getThumbnails();
+    if (alive) cb(t);
   });
   return () => {
     alive = false;

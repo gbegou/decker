@@ -21,8 +21,20 @@ fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
+/// Navigation or a blank screen: windows re-fetch the view.
 fn changed(app: &AppHandle) {
     let _ = app.emit("view-changed", ());
+}
+
+/// Content changed: windows also re-fetch the thumbnails.
+fn edited(app: &AppHandle) {
+    let _ = app.emit("view-changed", ());
+    let _ = app.emit("deck-changed", ());
+}
+
+#[tauri::command]
+fn get_thumbnails(state: Shared) -> Result<Vec<String>, String> {
+    Ok(state.lock().map_err(err)?.thumbnails())
 }
 
 /// Opens a `.deck` folder or imports a `.pptx` next to it.
@@ -45,7 +57,7 @@ fn open(app: AppHandle, state: Shared, path: String) -> Result<View, String> {
         }
         s.view()
     };
-    changed(&app);
+    edited(&app);
     Ok(view)
 }
 
@@ -59,7 +71,7 @@ fn new_deck(app: AppHandle, state: Shared) -> Result<View, String> {
         s.load(deck, PathBuf::new());
         s.view()
     };
-    changed(&app);
+    edited(&app);
     Ok(view)
 }
 
@@ -120,7 +132,7 @@ fn set_rect(app: AppHandle, state: Shared, element: usize, rect: Rect) -> Result
         s.set_rect(element, rect)?;
         s.view()
     };
-    changed(&app);
+    edited(&app);
     Ok(view)
 }
 
@@ -132,7 +144,7 @@ fn set_text(app: AppHandle, state: Shared, element: usize, text: String) -> Resu
         s.set_text(element, &text)?;
         s.view()
     };
-    changed(&app);
+    edited(&app);
     Ok(view)
 }
 
@@ -143,7 +155,7 @@ fn set_notes(app: AppHandle, state: Shared, notes: String) -> Result<View, Strin
         s.set_notes(notes)?;
         s.view()
     };
-    changed(&app);
+    edited(&app);
     Ok(view)
 }
 
@@ -154,7 +166,7 @@ fn add_slide(app: AppHandle, state: Shared) -> Result<View, String> {
         s.add_slide()?;
         s.view()
     };
-    changed(&app);
+    edited(&app);
     Ok(view)
 }
 
@@ -165,7 +177,7 @@ fn delete_slide(app: AppHandle, state: Shared) -> Result<View, String> {
         s.delete_slide()?;
         s.view()
     };
-    changed(&app);
+    edited(&app);
     Ok(view)
 }
 
@@ -176,7 +188,7 @@ fn duplicate_slide(app: AppHandle, state: Shared) -> Result<View, String> {
         s.duplicate_slide()?;
         s.view()
     };
-    changed(&app);
+    edited(&app);
     Ok(view)
 }
 
@@ -187,7 +199,7 @@ fn set_layout(app: AppHandle, state: Shared, name: Option<String>) -> Result<Vie
         s.set_layout(name.filter(|n| !n.is_empty()))?;
         s.view()
     };
-    changed(&app);
+    edited(&app);
     Ok(view)
 }
 
@@ -206,7 +218,7 @@ fn import_slides(app: AppHandle, state: Shared, path: String, indices: Vec<usize
         s.import_slides(&deck_dir(&path), &indices)?;
         s.view()
     };
-    changed(&app);
+    edited(&app);
     Ok(view)
 }
 
@@ -227,7 +239,7 @@ fn add_text(app: AppHandle, state: Shared) -> Result<View, String> {
         s.add_text()?;
         s.view()
     };
-    changed(&app);
+    edited(&app);
     Ok(view)
 }
 
@@ -238,7 +250,7 @@ fn delete_element(app: AppHandle, state: Shared, element: usize) -> Result<View,
         s.delete_element(element)?;
         s.view()
     };
-    changed(&app);
+    edited(&app);
     Ok(view)
 }
 
@@ -260,7 +272,7 @@ fn start_presentation(app: AppHandle, state: Shared, with_presenter: Option<bool
     let secondary = monitors.iter().find(|m| Some(m.position()) != primary.as_ref().map(|p| p.position())).cloned();
 
     let audience_monitor = secondary.clone().or(primary.clone());
-    let mut audience = WebviewWindowBuilder::new(&app, "audience", WebviewUrl::App("index.html#audience".into()))
+    let mut audience = WebviewWindowBuilder::new(&app, "audience", WebviewUrl::App("index.html".into()))
         .title("decker — presentation")
         .decorations(false)
         .focused(true);
@@ -276,9 +288,8 @@ fn start_presentation(app: AppHandle, state: Shared, with_presenter: Option<bool
     let _ = audience.set_fullscreen(true);
 
     if secondary.is_some() || with_presenter == Some(true) {
-        let mut presenter =
-            WebviewWindowBuilder::new(&app, "presenter", WebviewUrl::App("index.html#presenter".into()))
-                .title("decker — presenter");
+        let mut presenter = WebviewWindowBuilder::new(&app, "presenter", WebviewUrl::App("index.html".into()))
+            .title("decker — presenter");
         if let Some(m) = &primary {
             let p = m.position();
             let sz = m.size();
@@ -359,6 +370,7 @@ pub fn run() {
             save,
             export_pptx,
             get_view,
+            get_thumbnails,
             navigate,
             goto,
             set_rect,

@@ -1,5 +1,6 @@
 //! Application state and the view sent to the windows.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use base64::Engine;
@@ -21,6 +22,10 @@ pub struct AppState {
     /// screen of that color instead of the slide (B and W keys).
     pub blank: String,
     pub warnings: Vec<String>,
+    /// Rendered thumbnails, one per slide; `None` when stale.
+    thumbs: Vec<Option<String>>,
+    /// Images as data URIs, by deck-relative path.
+    assets: HashMap<String, String>,
 }
 
 /// The formula renderer, chosen at compile time. With Typst, it serves
@@ -60,8 +65,6 @@ pub struct View {
     pub svg: String,
     /// What "next" shows: the next step, or the next slide's first step.
     pub next_svg: Option<String>,
-    /// Every slide at its final step, for the slide list.
-    pub thumbnails: Vec<String>,
     pub notes: String,
     /// The current slide's elements, for selection and editing.
     pub elements: Vec<ElementInfo>,
@@ -86,11 +89,61 @@ pub struct ElementInfo {
 impl AppState {
     pub fn load(&mut self, deck: Deck, dir: PathBuf) {
         self.math = Math::for_deck(&dir);
+        self.thumbs = vec![None; deck.slides.len()];
+        self.assets.clear();
         self.deck = Some(deck);
         self.dir = dir;
         self.slide = 0;
         self.step = 0;
         self.warnings.clear();
+    }
+
+    /// Marks the slide's thumbnail stale after an edit (`None`: all).
+    fn touch(&mut self, slide: Option<usize>) {
+        let n = self.deck.as_ref().map(|d| d.slides.len()).unwrap_or(0);
+        self.thumbs.resize(n, None);
+        match slide {
+            Some(i) => {
+                if let Some(t) = self.thumbs.get_mut(i) {
+                    *t = None;
+                }
+            }
+            None => self.thumbs.iter_mut().for_each(|t| *t = None),
+        }
+    }
+
+    fn render(&self, deck: &Deck, slide: &Slide, step: u32) -> String {
+        inline_assets(&svg::render_step_with(deck, slide, step, &*self.math.0), &self.dir, &self.assets)
+    }
+
+    /// Thumbnails of every slide at its final step, rendering only the
+    /// stale ones, and caching image data on the way.
+    pub fn thumbnails(&mut self) -> Vec<String> {
+        let Some(deck) = self.deck.take() else { return vec![] };
+        self.thumbs.resize(deck.slides.len(), None);
+        for (i, slide) in deck.slides.iter().enumerate() {
+            if self.thumbs[i].is_none() {
+                self.cache_assets(slide);
+                self.thumbs[i] = Some(self.render(&deck, slide, slide.last_step()));
+            }
+        }
+        self.deck = Some(deck);
+        self.thumbs.iter().map(|t| t.clone().unwrap_or_default()).collect()
+    }
+
+    /// Reads and encodes the slide's images not yet in the cache.
+    fn cache_assets(&mut self, slide: &Slide) {
+        let srcs: Vec<String> = slide
+            .elements
+            .iter()
+            .filter_map(|e| if let Element::Image(i) = e { Some(i.src.clone()) } else { None })
+            .filter(|src| !self.assets.contains_key(src))
+            .collect();
+        for src in srcs {
+            if let Some(uri) = data_uri(&self.dir.join(&src)) {
+                self.assets.insert(src, uri);
+            }
+        }
     }
 
     fn current(&self) -> Option<(&Deck, &Slide)> {
@@ -99,7 +152,20 @@ impl AppState {
         Some((deck, slide))
     }
 
-    pub fn view(&self) -> View {
+    pub fn view(&mut self) -> View {
+        if let Some(deck) = self.deck.take() {
+            if let Some(slide) = deck.slides.get(self.slide) {
+                self.cache_assets(slide);
+            }
+            if let Some(next) = deck.slides.get(self.slide + 1) {
+                self.cache_assets(next);
+            }
+            if let Some(layout) = deck.slides.get(self.slide).and_then(|s| deck.layout_of(s)) {
+                let fake = Slide { elements: layout.elements.clone(), ..Default::default() };
+                self.cache_assets(&fake);
+            }
+            self.deck = Some(deck);
+        }
         let Some((deck, slide)) = self.current() else {
             return View {
                 title: String::new(),
@@ -112,7 +178,6 @@ impl AppState {
                 last_step: 0,
                 svg: String::new(),
                 next_svg: None,
-                thumbnails: vec![],
                 notes: String::new(),
                 elements: vec![],
                 presenting: self.presenting,
@@ -122,8 +187,7 @@ impl AppState {
                 layout: None,
             };
         };
-        let render =
-            |s: &Slide, step: u32| inline_assets(&svg::render_step_with(deck, s, step, &*self.math.0), &self.dir);
+        let render = |s: &Slide, step: u32| self.render(deck, s, step);
         let next_svg = if self.step < slide.last_step() {
             Some(render(slide, self.step + 1))
         } else {
@@ -140,7 +204,6 @@ impl AppState {
             last_step: slide.last_step(),
             svg: render(slide, self.step),
             next_svg,
-            thumbnails: deck.slides.iter().map(|s| render(s, s.last_step())).collect(),
             notes: slide.notes.clone(),
             elements: slide
                 .elements
@@ -235,6 +298,7 @@ impl AppState {
     }
 
     pub fn set_rect(&mut self, element: usize, rect: Rect) -> Result<(), String> {
+        self.touch(Some(self.slide));
         let slide = self.slide_mut()?;
         let e = slide.elements.get_mut(element).ok_or("no such element")?;
         *e.rect_mut() = Rect { w: rect.w.max(1.0), h: rect.h.max(1.0), ..rect };
@@ -242,6 +306,7 @@ impl AppState {
     }
 
     pub fn set_text(&mut self, element: usize, text: &str) -> Result<(), String> {
+        self.touch(Some(self.slide));
         let slide = self.slide_mut()?;
         let e = slide.elements.get_mut(element).ok_or("no such element")?;
         let paragraphs = |old: &[Paragraph]| -> Vec<Paragraph> {
@@ -274,6 +339,7 @@ impl AppState {
     /// A new slide after the current one, from the current slide's layout
     /// (its placeholders) when it has one.
     pub fn add_slide(&mut self) -> Result<(), String> {
+        self.touch(None);
         let at = self.slide + 1;
         let deck = self.deck.as_mut().ok_or("no deck")?;
         let at = at.min(deck.slides.len());
@@ -286,6 +352,7 @@ impl AppState {
     }
 
     pub fn duplicate_slide(&mut self) -> Result<(), String> {
+        self.touch(None);
         let deck = self.deck.as_mut().ok_or("no deck")?;
         let copy = deck.slides.get(self.slide).cloned().ok_or("no slide")?;
         deck.slides.insert(self.slide + 1, copy);
@@ -297,6 +364,7 @@ impl AppState {
     /// Sets the current slide's layout (`None` for none). Existing
     /// elements are kept; placeholders are not re-created.
     pub fn set_layout(&mut self, name: Option<String>) -> Result<(), String> {
+        self.touch(Some(self.slide));
         let deck = self.deck.as_ref().ok_or("no deck")?;
         if let Some(n) = &name {
             if deck.layout(n).is_none() {
@@ -313,12 +381,15 @@ impl AppState {
         Ok(other
             .slides
             .iter()
-            .map(|s| inline_assets(&svg::render_step_with(&other, s, s.last_step(), &*self.math.0), dir))
+            .map(|s| {
+                inline_assets(&svg::render_step_with(&other, s, s.last_step(), &*self.math.0), dir, &HashMap::new())
+            })
             .collect())
     }
 
     /// Copies slides of another deck after the current slide.
     pub fn import_slides(&mut self, dir: &Path, indices: &[usize]) -> Result<usize, String> {
+        self.touch(None);
         let other = native::load(dir).map_err(|e| e.to_string())?;
         if self.dir.as_os_str().is_empty() {
             return Err("save this deck first, so that images have a folder to be copied into".into());
@@ -334,6 +405,7 @@ impl AppState {
     }
 
     pub fn delete_slide(&mut self) -> Result<(), String> {
+        self.touch(None);
         let deck = self.deck.as_mut().ok_or("no deck")?;
         if deck.slides.len() <= 1 {
             return Err("a deck keeps at least one slide".into());
@@ -345,6 +417,7 @@ impl AppState {
     }
 
     pub fn add_text(&mut self) -> Result<(), String> {
+        self.touch(Some(self.slide));
         let (w, h) = self.deck.as_ref().map(|d| (d.width, d.height)).ok_or("no deck")?;
         let slide = self.slide_mut()?;
         let rect = Rect::new(w * 0.1, h * 0.4, w * 0.8, h * 0.15);
@@ -353,6 +426,7 @@ impl AppState {
     }
 
     pub fn delete_element(&mut self, element: usize) -> Result<(), String> {
+        self.touch(Some(self.slide));
         let slide = self.slide_mut()?;
         if element >= slide.elements.len() {
             return Err("no such element".into());
@@ -363,8 +437,9 @@ impl AppState {
 }
 
 /// Replaces `xlink:href="assets/..."` by data URIs: the webview cannot
-/// read the deck folder.
-fn inline_assets(svg: &str, dir: &Path) -> String {
+/// read the deck folder. `cache` holds already encoded images; others are
+/// read from `dir`.
+fn inline_assets(svg: &str, dir: &Path, cache: &HashMap<String, String>) -> String {
     let marker = r#"xlink:href="assets/"#;
     let mut out = String::with_capacity(svg.len());
     let mut rest = svg;
@@ -376,30 +451,34 @@ fn inline_assets(svg: &str, dir: &Path) -> String {
             return out;
         };
         let src = &after[..end];
-        let path = dir.join(src);
-        let mime = match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
-            Some("png") => "image/png",
-            Some("jpg") | Some("jpeg") => "image/jpeg",
-            Some("gif") => "image/gif",
-            Some("svg") => "image/svg+xml",
-            Some("webp") => "image/webp",
-            Some("bmp") => "image/bmp",
-            _ => "application/octet-stream",
-        };
-        match std::fs::read(&path) {
-            Ok(bytes) => {
-                out.push_str(r#"xlink:href="data:"#);
-                out.push_str(mime);
-                out.push_str(";base64,");
-                out.push_str(&base64::engine::general_purpose::STANDARD.encode(bytes));
+        let uri = cache.get(src).cloned().or_else(|| data_uri(&dir.join(src)));
+        match uri {
+            Some(uri) => {
+                out.push_str(r#"xlink:href=""#);
+                out.push_str(&uri);
                 out.push('"');
             }
-            Err(_) => out.push_str(&rest[i..i + r#"xlink:href=""#.len() + end + 1]),
+            None => out.push_str(&rest[i..i + r#"xlink:href=""#.len() + end + 1]),
         }
         rest = &after[end + 1..];
     }
     out.push_str(rest);
     out
+}
+
+/// A file as a `data:` URI, by its extension.
+fn data_uri(path: &Path) -> Option<String> {
+    let mime = match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("svg") => "image/svg+xml",
+        Some("webp") => "image/webp",
+        Some("bmp") => "image/bmp",
+        _ => "application/octet-stream",
+    };
+    let bytes = std::fs::read(path).ok()?;
+    Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
 }
 
 #[cfg(test)]
@@ -446,6 +525,11 @@ mod tests {
         let v = s.view();
         assert_eq!((v.last_step, v.slide_count), (2, 2));
         assert!(v.next_svg.is_some());
+        let thumbs = s.thumbnails();
+        assert_eq!(thumbs.len(), 2);
+        assert!(s.thumbs.iter().all(Option::is_some));
+        s.touch(Some(1));
+        assert!(s.thumbs[0].is_some() && s.thumbs[1].is_none(), "only the edited slide is stale");
     }
 
     #[test]
@@ -454,7 +538,7 @@ mod tests {
         std::fs::create_dir_all(dir.join("assets")).unwrap();
         std::fs::write(dir.join("assets/a.png"), b"abc").unwrap();
         let svg = r#"<image xlink:href="assets/a.png"/><image xlink:href="assets/missing.png"/>"#;
-        let out = inline_assets(svg, &dir);
+        let out = inline_assets(svg, &dir, &HashMap::new());
         assert_eq!(out, r#"<image xlink:href="data:image/png;base64,YWJj"/><image xlink:href="assets/missing.png"/>"#);
         std::fs::remove_dir_all(&dir).unwrap();
     }

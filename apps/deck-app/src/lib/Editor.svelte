@@ -1,20 +1,25 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-  import { api, watchView, presentationKeys, type View, type Rect } from "./api";
+  import { api, watchView, watchThumbnails, presentationKeys, type View, type Rect } from "./api";
   import SlideView from "./SlideView.svelte";
 
   let view = $state<View | null>(null);
+  let thumbnails = $state<string[]>([]);
   let selected = $state<number | null>(null);
   let status = $state("");
   // The "insert slides from another deck" picker.
   let picker = $state<{ path: string; thumbs: string[]; chosen: boolean[] } | null>(null);
   let canvas = $state<HTMLDivElement>();
 
-  onMount(() => watchView((v) => {
-    view = v;
-    if (selected !== null && selected >= v.elements.length) selected = null;
-  }));
+  onMount(() => {
+    const stopView = watchView((v) => {
+      view = v;
+      if (selected !== null && selected >= v.elements.length) selected = null;
+    });
+    const stopThumbs = watchThumbnails((t) => (thumbnails = t));
+    return () => { stopView(); stopThumbs(); };
+  });
 
   async function run(label: string, f: () => Promise<unknown>) {
     try {
@@ -163,7 +168,7 @@
 
   {#if view && view.slide_count}
     <aside class="slides">
-      {#each view.thumbnails as thumb, i}
+      {#each thumbnails as thumb, i}
         <button class="thumb" class:current={i === view.slide} onclick={() => api.goto(i)}>
           <span class="num">{i + 1}</span>
           <SlideView svg={thumb} width={view.width} height={view.height} />
