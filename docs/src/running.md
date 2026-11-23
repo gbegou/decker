@@ -47,14 +47,9 @@ admin install). From the folder where `rustup-init.exe` was downloaded:
 .\rustup-init.exe --default-host x86_64-pc-windows-gnu --default-toolchain stable --profile minimal -y
 ```
 
-Two details the repository takes care of: `.cargo/config.toml` makes Rust link with the
-MinGW runtime it ships, since conda's gcc only compiles C files; and `dlltool.exe`, which a
-Windows dependency needs, is in rustup's toolchain, so add its folder to the PATH once (user
-PATH, no admin):
-
-```powershell
-$env:PATH = "$HOME\.rustup\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\bin\self-contained;$env:PATH"
-```
+The repository's `.cargo/config.toml` makes Rust link with the MinGW runtime it ships and
+use conda's `x86_64-w64-mingw32-dlltool.exe` for import libraries, since conda's gcc only
+compiles C files and the `dlltool.exe` rustup ships does not start on every machine.
 
 Then, in a new terminal with the environment active, `npm install` and `npm run tauri dev` in
 `apps/deck-app`. The first build compiles about 400 crates and takes 10 to 15 minutes.

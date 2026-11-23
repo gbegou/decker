@@ -1,7 +1,10 @@
 # Windows, GNU toolchain (the no-admin setup, see conda/environment-windows.yml):
-# link with the MinGW runtime that rustup ships rather than expecting the
-# C compiler on PATH to carry one. Conda's gcc_win-64 compiles the few C
-# files of the dependencies but does not expose crt2.o and the import
-# libraries to the linker.
+# - link with the MinGW runtime that rustup ships rather than expecting the
+#   C compiler on PATH to carry one: conda's gcc_win-64 compiles the few C
+#   files of the dependencies but does not expose crt2.o and the import
+#   libraries to the linker;
+# - make import libraries with conda's binutils dlltool (prefixed name on
+#   PATH when the environment is active): the dlltool.exe rustup ships does
+#   not start on every machine.
 [target.x86_64-pc-windows-gnu]
-rustflags = ["-C", "link-self-contained=yes"]
+rustflags = ["-C", "link-self-contained=yes", "-C", "dlltool=x86_64-w64-mingw32-dlltool.exe"]
