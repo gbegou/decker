@@ -3,8 +3,9 @@
 A free, fast, modern alternative to PowerPoint, written in Rust, for Linux and Windows.
 Python macros, a presenter mode, and a converter for PPTX files.
 
-Status: first draft. The document model, the native format, an SVG renderer and the
-PPTX converter exist. The editor and the presentation windows (Tauri) come next.
+Status: first draft. The document model (with math and build steps), the native format, an
+SVG renderer, the PPTX converter and a Tauri application with an editor, a fullscreen
+audience window and a presenter view exist. See `docs/architecture.md`.
 
 ## Layout
 
@@ -12,7 +13,7 @@ PPTX converter exist. The editor and the presentation windows (Tauri) come next.
 | --- | --- |
 | `crates/deck-core` | Document model (`Deck` → `Slide` → text, image, shape), native format, SVG renderer |
 | `crates/deck-convert` | Command-line converter: PPTX import, PPTX export, SVG render |
-| `apps/deck-app` | Tauri application: editor, presentation window, presenter mode, embedded Python macros (planned) |
+| `apps/deck-app` | Tauri application (Rust + Svelte): editor, audience window, presenter view |
 
 ## Native format
 
@@ -70,6 +71,30 @@ with LibreOffice first (`soffice --headless --convert-to pptx`).
 Writes a minimal package (one blank master and layout, a theme, notes) with every element as an
 explicit shape. Verified by re-importing with decker and by opening with python-pptx.
 
+## Application
+
+Requires Rust, Node 22, and on Linux the WebKitGTK development packages
+(`libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev`).
+
+```bash
+cd apps/deck-app && npm install
+```
+
+```bash
+npm run tauri dev
+```
+
+```bash
+npm run tauri build      # installers in src-tauri/target/release/bundle
+```
+
+Environment variables for scripts and tests: `DECKER_OPEN=<file.pptx or folder.deck>` opens a
+deck at startup, `DECKER_PRESENT=1` starts the presentation at once (`both` also opens the
+presenter window on a single monitor).
+
+Keys during a presentation: arrows, Page Up/Down, Space, Enter, Home, End, B (black screen),
+Escape (end).
+
 ## Development
 
 ```bash
@@ -81,8 +106,9 @@ and round-trip a deck through export and import.
 
 ## Roadmap
 
-1. Tauri editor: slide list, canvas, properties panel.
-2. Presentation window on a chosen monitor, presenter mode (notes, next slide, timer).
-3. Embedded Python (PyO3) exposing the document model as a macro API.
+1. Typst as the text and math engine behind the renderer (LaTeX math through mitex); until
+   then formulas are drawn as their source.
+2. Embedded Python (PyO3) exposing the document model as a macro API.
+3. Editor: styles (font, size, color, alignment), shapes and images, undo, step editing.
 4. PDF export from the SVG renderer; single-file `.deck` zip.
-5. Master text styles, theme colors and tables in the PPTX import.
+5. Master text styles, theme colors and tables in the PPTX import; motion paths as steps.

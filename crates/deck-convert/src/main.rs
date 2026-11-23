@@ -7,13 +7,12 @@
 //! deck-convert info talk.deck                    # slide titles and counts
 //! ```
 
-mod pptx;
-
 use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 
+use deck_convert::pptx;
 use deck_core::{native, svg, Element};
 
 #[derive(Parser)]

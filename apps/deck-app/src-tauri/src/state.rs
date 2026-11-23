@@ -1,0 +1,366 @@
+//! Application state and the view sent to the windows.
+
+use std::path::{Path, PathBuf};
+
+use base64::Engine;
+use serde::Serialize;
+
+use deck_core::{svg, Deck, Element, Paragraph, Rect, Slide, TextBox};
+
+#[derive(Default)]
+pub struct AppState {
+    pub deck: Option<Deck>,
+    /// The `.deck` folder, empty for an unsaved new deck.
+    pub dir: PathBuf,
+    pub slide: usize,
+    pub step: u32,
+    pub presenting: bool,
+    pub blackout: bool,
+    pub warnings: Vec<String>,
+}
+
+/// Everything a window needs to draw itself.
+#[derive(Debug, Clone, Serialize)]
+pub struct View {
+    pub title: String,
+    pub dir: String,
+    pub width: f64,
+    pub height: f64,
+    pub slide: usize,
+    pub slide_count: usize,
+    pub step: u32,
+    pub last_step: u32,
+    /// The current slide at the current step, assets inlined.
+    pub svg: String,
+    /// What "next" shows: the next step, or the next slide's first step.
+    pub next_svg: Option<String>,
+    /// Every slide at its final step, for the slide list.
+    pub thumbnails: Vec<String>,
+    pub notes: String,
+    /// The current slide's elements, for selection and editing.
+    pub elements: Vec<ElementInfo>,
+    pub presenting: bool,
+    pub blackout: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ElementInfo {
+    pub index: usize,
+    pub kind: &'static str,
+    pub rect: Rect,
+    pub text: String,
+    pub last_step: u32,
+}
+
+impl AppState {
+    pub fn load(&mut self, deck: Deck, dir: PathBuf) {
+        self.deck = Some(deck);
+        self.dir = dir;
+        self.slide = 0;
+        self.step = 0;
+        self.warnings.clear();
+    }
+
+    fn current(&self) -> Option<(&Deck, &Slide)> {
+        let deck = self.deck.as_ref()?;
+        let slide = deck.slides.get(self.slide)?;
+        Some((deck, slide))
+    }
+
+    pub fn view(&self) -> View {
+        let Some((deck, slide)) = self.current() else {
+            return View {
+                title: String::new(),
+                dir: self.dir.display().to_string(),
+                width: deck_core::DEFAULT_WIDTH,
+                height: deck_core::DEFAULT_HEIGHT,
+                slide: 0,
+                slide_count: 0,
+                step: 0,
+                last_step: 0,
+                svg: String::new(),
+                next_svg: None,
+                thumbnails: vec![],
+                notes: String::new(),
+                elements: vec![],
+                presenting: self.presenting,
+                blackout: self.blackout,
+                warnings: self.warnings.clone(),
+            };
+        };
+        let render = |s: &Slide, step: u32| inline_assets(&svg::render_step(deck, s, step), &self.dir);
+        let next_svg = if self.step < slide.last_step() {
+            Some(render(slide, self.step + 1))
+        } else {
+            deck.slides.get(self.slide + 1).map(|s| render(s, 0))
+        };
+        View {
+            title: deck.title.clone(),
+            dir: self.dir.display().to_string(),
+            width: deck.width,
+            height: deck.height,
+            slide: self.slide,
+            slide_count: deck.slides.len(),
+            step: self.step,
+            last_step: slide.last_step(),
+            svg: render(slide, self.step),
+            next_svg,
+            thumbnails: deck.slides.iter().map(|s| render(s, s.last_step())).collect(),
+            notes: slide.notes.clone(),
+            elements: slide
+                .elements
+                .iter()
+                .enumerate()
+                .map(|(index, e)| ElementInfo {
+                    index,
+                    kind: match e {
+                        Element::Text(_) => "text",
+                        Element::Image(_) => "image",
+                        Element::Shape(_) => "shape",
+                        Element::Math(_) => "math",
+                    },
+                    rect: *e.rect(),
+                    text: match e {
+                        Element::Text(t) => t.text(),
+                        Element::Shape(s) => s.paragraphs.iter().map(Paragraph::text).collect::<Vec<_>>().join("\n"),
+                        Element::Math(m) => m.source.clone(),
+                        Element::Image(i) => i.src.clone(),
+                    },
+                    last_step: e.last_step(),
+                })
+                .collect(),
+            presenting: self.presenting,
+            blackout: self.blackout,
+            warnings: self.warnings.clone(),
+        }
+    }
+
+    pub fn navigate(&mut self, action: &str) {
+        let Some((deck, slide)) = self.current() else { return };
+        let count = deck.slides.len();
+        let last_step = slide.last_step();
+        let last_steps: Vec<u32> = deck.slides.iter().map(Slide::last_step).collect();
+        match action {
+            "next" => {
+                if self.step < last_step {
+                    self.step += 1;
+                } else if self.slide + 1 < count {
+                    self.slide += 1;
+                    self.step = 0;
+                }
+            }
+            "prev" => {
+                if self.step > 0 {
+                    self.step -= 1;
+                } else if self.slide > 0 {
+                    self.slide -= 1;
+                    self.step = last_steps[self.slide];
+                }
+            }
+            "next_slide" => {
+                if self.slide + 1 < count {
+                    self.slide += 1;
+                    self.step = 0;
+                }
+            }
+            "prev_slide" => {
+                if self.slide > 0 {
+                    self.slide -= 1;
+                    self.step = 0;
+                }
+            }
+            "first" => {
+                self.slide = 0;
+                self.step = 0;
+            }
+            "last" => {
+                self.slide = count.saturating_sub(1);
+                self.step = 0;
+            }
+            "blackout" => self.blackout = !self.blackout,
+            _ => {}
+        }
+    }
+
+    pub fn goto(&mut self, slide: usize, step: u32) {
+        if let Some(deck) = &self.deck {
+            if slide < deck.slides.len() {
+                self.slide = slide;
+                self.step = step.min(deck.slides[slide].last_step());
+            }
+        }
+    }
+
+    fn slide_mut(&mut self) -> Result<&mut Slide, String> {
+        let index = self.slide;
+        self.deck.as_mut().and_then(|d| d.slides.get_mut(index)).ok_or_else(|| "no slide".to_string())
+    }
+
+    pub fn set_rect(&mut self, element: usize, rect: Rect) -> Result<(), String> {
+        let slide = self.slide_mut()?;
+        let e = slide.elements.get_mut(element).ok_or("no such element")?;
+        *e.rect_mut() = Rect { w: rect.w.max(1.0), h: rect.h.max(1.0), ..rect };
+        Ok(())
+    }
+
+    pub fn set_text(&mut self, element: usize, text: &str) -> Result<(), String> {
+        let slide = self.slide_mut()?;
+        let e = slide.elements.get_mut(element).ok_or("no such element")?;
+        let paragraphs = |old: &[Paragraph]| -> Vec<Paragraph> {
+            text.lines()
+                .enumerate()
+                .map(|(i, line)| {
+                    // Keep the style of the paragraph being replaced, when there is one.
+                    let mut p = old.get(i).cloned().unwrap_or_default();
+                    let mut run = p.runs.first().cloned().unwrap_or_default();
+                    run.text = line.to_string();
+                    p.runs = vec![run];
+                    p
+                })
+                .collect()
+        };
+        match e {
+            Element::Text(t) => t.paragraphs = paragraphs(&t.paragraphs),
+            Element::Shape(s) => s.paragraphs = paragraphs(&s.paragraphs),
+            Element::Math(m) => m.source = text.to_string(),
+            Element::Image(_) => return Err("an image has no text".into()),
+        }
+        Ok(())
+    }
+
+    pub fn set_notes(&mut self, notes: String) -> Result<(), String> {
+        self.slide_mut()?.notes = notes;
+        Ok(())
+    }
+
+    pub fn add_slide(&mut self) -> Result<(), String> {
+        let at = self.slide + 1;
+        let deck = self.deck.as_mut().ok_or("no deck")?;
+        let at = at.min(deck.slides.len());
+        deck.slides.insert(at, Slide::default());
+        self.slide = at;
+        self.step = 0;
+        Ok(())
+    }
+
+    pub fn delete_slide(&mut self) -> Result<(), String> {
+        let deck = self.deck.as_mut().ok_or("no deck")?;
+        if deck.slides.len() <= 1 {
+            return Err("a deck keeps at least one slide".into());
+        }
+        deck.slides.remove(self.slide);
+        self.slide = self.slide.min(deck.slides.len() - 1);
+        self.step = 0;
+        Ok(())
+    }
+
+    pub fn add_text(&mut self) -> Result<(), String> {
+        let (w, h) = self.deck.as_ref().map(|d| (d.width, d.height)).ok_or("no deck")?;
+        let slide = self.slide_mut()?;
+        let rect = Rect::new(w * 0.1, h * 0.4, w * 0.8, h * 0.15);
+        slide.elements.push(Element::Text(TextBox::plain(rect, "Text")));
+        Ok(())
+    }
+
+    pub fn delete_element(&mut self, element: usize) -> Result<(), String> {
+        let slide = self.slide_mut()?;
+        if element >= slide.elements.len() {
+            return Err("no such element".into());
+        }
+        slide.elements.remove(element);
+        Ok(())
+    }
+}
+
+/// Replaces `xlink:href="assets/..."` by data URIs: the webview cannot
+/// read the deck folder.
+fn inline_assets(svg: &str, dir: &Path) -> String {
+    let marker = r#"xlink:href="assets/"#;
+    let mut out = String::with_capacity(svg.len());
+    let mut rest = svg;
+    while let Some(i) = rest.find(marker) {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + r#"xlink:href=""#.len()..];
+        let Some(end) = after.find('"') else {
+            out.push_str(&rest[i..]);
+            return out;
+        };
+        let src = &after[..end];
+        let path = dir.join(src);
+        let mime = match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+            Some("png") => "image/png",
+            Some("jpg") | Some("jpeg") => "image/jpeg",
+            Some("gif") => "image/gif",
+            Some("svg") => "image/svg+xml",
+            Some("webp") => "image/webp",
+            Some("bmp") => "image/bmp",
+            _ => "application/octet-stream",
+        };
+        match std::fs::read(&path) {
+            Ok(bytes) => {
+                out.push_str(r#"xlink:href="data:"#);
+                out.push_str(mime);
+                out.push_str(";base64,");
+                out.push_str(&base64::engine::general_purpose::STANDARD.encode(bytes));
+                out.push('"');
+            }
+            Err(_) => out.push_str(&rest[i..i + r#"xlink:href=""#.len() + end + 1]),
+        }
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use deck_core::{Overrides, Shape, Step};
+
+    fn deck() -> Deck {
+        let mut d = Deck::new("t");
+        let mut shape = Shape { rect: Rect::new(0.0, 0.0, 10.0, 10.0), ..Default::default() };
+        shape.steps = vec![
+            Step::disappear(0),
+            Step::appear(1),
+            Step { at: 2, set: Overrides { x: Some(5.0), ..Default::default() }, ..Default::default() },
+        ];
+        d.slides.push(Slide { elements: vec![Element::Shape(shape)], ..Default::default() });
+        d.slides.push(Slide::default());
+        d
+    }
+
+    #[test]
+    fn next_walks_steps_then_slides() {
+        let mut s = AppState { deck: Some(deck()), ..Default::default() };
+        let pos = |s: &AppState| (s.slide, s.step);
+        assert_eq!(pos(&s), (0, 0));
+        s.navigate("next");
+        assert_eq!(pos(&s), (0, 1));
+        s.navigate("next");
+        assert_eq!(pos(&s), (0, 2));
+        s.navigate("next");
+        assert_eq!(pos(&s), (1, 0));
+        s.navigate("next");
+        assert_eq!(pos(&s), (1, 0));
+        s.navigate("prev");
+        assert_eq!(pos(&s), (0, 2), "prev lands on the last step");
+        s.navigate("first");
+        assert_eq!(pos(&s), (0, 0));
+        let v = s.view();
+        assert_eq!((v.last_step, v.slide_count), (2, 2));
+        assert!(v.next_svg.is_some());
+    }
+
+    #[test]
+    fn inline_assets_embeds_files() {
+        let dir = std::env::temp_dir().join(format!("decker-inline-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        std::fs::write(dir.join("assets/a.png"), b"abc").unwrap();
+        let svg = r#"<image xlink:href="assets/a.png"/><image xlink:href="assets/missing.png"/>"#;
+        let out = inline_assets(svg, &dir);
+        assert_eq!(out, r#"<image xlink:href="data:image/png;base64,YWJj"/><image xlink:href="assets/missing.png"/>"#);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
