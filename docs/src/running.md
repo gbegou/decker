@@ -24,7 +24,9 @@ Build the installers (`.deb`, `.rpm` and AppImage on Linux, `.msi` and `.exe` on
 npm run tauri build
 ```
 
-They land in `apps/deck-app/src-tauri/target/release/bundle/`.
+They land in `target/release/bundle/` at the workspace root. The Installers workflow builds them
+on every push and attaches them to the run as artifacts; the Windows one is built without
+Visual Studio, the way a user without admin rights would (see `environment-windows.yml`).
 
 ## Opening a presentation
 

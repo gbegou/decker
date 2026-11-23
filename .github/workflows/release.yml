@@ -38,7 +38,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: decker-windows-setup
-          path: apps/deck-app/src-tauri/target/release/bundle/nsis/*.exe
+          path: target/release/bundle/nsis/*.exe
 
   linux:
     runs-on: ubuntu-latest
@@ -58,5 +58,5 @@ jobs:
         with:
           name: decker-linux
           path: |
-            apps/deck-app/src-tauri/target/release/bundle/deb/*.deb
-            apps/deck-app/src-tauri/target/release/bundle/appimage/*.AppImage
+            target/release/bundle/deb/*.deb
+            target/release/bundle/appimage/*.AppImage
