@@ -314,53 +314,34 @@ fn start_presentation(app: AppHandle, state: Shared, with_presenter: Option<bool
         monitors.len(),
         audience_monitor.as_ref().and_then(|m| m.name().cloned())
     );
-
-    // Webviews are created on the main thread: WebView2 on Windows never
-    // loads a page in a webview created from a command's worker thread.
-    let handle = app.clone();
     let monitor_rect = |m: &tauri::Monitor| {
         let (p, sz, scale) = (m.position(), m.size(), m.scale_factor());
         (p.x as f64 / scale, p.y as f64 / scale, sz.width as f64 / scale, sz.height as f64 / scale)
     };
-    let audience_at = audience_monitor.as_ref().map(monitor_rect);
-    let presenter_at = primary.as_ref().map(monitor_rect);
-    app.run_on_main_thread(move || {
-        let mut audience = WebviewWindowBuilder::new(&handle, "audience", WebviewUrl::App("index.html".into()))
-            .title("decker — presentation")
-            .decorations(windowed)
-            .focused(true)
-            .on_page_load(|w, payload| {
-                eprintln!("[decker] window {}: page load {:?} {}", w.label(), payload.event(), payload.url());
-            });
-        if windowed {
-            audience = audience.inner_size(960.0, 540.0);
-        } else if let Some((x, y, w, h)) = audience_at {
-            audience = audience.position(x, y).inner_size(w, h);
+
+    // The windows exist since startup, hidden (see `run`): showing them is
+    // all that is left, which also makes presenting instant.
+    let audience = app.get_webview_window("audience").ok_or("no audience window")?;
+    let _ = audience.set_decorations(windowed);
+    if windowed {
+        let _ = audience.set_size(tauri::LogicalSize::new(960.0, 540.0));
+    } else if let Some((x, y, w, h)) = audience_monitor.as_ref().map(monitor_rect) {
+        let _ = audience.set_position(tauri::LogicalPosition::new(x, y));
+        let _ = audience.set_size(tauri::LogicalSize::new(w, h));
+    }
+    audience.show().map_err(err)?;
+    if !windowed {
+        let _ = audience.set_fullscreen(true);
+    }
+    let _ = audience.set_focus();
+    if open_presenter {
+        let presenter = app.get_webview_window("presenter").ok_or("no presenter window")?;
+        if let Some((x, y, w, h)) = primary.as_ref().map(monitor_rect) {
+            let _ = presenter.set_position(tauri::LogicalPosition::new(x + 40.0, y + 40.0));
+            let _ = presenter.set_size(tauri::LogicalSize::new((w - 80.0).max(600.0), (h - 120.0).max(400.0)));
         }
-        match audience.build() {
-            Ok(window) => {
-                if !windowed {
-                    let _ = window.set_fullscreen(true);
-                }
-            }
-            Err(e) => eprintln!("[decker] cannot open the presentation window: {e}"),
-        }
-        if open_presenter {
-            let mut presenter = WebviewWindowBuilder::new(&handle, "presenter", WebviewUrl::App("index.html".into()))
-                .title("decker — presenter")
-                .on_page_load(|w, payload| {
-                    eprintln!("[decker] window {}: page load {:?} {}", w.label(), payload.event(), payload.url());
-                });
-            if let Some((x, y, w, h)) = presenter_at {
-                presenter =
-                    presenter.position(x + 40.0, y + 40.0).inner_size((w - 80.0).max(600.0), (h - 120.0).max(400.0));
-            }
-            if let Err(e) = presenter.build() {
-                eprintln!("[decker] cannot open the presenter window: {e}");
-            }
-        }
-    })
-    .map_err(err)?;
+        presenter.show().map_err(err)?;
+    }
     changed(&app);
     Ok(())
 }
@@ -374,7 +355,8 @@ fn stop_presentation(app: AppHandle, state: Shared) -> Result<(), String> {
     }
     for label in ["audience", "presenter"] {
         if let Some(w) = app.get_webview_window(label) {
-            let _ = w.close();
+            let _ = w.set_fullscreen(false);
+            let _ = w.hide();
         }
     }
     changed(&app);
@@ -416,6 +398,22 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(initial))
         .setup(move |app| {
+            // The presentation windows, hidden until "Present". Created here,
+            // at startup, like the editor window: on Windows a webview created
+            // later never loaded its page.
+            for (label, title) in [("audience", "decker — presentation"), ("presenter", "decker — presenter")] {
+                let built = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
+                    .title(title)
+                    .visible(false)
+                    .inner_size(960.0, 540.0)
+                    .on_page_load(|w, payload| {
+                        eprintln!("[decker] window {}: page load {:?} {}", w.label(), payload.event(), payload.url());
+                    })
+                    .build();
+                if let Err(e) = built {
+                    eprintln!("[decker] cannot create the {label} window: {e}");
+                }
+            }
             if let Some(mode) = present {
                 let handle = app.handle().clone();
                 let state = handle.state::<Mutex<AppState>>();
