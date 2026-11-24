@@ -308,49 +308,59 @@ fn start_presentation(app: AppHandle, state: Shared, with_presenter: Option<bool
     // window, to tell a page problem from a fullscreen painting problem.
     let windowed = std::env::var("DECKER_WINDOWED").map(|v| v == "1").unwrap_or(false);
     let audience_monitor = secondary.clone().or(primary.clone());
-    let mut audience = WebviewWindowBuilder::new(&app, "audience", WebviewUrl::App("index.html".into()))
-        .title("decker — presentation")
-        .decorations(windowed)
-        .focused(true)
-        .on_page_load(|w, payload| {
-            eprintln!("[decker] window {}: page load {:?} {}", w.label(), payload.event(), payload.url());
-        });
+    let open_presenter = secondary.is_some() || with_presenter == Some(true);
     eprintln!(
         "[decker] presenting: {} monitor(s), windowed={windowed}, audience on {:?}",
         monitors.len(),
         audience_monitor.as_ref().and_then(|m| m.name().cloned())
     );
-    if windowed {
-        audience = audience.inner_size(960.0, 540.0);
-    } else if let Some(m) = &audience_monitor {
-        let p = m.position();
-        let sz = m.size();
-        let scale = m.scale_factor();
-        audience = audience
-            .position(p.x as f64 / scale, p.y as f64 / scale)
-            .inner_size(sz.width as f64 / scale, sz.height as f64 / scale);
-    }
-    let audience = audience.build().map_err(err)?;
-    if !windowed {
-        let _ = audience.set_fullscreen(true);
-    }
 
-    if secondary.is_some() || with_presenter == Some(true) {
-        let mut presenter = WebviewWindowBuilder::new(&app, "presenter", WebviewUrl::App("index.html".into()))
-            .title("decker — presenter")
+    // Webviews are created on the main thread: WebView2 on Windows never
+    // loads a page in a webview created from a command's worker thread.
+    let handle = app.clone();
+    let monitor_rect = |m: &tauri::Monitor| {
+        let (p, sz, scale) = (m.position(), m.size(), m.scale_factor());
+        (p.x as f64 / scale, p.y as f64 / scale, sz.width as f64 / scale, sz.height as f64 / scale)
+    };
+    let audience_at = audience_monitor.as_ref().map(monitor_rect);
+    let presenter_at = primary.as_ref().map(monitor_rect);
+    app.run_on_main_thread(move || {
+        let mut audience = WebviewWindowBuilder::new(&handle, "audience", WebviewUrl::App("index.html".into()))
+            .title("decker — presentation")
+            .decorations(windowed)
+            .focused(true)
             .on_page_load(|w, payload| {
                 eprintln!("[decker] window {}: page load {:?} {}", w.label(), payload.event(), payload.url());
             });
-        if let Some(m) = &primary {
-            let p = m.position();
-            let sz = m.size();
-            let scale = m.scale_factor();
-            presenter = presenter
-                .position(p.x as f64 / scale + 40.0, p.y as f64 / scale + 40.0)
-                .inner_size((sz.width as f64 / scale - 80.0).max(600.0), (sz.height as f64 / scale - 120.0).max(400.0));
+        if windowed {
+            audience = audience.inner_size(960.0, 540.0);
+        } else if let Some((x, y, w, h)) = audience_at {
+            audience = audience.position(x, y).inner_size(w, h);
         }
-        presenter.build().map_err(err)?;
-    }
+        match audience.build() {
+            Ok(window) => {
+                if !windowed {
+                    let _ = window.set_fullscreen(true);
+                }
+            }
+            Err(e) => eprintln!("[decker] cannot open the presentation window: {e}"),
+        }
+        if open_presenter {
+            let mut presenter = WebviewWindowBuilder::new(&handle, "presenter", WebviewUrl::App("index.html".into()))
+                .title("decker — presenter")
+                .on_page_load(|w, payload| {
+                    eprintln!("[decker] window {}: page load {:?} {}", w.label(), payload.event(), payload.url());
+                });
+            if let Some((x, y, w, h)) = presenter_at {
+                presenter =
+                    presenter.position(x + 40.0, y + 40.0).inner_size((w - 80.0).max(600.0), (h - 120.0).max(400.0));
+            }
+            if let Err(e) = presenter.build() {
+                eprintln!("[decker] cannot open the presenter window: {e}");
+            }
+        }
+    })
+    .map_err(err)?;
     changed(&app);
     Ok(())
 }
