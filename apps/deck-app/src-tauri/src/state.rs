@@ -280,7 +280,7 @@ fn element_style_info(e: &Element) -> (Option<Color>, Option<Stroke>, Option<Col
         Element::Shape(s) => (s.fill, s.stroke, None, None),
         Element::Math(m) => (m.color, None, None, None),
         Element::Outline(o) => (o.color, None, o.highlight, Some(o.subsections)),
-        Element::Image(_) | Element::Media(_) | Element::Group(_) => (None, None, None, None),
+        Element::Image(_) | Element::Media(_) | Element::Figure(_) | Element::Group(_) => (None, None, None, None),
     }
 }
 
@@ -293,6 +293,15 @@ struct Snapshot {
 }
 
 const UNDO_LIMIT: usize = 200;
+
+/// The source a new figure starts with: a small plot, to edit.
+pub const SAMPLE_FIGURE: &str = r#"#import "@preview/cetz:0.5.2": canvas, draw
+#import "@preview/cetz-plot:0.1.4": plot
+#canvas({
+  plot.plot(size: (12, 6), x-label: [x], y-label: [y], {
+    plot.add(((0, 1), (1, 3), (2, 2), (3, 4)), mark: "o")
+  })
+})"#;
 
 /// What the app needs from an animated GIF: its frame count, length in
 /// seconds and first frame as PNG (the poster).
@@ -580,6 +589,7 @@ impl AppState {
                         Element::Text(_) => "text",
                         Element::Image(_) => "image",
                         Element::Media(_) => "media",
+                        Element::Figure(_) => "figure",
                         Element::Shape(_) => "shape",
                         Element::Math(_) => "math",
                         Element::Outline(_) => "outline",
@@ -593,6 +603,7 @@ impl AppState {
                         Element::Math(m) => m.source.clone(),
                         Element::Image(i) => i.src.clone(),
                         Element::Media(m) => m.src.clone(),
+                        Element::Figure(f) => f.source.clone(),
                         Element::Outline(_) => String::new(),
                         Element::Group(g) => format!("{} elements", g.children.len()),
                     },
@@ -602,7 +613,7 @@ impl AppState {
                         Element::Shape(s) => s.paragraphs.first().and_then(|p| p.runs.first()).and_then(|r| r.size),
                         Element::Math(m) => m.size,
                         Element::Outline(o) => o.size,
-                        Element::Image(_) | Element::Media(_) | Element::Group(_) => None,
+                        Element::Image(_) | Element::Media(_) | Element::Figure(_) | Element::Group(_) => None,
                     }
                     .unwrap_or(svg::DEFAULT_FONT_SIZE),
                     crop: if let Element::Image(i) = e { Some(i.crop) } else { None },
@@ -651,6 +662,7 @@ impl AppState {
                     Element::Text(_) => "text",
                     Element::Image(_) => "image",
                     Element::Media(_) => "media",
+                    Element::Figure(_) => "figure",
                     Element::Shape(_) => "shape",
                     Element::Math(_) => "math",
                     Element::Outline(_) => "outline",
@@ -663,6 +675,7 @@ impl AppState {
                     Element::Math(m) => m.source.clone(),
                     Element::Image(i) => i.src.clone(),
                     Element::Media(m) => m.src.clone(),
+                    Element::Figure(f) => f.source.clone(),
                     Element::Outline(_) => String::new(),
                     Element::Group(g) => format!("{} elements", g.children.len()),
                 },
@@ -1109,6 +1122,7 @@ impl AppState {
             Element::Text(t) => t.paragraphs = paragraphs(&t.paragraphs),
             Element::Shape(s) => s.paragraphs = paragraphs(&s.paragraphs),
             Element::Math(m) => m.source = text.to_string(),
+            Element::Figure(f) => f.source = text.to_string(),
             Element::Image(_) | Element::Media(_) => return Err("an image has no text".into()),
             Element::Outline(_) => return Err("the outline is computed from the sections".into()),
             Element::Group(_) => return Err("ungroup to edit the texts of a group".into()),
@@ -1485,7 +1499,9 @@ impl AppState {
                     m.sound = snd;
                 }
             }
-            Element::Image(_) | Element::Group(_) => return Err("select one element to style it".into()),
+            Element::Image(_) | Element::Figure(_) | Element::Group(_) => {
+                return Err("select one element to style it".into())
+            }
         }
         Ok(())
     }
@@ -1513,6 +1529,19 @@ impl AppState {
     }
 
     /// Adds an outline ("plan") element to the current slide.
+    /// Adds a figure with a sample CeTZ plot, to edit.
+    pub fn add_figure(&mut self) -> Result<(), String> {
+        self.touch_target();
+        let (w, h) = self.deck.as_ref().map(|d| (d.width, d.height)).ok_or("no deck")?;
+        let rect = Rect::new(w * 0.2, h * 0.2, w * 0.6, h * 0.6);
+        self.elements_mut()?.push(Element::Figure(deck_core::Figure {
+            rect,
+            source: SAMPLE_FIGURE.to_string(),
+            ..Default::default()
+        }));
+        Ok(())
+    }
+
     pub fn add_outline(&mut self) -> Result<(), String> {
         self.touch_target();
         let (w, h) = self.deck.as_ref().map(|d| (d.width, d.height)).ok_or("no deck")?;

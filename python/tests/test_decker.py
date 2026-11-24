@@ -49,6 +49,25 @@ class DeckTests(unittest.TestCase):
             self.assertEqual(len(dup.elements), len(back.slides[0].elements) - 1)
             json.dumps(back.data)
 
+    def test_plots_generate_cetz_source(self):
+        deck = decker.new("p")
+        s = deck.add_slide()
+        f = s.add_plot([1, 3, 2], decker.Series([4, 5], xs=[0, 2], label="b", mark="x", style="scatter"),
+                       x=0, y=0, w=400, h=300, xlabel="t", ylabel="$v$", title="Speed", ymin=0, grid=True)
+        self.assertEqual(f.kind, "figure")
+        src = f.text
+        self.assertIn('#import "@preview/cetz-plot:0.1.4": plot', src)
+        self.assertIn("plot.add(((0, 1), (1, 3), (2, 2),), mark: \"o\")", src)
+        self.assertIn('plot.add(((0, 4), (2, 5),), mark: "x", style: (stroke: none), label: [b])', src)
+        self.assertIn("x-label: [t], y-label: [$v$], legend: \"inner-north-east\", y-min: 0, x-grid: true", src)
+        self.assertTrue(src.startswith("#import") and "*Speed*" in src)
+        b = s.add_bars(["a", "b#"], {"2024": [1, 2], "2025": [2, 3]}, x=0, y=0, w=10, h=10, ylabel="n")
+        self.assertIn('plot.add-bar(((0, 1, 2), (1, 2, 3),), y-key: (1, 2,), mode: "clustered", labels: ([2024], [2025],), bar-width: 0.8)', b.text)
+        self.assertIn("x-ticks: ((0, [a]), (1, [b\\#]),)", b.text)
+        g = s.add_figure("#draw.circle((0,0))", 0, 0, 10, 10)
+        g.text = "x"
+        self.assertEqual(g.data["source"], "x")
+
     def test_macro_protocol(self):
         with tempfile.TemporaryDirectory() as tmp:
             deck = decker.new("m")

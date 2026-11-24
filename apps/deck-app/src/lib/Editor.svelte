@@ -609,6 +609,7 @@
     {:else if view?.slide_count}
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
       <button onclick={addMedia} title="A video or an animated GIF; images and clips can also be pasted or dropped">+ Video…</button>
+      <button onclick={() => run("Added figure", api.addFigure)} title="A Typst figure: CeTZ drawings and plots, edited as source in the panel">+ Figure</button>
       <button onclick={() => run("Added outline", api.addOutline)} title="The sections, the current one highlighted: a plan slide">+ Plan</button>
       {#if selection.length >= 2}<button onclick={groupSelection} title="Group the selected elements (Ctrl+G)">Group</button>{/if}
       {#if sel?.kind === "group"}<button onclick={ungroupSelection} title="Ungroup (Ctrl+Shift+G)">Ungroup</button>{/if}
@@ -754,9 +755,12 @@
           </label>
           <p class="muted">Slides fill this slot by name; "title" and "subtitle" map to PowerPoint's own placeholders.</p>
         {:else if sel.kind !== "image" && sel.kind !== "media"}
-          <label>{sel.kind === "math" ? "formula" : "text"}
-            <textarea rows="6" value={sel.text} onchange={(e) => api.setText(sel!.index, e.currentTarget.value)}></textarea>
+          <label>{sel.kind === "math" ? "formula" : sel.kind === "figure" ? "Typst source" : "text"}
+            <textarea rows={sel.kind === "figure" ? 12 : 6} class:code={sel.kind === "figure" || sel.kind === "math"} value={sel.text} onchange={(e) => api.setText(sel!.index, e.currentTarget.value)}></textarea>
           </label>
+          {#if sel.kind === "figure"}
+            <p class="muted">Any Typst markup, with <code>@preview/cetz:0.5.2</code> and <code>@preview/cetz-plot:0.1.4</code> bundled: <code>plot.add(points)</code>, <code>plot.add-bar</code>, <code>draw.line</code>… The page is as wide as the box and is scaled to fit it. A Python macro can generate it from data.</p>
+          {/if}
         {/if}
         {#if sel.kind !== "placeholder" && view.editing_layout === null}
           <h3>Build steps</h3>
@@ -911,6 +915,7 @@
   .layout-name { width: 160px; padding: 3px 6px; }
   .row { display: flex; gap: 6px; margin-top: 6px; }
   .macros { display: flex; flex-wrap: wrap; gap: 6px; }
+  textarea.code { font-family: ui-monospace, "DejaVu Sans Mono", monospace; font-size: 11px; white-space: pre; }
   .output { font-size: 11px; max-height: 160px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px; white-space: pre-wrap; margin: 6px 0 0; }
   .theme { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 12px; color: var(--muted); }
   .theme label { display: flex; align-items: center; gap: 4px; }

@@ -308,6 +308,8 @@ pub enum Element {
     Image(Image),
     /// A video or an animated GIF.
     Media(Media),
+    /// A figure: Typst markup (CeTZ drawings and plots included).
+    Figure(Figure),
     Shape(Shape),
     Math(MathBlock),
     /// The deck's sections, with the slide's own section highlighted: a
@@ -323,6 +325,7 @@ impl Element {
             Element::Text(t) => &t.rect,
             Element::Image(i) => &i.rect,
             Element::Media(m) => &m.rect,
+            Element::Figure(f) => &f.rect,
             Element::Shape(s) => &s.rect,
             Element::Math(m) => &m.rect,
             Element::Outline(o) => &o.rect,
@@ -335,6 +338,7 @@ impl Element {
             Element::Text(t) => &mut t.rect,
             Element::Image(i) => &mut i.rect,
             Element::Media(m) => &mut m.rect,
+            Element::Figure(f) => &mut f.rect,
             Element::Shape(s) => &mut s.rect,
             Element::Math(m) => &mut m.rect,
             Element::Outline(o) => &mut o.rect,
@@ -358,6 +362,7 @@ impl Element {
             Element::Text(t) => &t.steps,
             Element::Image(i) => &i.steps,
             Element::Media(m) => &m.steps,
+            Element::Figure(f) => &f.steps,
             Element::Shape(s) => &s.steps,
             Element::Math(m) => &m.steps,
             Element::Outline(o) => &o.steps,
@@ -370,6 +375,7 @@ impl Element {
             Element::Text(t) => &mut t.steps,
             Element::Image(i) => &mut i.steps,
             Element::Media(m) => &mut m.steps,
+            Element::Figure(f) => &mut f.steps,
             Element::Shape(s) => &mut s.steps,
             Element::Math(m) => &mut m.steps,
             Element::Outline(o) => &mut o.steps,
@@ -872,6 +878,17 @@ impl Media {
     pub fn is_gif(&self) -> bool {
         self.src.to_ascii_lowercase().ends_with(".gif")
     }
+}
+
+/// A figure typeset by Typst: any markup, with the bundled CeTZ packages
+/// for drawings and plots (`@preview/cetz`, `@preview/cetz-plot`). The
+/// page is as wide as the box; the result is scaled to fit the box.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Figure {
+    pub rect: Rect,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<Step>,
+    pub source: String,
 }
 
 /// When a media element starts playing.

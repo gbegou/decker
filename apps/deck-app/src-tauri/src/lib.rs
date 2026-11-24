@@ -492,6 +492,18 @@ fn ungroup_element(app: AppHandle, state: Shared, index: usize) -> Result<usize,
 }
 
 #[tauri::command]
+fn add_figure(app: AppHandle, state: Shared) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint("add_figure", false);
+        s.add_figure()?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+#[tauri::command]
 fn add_outline(app: AppHandle, state: Shared) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
@@ -925,6 +937,7 @@ pub fn run() {
             delete_layout,
             add_placeholder,
             add_outline,
+            add_figure,
             group_elements,
             set_steps,
             set_theme,

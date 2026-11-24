@@ -35,7 +35,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Iterator
 
-__all__ = ["Deck", "Slide", "Element", "Rect", "load", "new", "current", "VERSION"]
+__all__ = ["Deck", "Slide", "Element", "Rect", "Series", "load", "new", "current", "VERSION"]
 
 VERSION = 1
 
@@ -95,14 +95,14 @@ class Element:
     # ----- text
     @property
     def text(self) -> str:
-        """The plain text of a text box or shape (paragraphs joined by newlines), a formula's source."""
-        if self.kind == "math":
+        """The plain text of a text box or shape (paragraphs joined by newlines), a formula's or figure's source."""
+        if self.kind in ("math", "figure"):
             return self.data.get("source", "")
         return "\n".join("".join(r.get("text", "") for r in p.get("runs", [])) for p in self.data.get("paragraphs", []))
 
     @text.setter
     def text(self, value: str) -> None:
-        if self.kind == "math":
+        if self.kind in ("math", "figure"):
             self.data["source"] = value
             return
         if self.kind not in ("text", "shape"):
@@ -279,6 +279,44 @@ class Slide:
             e["sound"] = True
         return self.add(e)
 
+    def add_figure(self, source: str, x: float, y: float, w: float, h: float) -> Element:
+        """A Typst figure: any markup, with ``@preview/cetz:0.5.2`` and ``@preview/cetz-plot:0.1.4`` bundled."""
+        return self.add({"type": "figure", "rect": _rect(x, y, w, h), "source": source})
+
+    def add_plot(self, *series: "Series | list | tuple", x: float, y: float, w: float, h: float,
+                 xlabel: str = "", ylabel: str = "", title: str = "", legend: str | None = "inner-north-east",
+                 xmin: float | None = None, xmax: float | None = None, ymin: float | None = None, ymax: float | None = None,
+                 size: tuple[float, float] = (12, 6), grid: bool = False) -> Element:
+        """A line or scatter plot of one or more series, as a figure.
+
+        A series is ``Series(ys, xs=None, label=, mark=, style=)`` or just a list of
+        ``y`` values (``x`` = 0, 1, 2…) or of ``(x, y)`` pairs. ``mark`` is ``"o"``,
+        ``"x"``, ``"+"``, ``"*"`` or ``None``; ``style`` is ``line``, ``scatter`` or ``bars``.
+        Labels take Typst markup (``$x$`` for math).
+        """
+        body = "".join(_series_code(s) for s in series)
+        return self.add_figure(_plot_source(body, xlabel, ylabel, title, legend, xmin, xmax, ymin, ymax, size, grid), x, y, w, h)
+
+    def add_bars(self, labels: list[str], values: "list[float] | dict[str, list[float]]", *, x: float, y: float,
+                 w: float, h: float, ylabel: str = "", title: str = "", size: tuple[float, float] = (12, 6)) -> Element:
+        """A bar chart: one value per label, or a dict of named series (grouped bars)."""
+        groups = values if isinstance(values, dict) else {"": list(values)}
+        names = list(groups)
+        rows = []
+        for i in range(len(labels)):
+            ys = ", ".join(f"{float(groups[nm][i]):g}" if i < len(groups[nm]) else "0" for nm in names)
+            rows.append(f"({i}, {ys})")
+        keys = ", ".join(str(k + 1) for k in range(len(names)))
+        if len(names) > 1:
+            series_labels = ", ".join(f"[{_typst_text(nm)}]" for nm in names)
+            body = f"    plot.add-bar(({', '.join(rows)},), y-key: ({keys},), mode: \"clustered\", labels: ({series_labels},), bar-width: 0.8)\n"
+        else:
+            body = f"    plot.add-bar(({', '.join(rows)},), bar-width: 0.6)\n"
+        ticks = ", ".join(f"({i}, [{_typst_text(lab)}])" for i, lab in enumerate(labels))
+        extra = f"x-tick-step: none, x-ticks: ({ticks},), x-min: -0.6, x-max: {len(labels) - 0.4:g}, y-min: 0, "
+        return self.add_figure(_plot_source(body, "", ylabel, title, "inner-north-east" if len(names) > 1 else None,
+                                            None, None, None, None, size, False, extra), x, y, w, h)
+
     def add_outline(self, x: float, y: float, w: float, h: float, *, size: float | None = None) -> Element:
         """The plan: the deck's sections with this slide's own highlighted."""
         e: dict[str, Any] = {"type": "outline", "rect": _rect(x, y, w, h)}
@@ -414,6 +452,64 @@ class Deck:
 
     def __repr__(self) -> str:
         return f"Deck({self.title!r}, {len(self)} slides)"
+
+
+class Series:
+    """One series of a plot: ``ys`` (with ``xs``, or ``(x, y)`` pairs), a legend label, a mark and a style."""
+
+    def __init__(self, ys: "list", xs: "list | None" = None, *, label: str = "", mark: str | None = "o", style: str = "line"):
+        if xs is not None:
+            self.points = [(float(a), float(b)) for a, b in zip(xs, ys)]
+        elif ys and isinstance(ys[0], (tuple, list)):
+            self.points = [(float(a), float(b)) for a, b in ys]
+        else:
+            self.points = [(float(i), float(v)) for i, v in enumerate(ys)]
+        self.label, self.mark, self.style = label, mark, style
+
+
+def _series_code(s: "Series | list | tuple") -> str:
+    if not isinstance(s, Series):
+        s = Series(list(s))
+    pts = "(" + ", ".join(f"({a:g}, {b:g})" for a, b in s.points) + ",)"
+    label = f", label: [{s.label}]" if s.label else ""
+    if s.style == "bars":
+        labels = f", labels: ([{s.label}],)" if s.label else ""
+        return f"    plot.add-bar({pts}, bar-width: 0.6{labels})\n"
+    mark = f', mark: "{s.mark}"' if s.mark else ""
+    line = ", style: (stroke: none)" if s.style == "scatter" else ""
+    return f"    plot.add({pts}{mark}{line}{label})\n"
+
+
+def _plot_source(body: str, xlabel: str, ylabel: str, title: str, legend: str | None, xmin, xmax, ymin, ymax,
+                 size: tuple[float, float], grid: bool, extra: str = "") -> str:
+    opts = f"size: ({size[0]:g}, {size[1]:g}), "
+    if xlabel:
+        opts += f"x-label: [{xlabel}], "
+    if ylabel:
+        opts += f"y-label: [{ylabel}], "
+    if legend:
+        opts += f'legend: "{legend}", '
+    for name, v in (("x-min", xmin), ("x-max", xmax), ("y-min", ymin), ("y-max", ymax)):
+        if v is not None:
+            opts += f"{name}: {float(v):g}, "
+    if grid:
+        opts += "x-grid: true, y-grid: true, "
+    opts += extra
+    head = f"#align(center)[*{title}*]\n" if title else ""
+    return (
+        '#import "@preview/cetz:0.5.2": canvas, draw\n'
+        '#import "@preview/cetz-plot:0.1.4": plot\n'
+        f"{head}#canvas({{\n  plot.plot({opts}{{\n{body}  }})\n}})\n"
+    )
+
+
+def _typst_text(s: str) -> str:
+    out = ""
+    for c in str(s):
+        if c in "\\#*_`$<>@[]~":
+            out += "\\"
+        out += c
+    return out
 
 
 def _rect(x: float, y: float, w: float, h: float) -> dict:

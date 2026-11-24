@@ -1,3 +1,5 @@
 /target
 *.deck/
 !tests/fixtures/*.deck/
+__pycache__/
+*.pyc

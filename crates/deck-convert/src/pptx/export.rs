@@ -482,6 +482,24 @@ fn write_element(
                 tx_body(&[p])
             );
         }
+        Element::Figure(f) => {
+            // The figure's source, as a text box; PowerPoint cannot run Typst.
+            warnings.push(format!("{where_}: figure exported as its Typst source"));
+            let text = deck_core::TextBox::plain(f.rect, &f.source);
+            return write_element(
+                part,
+                media_count,
+                add,
+                deck_dir,
+                deck,
+                slide_index,
+                &Element::Text(text),
+                id,
+                ph,
+                where_,
+                warnings,
+            );
+        }
         Element::Media(m) => {
             // PowerPoint gets the poster as a picture; the clip itself is not embedded.
             warnings.push(format!("{where_}: video {} exported as its poster picture", m.src));

@@ -33,6 +33,26 @@ The model is thin: `deck.data`, `slide.data` and `element.data` are the JSON dic
 anything the helpers do not cover can be set directly, following the format chapter.
 `decker.load("talk.deck")` reads a deck, `deck.save()` writes it back.
 
+## Charts from data
+
+`add_plot` and `add_bars` write a [CeTZ figure](math.md#figures-drawings-and-plots-with-cetz)
+from Python values; the result stays an editable Typst source on the slide.
+
+```python
+s = deck.add_slide()
+s.add_plot([1, 3, 2, 4],                                   # y values, x = 0, 1, 2…
+           decker.Series([4, 5, 6], xs=[0, 1.5, 3], label="measured", mark="x", style="scatter"),
+           x=60, y=100, w=600, h=350, xlabel="time (s)", ylabel="$v$", title="Speed", ymin=0, grid=True)
+s.add_bars(["Q1", "Q2", "Q3"], {"2024": [3, 4, 5], "2025": [4, 5, 6]},
+           x=60, y=100, w=600, h=350, ylabel="revenue")
+s.add_figure("#import \"@preview/cetz:0.5.2\": canvas, draw\n#canvas({ draw.circle((0, 0)) })", 700, 100, 200, 200)
+```
+
+A `Series` takes `ys` with optional `xs` (or a list of `(x, y)` pairs), a legend `label`, a
+`mark` (`o`, `x`, `+`, `*`, `None`) and a `style` (`line`, `scatter`, `bars`). Labels and
+titles accept Typst markup. For anything else, write the Typst source yourself with
+`add_figure`, or produce an SVG with matplotlib and `add_image` it.
+
 ## Macros: scripts run from the editor
 
 The **Macros** section of the right panel lists the `.py` files of the deck's `scripts/`
@@ -66,7 +86,8 @@ application; `DECKER_PYTHONPATH` overrides where it is looked for.
 |---|---|
 | `decker` | `new(title, width, height)`, `load(path)`, `current()` |
 | `Deck` | `title`, `width`, `height`, `slides`, `slide`, `layouts`, `theme`, `add_slide(layout=, at=, section=, subsection=)`, `layout(name)`, `add_asset(path)`, `save(path=)`, `commit()`, `discard()` |
-| `Slide` | `index`, `elements`, `selected`, `layout`, `section`, `subsection`, `notes`, `background`, `add_text(...)`, `add_math(...)`, `add_shape(kind, ...)`, `add_image(path, x, y, w=, h=)`, `add_video(path, ..., play=, loop=, sound=)`, `add_outline(...)`, `add(dict)`, `duplicate()`, `remove()` |
+| `Slide` | `index`, `elements`, `selected`, `layout`, `section`, `subsection`, `notes`, `background`, `add_text(...)`, `add_math(...)`, `add_shape(kind, ...)`, `add_image(path, x, y, w=, h=)`, `add_video(path, ..., play=, loop=, sound=)`, `add_figure(source, ...)`, `add_plot(*series, ...)`, `add_bars(labels, values, ...)`, `add_outline(...)`, `add(dict)`, `duplicate()`, `remove()` |
+| `Series` | `Series(ys, xs=None, label=, mark=, style=)` |
 | `Element` | `kind`, `rect` (`x`, `y`, `w`, `h`, `move(dx, dy)`), `text`, `style(bold=, italic=, size=, color=, font=)`, `steps`, `appear(at)`, `disappear(at)`, `move_to(at, x=, y=, w=, h=)`, `remove()`, `data` |
 
 Sizes are in points on a 960 × 540 slide; colors are `"#RRGGBB"`; `align` is `left`,

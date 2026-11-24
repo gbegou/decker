@@ -33,6 +33,23 @@ pub trait MathRenderer {
     /// Renders Typst math `source` with the deck's `preamble` in scope.
     fn render_math(&self, preamble: &str, source: &str, size: f64, color: Color) -> Option<MathImage>;
 
+    /// Typesets a figure's Typst source on a page `width` wide, height
+    /// following the content; `None` draws a placeholder.
+    fn render_figure(
+        &self,
+        _preamble: &str,
+        _source: &str,
+        _width: f64,
+        _defaults: &TextDefaults,
+    ) -> Option<MathImage> {
+        None
+    }
+
+    /// Why a figure does not render, when it does not.
+    fn figure_error(&self, _preamble: &str, _source: &str, _width: f64, _defaults: &TextDefaults) -> Option<String> {
+        None
+    }
+
     /// Typesets paragraphs in a column `width` points wide, `defaults`
     /// giving the font, size and color of runs that set none. The result's
     /// height is the text's natural height; `None` falls back to the
@@ -202,6 +219,7 @@ fn element_body(out: &mut String, ctx: &Ctx, element: &Element, step: u32, index
                 text_body(out, r, &s.paragraphs, &deck.math_preamble, math, defaults);
             }
             Element::Math(m) => math_body(out, r, m, &deck.math_preamble, math, defaults),
+            Element::Figure(f) => figure_body(out, r, f, &deck.math_preamble, math, defaults),
             Element::Group(g) => {
                 // The group's movement and scaling at this step, as a transform
                 // of the children drawn at their base positions.
@@ -415,6 +433,51 @@ fn math_body(
         fmt(r.y + r.h / 2.0),
         fmt(size),
         escape(&m.source)
+    );
+}
+
+/// A figure: its typeset page, as wide as the box, scaled down to fit the
+/// box's height; without a typesetter, or on an error, a dashed box
+/// with the message.
+fn figure_body(
+    out: &mut String,
+    r: &Rect,
+    f: &Figure,
+    preamble: &str,
+    math: &dyn MathRenderer,
+    defaults: &TextDefaults,
+) {
+    if let Some(img) = math.render_figure(preamble, &f.source, r.w.max(1.0), defaults) {
+        if img.width > 0.0 && img.height > 0.0 {
+            let scale = (r.w / img.width).min(r.h / img.height).min(1.0);
+            let (w, h) = (img.width * scale, img.height * scale);
+            let _ = write!(
+                out,
+                r#"<svg x="{}" y="{}" width="{}" height="{}" viewBox="0 0 {} {}" data-figure="rendered">{}</svg>"#,
+                fmt(r.x + (r.w - w) / 2.0),
+                fmt(r.y + (r.h - h) / 2.0),
+                fmt(w),
+                fmt(h),
+                fmt(img.width),
+                fmt(img.height),
+                img.content
+            );
+            return;
+        }
+    }
+    let message = math
+        .figure_error(preamble, &f.source, r.w.max(1.0), defaults)
+        .unwrap_or_else(|| "figure (needs the Typst engine)".to_string());
+    let _ = write!(
+        out,
+        r##"<rect x="{}" y="{}" width="{}" height="{}" fill="#FFF6F6" stroke="#C06060" stroke-dasharray="6 4"/><text x="{}" y="{}" font-size="12" font-family="monospace" fill="#A04040" text-anchor="middle" dominant-baseline="middle" data-figure="error">{}</text>"##,
+        fmt(r.x),
+        fmt(r.y),
+        fmt(r.w),
+        fmt(r.h),
+        fmt(r.x + r.w / 2.0),
+        fmt(r.y + r.h / 2.0),
+        escape(message.lines().next().unwrap_or("").chars().take(80).collect::<String>().as_str())
     );
 }
 
