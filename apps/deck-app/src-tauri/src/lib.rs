@@ -79,15 +79,88 @@ fn new_deck(app: AppHandle, state: Shared) -> Result<View, String> {
 #[tauri::command]
 fn save(state: Shared, path: Option<String>) -> Result<String, String> {
     let mut s = state.lock().map_err(err)?;
-    if let Some(p) = path {
-        s.dir = PathBuf::from(p);
-    }
-    if s.dir.as_os_str().is_empty() {
+    let dst = path.map(PathBuf::from).unwrap_or_else(|| s.dir.clone());
+    if dst.as_os_str().is_empty() {
         return Err("no file name: use Save as".into());
     }
-    let deck = s.deck.as_ref().ok_or("no deck open")?;
-    deck_core::native::save(deck, &s.dir).map_err(err)?;
-    Ok(s.dir.display().to_string())
+    let deck = s.deck.take().ok_or("no deck open")?;
+    // Saving elsewhere copies the images, fonts and Typst files along.
+    let saved = deck_core::transfer::save_as(&deck, &s.dir, &dst);
+    match saved {
+        Ok(d) => {
+            s.deck = Some(d);
+            s.dir = dst;
+            Ok(s.dir.display().to_string())
+        }
+        Err(e) => {
+            s.deck = Some(deck);
+            Err(err(e))
+        }
+    }
+}
+
+/// Adds an image from pasted bytes (base64) to the current slide.
+#[tauri::command]
+fn add_image(
+    app: AppHandle,
+    state: Shared,
+    name: String,
+    data: String,
+    x: Option<f64>,
+    y: Option<f64>,
+) -> Result<usize, String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data.as_bytes()).map_err(err)?;
+    let index = state.lock().map_err(err)?.add_image(&name, &bytes, x.zip(y))?;
+    edited(&app);
+    Ok(index)
+}
+
+/// Adds the image on the system clipboard, when there is one: the
+/// fallback for a paste event the web view hands no image to (WebKitGTK).
+#[tauri::command]
+fn paste_image(app: AppHandle, state: Shared) -> Result<Option<usize>, String> {
+    let Some(png) = clipboard_png()? else { return Ok(None) };
+    let index = state.lock().map_err(err)?.add_image("pasted.png", &png, None)?;
+    edited(&app);
+    Ok(Some(index))
+}
+
+/// The clipboard's image as PNG bytes, `None` when it holds none.
+fn clipboard_png() -> Result<Option<Vec<u8>>, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(err)?;
+    let image = match clipboard.get_image() {
+        Ok(i) => i,
+        Err(arboard::Error::ContentNotAvailable) => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+    };
+    let (w, h) = (u32::try_from(image.width).map_err(err)?, u32::try_from(image.height).map_err(err)?);
+    let mut out = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut out, w, h);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().map_err(err)?;
+        writer.write_image_data(&image.bytes).map_err(err)?;
+    }
+    Ok(Some(out))
+}
+
+/// Adds an image from a file dropped on the editor.
+#[tauri::command]
+fn add_image_file(
+    app: AppHandle,
+    state: Shared,
+    path: String,
+    x: Option<f64>,
+    y: Option<f64>,
+) -> Result<usize, String> {
+    let p = PathBuf::from(&path);
+    let bytes = std::fs::read(&p).map_err(err)?;
+    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("image.png");
+    let index = state.lock().map_err(err)?.add_image(name, &bytes, x.zip(y))?;
+    edited(&app);
+    Ok(index)
 }
 
 #[tauri::command]
@@ -703,6 +776,9 @@ pub fn run() {
             peek_deck,
             import_slides,
             add_text,
+            add_image,
+            add_image_file,
+            paste_image,
             delete_element,
             start_presentation,
             stop_presentation,

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+  import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { api, watchView, watchThumbnails, presentationKeys, type View, type Rect, type Crop, type Mask, type TextLayout } from "./api";
   import SlideView from "./SlideView.svelte";
   import StyleBar from "./StyleBar.svelte";
@@ -30,15 +31,82 @@
       editingLayout = v.editing_layout;
     });
     const stopThumbs = watchThumbnails((t) => (thumbnails = t));
-    return () => { stopView(); stopThumbs(); };
+    // Files dragged from the desktop: the OS hands their paths to the window.
+    let stopDrop = () => {};
+    getCurrentWebview().onDragDropEvent((e) => {
+      const p = e.payload;
+      if (p.type === "enter" || p.type === "over") dropHover = true;
+      else if (p.type === "leave") dropHover = false;
+      else if (p.type === "drop") {
+        dropHover = false;
+        const ratio = window.devicePixelRatio || 1;
+        const at = pointOnSlide(p.position.x / ratio, p.position.y / ratio);
+        for (const path of p.paths.filter((f) => IMAGE_FILE.test(f))) {
+          enqueue(() => run("Image added", () => api.addImageFile(path, at?.x, at?.y)).then(selectAdded));
+        }
+      }
+    }).then((stop) => (stopDrop = stop));
+    return () => { stopView(); stopThumbs(); stopDrop(); };
   });
 
-  async function run(label: string, f: () => Promise<unknown>) {
+  const IMAGE_FILE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+  let dropHover = $state(false);
+
+  /** Slide coordinates of a point in CSS pixels of the window, when it is over the canvas. */
+  function pointOnSlide(cx: number, cy: number): { x: number; y: number } | undefined {
+    if (!canvas || !view) return undefined;
+    const r = canvas.getBoundingClientRect();
+    if (cx < r.left || cx > r.right || cy < r.top || cy > r.bottom) return undefined;
+    return { x: ((cx - r.left) / r.width) * view.width, y: ((cy - r.top) / r.height) * view.height };
+  }
+
+  /** Selects the element an add command returned the index of. */
+  function selectAdded(index: unknown) {
+    if (typeof index === "number") { editing = null; selected = index; also = []; }
+  }
+
+  /** Paste: an image from the clipboard becomes an element; text goes to the box being edited. */
+  function onPaste(e: ClipboardEvent) {
+    const target = e.target as HTMLElement | null;
+    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+    const data = e.clipboardData;
+    if (!data || !view?.slide_count) return;
+    const image = Array.from(data.items).find((i) => i.type.startsWith("image/"))?.getAsFile();
+    const text = data.getData("text/plain");
+    if (!image && !text) {
+      // Some web views hand the page no image (WebKitGTK): read the
+      // system clipboard from the Rust side instead.
+      e.preventDefault();
+      enqueue(() => run("Image pasted", api.pasteImage).then((i) => { if (i === null) status = "Nothing to paste"; else selectAdded(i); }));
+      return;
+    }
+    if (image) {
+      e.preventDefault();
+      const ext = image.type.split("/")[1]?.replace("jpeg", "jpg") || "png";
+      const name = image.name && image.name !== "image.png" ? image.name : `pasted.${ext}`;
+      image.arrayBuffer().then((buf) => {
+        let bin = "";
+        const bytes = new Uint8Array(buf);
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        enqueue(() => run("Image pasted", () => api.addImage(name, btoa(bin))).then(selectAdded));
+      });
+      return;
+    }
+    if (text && editing) {
+      e.preventDefault();
+      const ed = editing;
+      enqueue(() => applyEdit(Math.min(ed.caret, ed.anchor), Math.max(ed.caret, ed.anchor), text));
+    }
+  }
+
+  async function run<T>(label: string, f: () => Promise<T>): Promise<T | undefined> {
     try {
-      await f();
+      const result = await f();
       status = label;
+      return result;
     } catch (e) {
       status = `${label}: ${e}`;
+      return undefined;
     }
   }
 
@@ -456,7 +524,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKey} onpaste={onPaste} />
 
 <div class="editor">
   <header>
@@ -537,7 +605,7 @@
       <div class="canvas-wrap">
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div class="canvas" bind:this={canvas} style="aspect-ratio: {view.width} / {view.height}"
+        <div class="canvas" class:drop-hover={dropHover} bind:this={canvas} style="aspect-ratio: {view.width} / {view.height}"
              onpointermove={moveDrag} onpointerup={endDrag}
              onclick={(e) => { if ((e.target as Element).closest(".hit, .handle, .text-editing")) return; selected = null; also = []; editing = null; }}>
           <SlideView svg={view.svg} width={view.width} height={view.height} />
@@ -783,6 +851,7 @@
   main { grid-area: main; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
   .canvas-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 16px; min-height: 0; }
   .canvas { position: relative; width: 100%; max-height: 100%; box-shadow: 0 4px 24px rgba(0,0,0,0.5); }
+  .canvas.drop-hover { outline: 3px dashed var(--accent); outline-offset: 4px; }
   .overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
   .hit { fill: transparent; stroke: transparent; stroke-width: 1; cursor: move; }
   .hit:hover { stroke: var(--accent); stroke-dasharray: 4 2; }

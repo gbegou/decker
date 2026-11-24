@@ -93,6 +93,11 @@ Two environment variables help scripts and tests:
 - **?** in the toolbar, or F1, lists every command and key. For an image it offers the crop: a shape to clip to
   (rectangle, ellipse, rounded rectangle with its corner radius) and the percentage cut off
   each edge; the kept part fills the box.
+- Images: paste one from the clipboard (Ctrl+V, a screenshot for instance) or drop image
+  files from the file manager onto the canvas, where they land centered under the cursor
+  at their pixel size, scaled down to fit half the slide (tiny icons are scaled up). The file is copied into the
+  deck's `assets/` folder. An unsaved deck keeps it in a temporary folder until **Save as**
+  moves everything to the chosen one. Pasting text while editing a box inserts it.
 - **+ Text**, **+ Slide**, **Duplicate** and **− Slide** do what they say; a new slide starts
   from the current slide's [layout](layouts.md). **Insert from deck…** copies slides from
   another deck. Page Up and Page Down change slide.

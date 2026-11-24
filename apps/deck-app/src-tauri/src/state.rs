@@ -1064,6 +1064,47 @@ impl AppState {
         Ok(())
     }
 
+    /// Adds `bytes` as an image of the current slide or layout, named
+    /// after `name` (its extension gives the format), centered at `at`
+    /// in slide points, else at the slide's center. The box is the
+    /// image's pixel size, scaled down to fit half the slide. Returns the
+    /// new element's index. A deck that has no folder yet gets a
+    /// temporary one, which "Save as" copies.
+    pub fn add_image(&mut self, name: &str, bytes: &[u8], at: Option<(f64, f64)>) -> Result<usize, String> {
+        if self.deck.is_none() {
+            return Err("no deck".into());
+        }
+        if self.dir.as_os_str().is_empty() {
+            let dir = std::env::temp_dir().join(format!("decker-untitled-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            self.dir = dir;
+        }
+        let ext = Path::new(name).extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
+        let name = match ext.as_deref() {
+            Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg") => name.to_string(),
+            _ => format!("{}.png", Path::new(name).file_stem().and_then(|s| s.to_str()).unwrap_or("image")),
+        };
+        let src = transfer::add_image(&self.dir, &name, bytes).map_err(|e| e.to_string())?;
+        self.touch_target();
+        let (sw, sh) = self.deck.as_ref().map(|d| (d.width, d.height)).ok_or("no deck")?;
+        let (pw, ph) =
+            transfer::image_size(bytes).map(|(w, h)| (f64::from(w), f64::from(h))).unwrap_or((sw * 0.4, sh * 0.4));
+        // Pixel size on the slide, scaled down to fit half of it, or up
+        // so that a tiny image (an icon) is still visible.
+        let scale = if pw < sw * 0.1 && ph < sh * 0.1 {
+            (sw * 0.2 / pw).min(sh * 0.2 / ph)
+        } else {
+            (sw * 0.5 / pw).min(sh * 0.5 / ph).min(1.0)
+        };
+        let (w, h) = (pw * scale, ph * scale);
+        let (cx, cy) = at.unwrap_or((sw / 2.0, sh / 2.0));
+        let rect =
+            Rect::new((cx - w / 2.0).clamp(0.0, (sw - w).max(0.0)), (cy - h / 2.0).clamp(0.0, (sh - h).max(0.0)), w, h);
+        let elements = self.elements_mut()?;
+        elements.push(Element::Image(deck_core::Image { rect, src, ..Default::default() }));
+        Ok(elements.len() - 1)
+    }
+
     pub fn add_text(&mut self) -> Result<(), String> {
         self.touch_target();
         let (w, h) = self.deck.as_ref().map(|d| (d.width, d.height)).ok_or("no deck")?;

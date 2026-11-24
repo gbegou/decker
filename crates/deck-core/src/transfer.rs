@@ -131,6 +131,47 @@ impl<'a> AssetCopier<'a> {
     }
 }
 
+/// Saves `deck` under `dst_dir`, bringing its images, `typst/` and `fonts/`
+/// files along when it was loaded from another folder (`src_dir`, empty
+/// for a deck that never had one). Returns the deck as saved (image
+/// paths may change).
+pub fn save_as(deck: &Deck, src_dir: &Path, dst_dir: &Path) -> Result<Deck, NativeError> {
+    if src_dir == dst_dir {
+        native::save(deck, dst_dir)?;
+        return Ok(deck.clone());
+    }
+    let mut copy = deck.clone();
+    std::fs::create_dir_all(dst_dir).map_err(|source| NativeError::Io { path: dst_dir.to_path_buf(), source })?;
+    if !src_dir.as_os_str().is_empty() {
+        let mut assets = AssetCopier::new(src_dir, dst_dir);
+        for e in copy.slides.iter_mut().flat_map(|s| s.elements.iter_mut()) {
+            assets.remap(e)?;
+        }
+        for e in copy.layouts.iter_mut().flat_map(|l| l.elements.iter_mut()) {
+            assets.remap(e)?;
+        }
+        for sub in ["typst", "fonts"] {
+            let from = src_dir.join(sub);
+            let Ok(entries) = std::fs::read_dir(&from) else { continue };
+            let to = dst_dir.join(sub);
+            std::fs::create_dir_all(&to).map_err(|source| NativeError::Io { path: to.clone(), source })?;
+            for entry in entries.flatten().filter(|e| e.path().is_file()) {
+                let target = to.join(entry.file_name());
+                std::fs::copy(entry.path(), &target).map_err(|source| NativeError::Io { path: target, source })?;
+            }
+        }
+    }
+    native::save(&copy, dst_dir)?;
+    Ok(copy)
+}
+
+/// Adds `bytes` to the deck's assets as `name` (made unique) and returns
+/// the deck-relative path.
+pub fn add_image(dst_dir: &Path, name: &str, bytes: &[u8]) -> Result<String, NativeError> {
+    let name = free_name(dst_dir, Path::new(name));
+    native::add_asset(dst_dir, &name, bytes)
+}
+
 /// `stem.ext`, or `stem-2.ext`, `stem-3.ext`… if taken in the assets folder.
 fn free_name(dst_dir: &Path, src: &Path) -> String {
     let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "asset".into());
@@ -143,6 +184,55 @@ fn free_name(dst_dir: &Path, src: &Path) -> String {
         name = format!("{stem}-{n}{ext}");
     }
     name
+}
+
+/// The pixel size of a PNG, JPEG, GIF or WebP image from its header.
+pub fn image_size(bytes: &[u8]) -> Option<(u32, u32)> {
+    let be32 = |i: usize| bytes.get(i..i + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
+    let be16 = |i: usize| bytes.get(i..i + 2).map(|b| u32::from(u16::from_be_bytes([b[0], b[1]])));
+    let le16 = |i: usize| bytes.get(i..i + 2).map(|b| u32::from(u16::from_le_bytes([b[0], b[1]])));
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some((be32(16)?, be32(20)?));
+    }
+    if bytes.starts_with(b"GIF8") {
+        return Some((le16(6)?, le16(8)?));
+    }
+    if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        return match bytes.get(12..16)? {
+            b"VP8 " => Some((le16(26)? & 0x3FFF, le16(28)? & 0x3FFF)),
+            b"VP8L" => {
+                let b = bytes.get(21..25)?;
+                let bits = u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+                Some(((bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1))
+            }
+            b"VP8X" => {
+                let w = bytes.get(24..27)?;
+                let h = bytes.get(27..30)?;
+                Some((u32::from_le_bytes([w[0], w[1], w[2], 0]) + 1, u32::from_le_bytes([h[0], h[1], h[2], 0]) + 1))
+            }
+            _ => None,
+        };
+    }
+    if bytes.starts_with(&[0xFF, 0xD8]) {
+        // JPEG: walk the segments to the first start-of-frame.
+        let mut i = 2;
+        while i + 9 < bytes.len() {
+            if bytes[i] != 0xFF {
+                return None;
+            }
+            let marker = bytes[i + 1];
+            if marker == 0xFF {
+                i += 1;
+                continue;
+            }
+            let len = be16(i + 2)? as usize;
+            if (0xC0..=0xCF).contains(&marker) && !matches!(marker, 0xC4 | 0xC8 | 0xCC) {
+                return Some((be16(i + 7)?, be16(i + 5)?));
+            }
+            i += 2 + len;
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -218,5 +308,41 @@ mod tests {
         assert_eq!(pic.src, "assets/image2.png");
         assert_eq!(std::fs::read(dst_dir.join(&pic.src)).unwrap(), b"pic");
         std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[test]
+    fn save_as_brings_assets_and_sniffs_sizes() {
+        let base = std::env::temp_dir().join(format!("decker-saveas-{}", std::process::id()));
+        let (a, b) = (base.join("a.deck"), base.join("b.deck"));
+        let _ = std::fs::remove_dir_all(&base);
+        let mut deck = Deck::new("t");
+        let png = [
+            0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n', 0, 0, 0, 13, b'I', b'H', b'D', b'R', 0, 0, 1, 0, 0, 0,
+            0, 0x40,
+        ];
+        assert_eq!(image_size(&png), Some((256, 64)));
+        assert_eq!(image_size(b"GIF89a\x10\x00\x20\x00"), Some((16, 32)));
+        let jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0, 2, 0xFF, 0xC0, 0, 11, 8, 0, 100, 0, 200, 3, 0, 0, 0, 0, 0];
+        assert_eq!(image_size(&jpeg), Some((200, 100)));
+        assert_eq!(image_size(b"nope"), None);
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(a.join("fonts")).unwrap();
+        std::fs::write(a.join("fonts/x.ttf"), b"f").unwrap();
+        let src = add_image(&a, "shot.png", &png).unwrap();
+        assert_eq!(src, "assets/shot.png");
+        assert_eq!(add_image(&a, "shot.png", &png).unwrap(), "assets/shot-2.png");
+        deck.slides.push(Slide {
+            elements: vec![Element::Image(Image { rect: Rect::new(0.0, 0.0, 10.0, 10.0), src, ..Default::default() })],
+            ..Default::default()
+        });
+        let saved = save_as(&deck, &a, &b).unwrap();
+        assert!(b.join("assets/shot.png").is_file());
+        assert!(b.join("fonts/x.ttf").is_file());
+        assert_eq!(native::load(&b).unwrap(), saved);
+        // A deck without a folder yet saves without copying anything.
+        let c = base.join("c.deck");
+        save_as(&Deck::new("n"), Path::new(""), &c).unwrap();
+        assert!(c.join("deck.json").is_file());
+        std::fs::remove_dir_all(&base).unwrap();
     }
 }

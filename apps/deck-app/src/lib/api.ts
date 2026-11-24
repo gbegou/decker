@@ -137,6 +137,13 @@ export const api = {
   peekDeck: (path: string) => invoke<string[]>("peek_deck", { path }),
   importSlides: (path: string, indices: number[]) => invoke<View>("import_slides", { path, indices }),
   addText: () => invoke<View>("add_text"),
+  /** Adds an image from bytes (base64), centered at (x, y) in slide points when given; returns its index. */
+  addImage: (name: string, data: string, x?: number, y?: number) =>
+    invoke<number>("add_image", { name, data, x: x ?? null, y: y ?? null }),
+  /** Adds the system clipboard's image, if any; returns its index. */
+  pasteImage: () => invoke<number | null>("paste_image"),
+  /** Adds an image from a file on disk (a drop); returns its index. */
+  addImageFile: (path: string, x?: number, y?: number) => invoke<number>("add_image_file", { path, x: x ?? null, y: y ?? null }),
   deleteElement: (element: number) => invoke<View>("delete_element", { element }),
   startPresentation: (withPresenter = false) => invoke<void>("start_presentation", { withPresenter }),
   stopPresentation: () => invoke<void>("stop_presentation"),

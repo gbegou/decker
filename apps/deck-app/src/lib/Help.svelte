@@ -18,6 +18,7 @@
       ["Click · Shift+click", "Select; add to the selection; drag to move; corner handle to resize; Delete to remove"],
       ["Group · Ungroup (Ctrl+G · Ctrl+Shift+G)", "Several elements become one, moved, resized and animated together"],
       ["+ Text · + Plan", "A text box; the sections list with the current one highlighted"],
+      ["Ctrl+V · drop a file", "Paste an image from the clipboard (or text into the box being edited); drop image files on the canvas where they should go"],
       ["Double-click a text", "Edit in place: type, Backspace/Delete, arrows, Home/End, Shift+arrows to select, Ctrl+A"],
       ["Enter · Escape", "New paragraph · finish editing"],
       ["Ctrl+B · Ctrl+I", "Bold · italic (selection, or the whole box when not editing)"],
