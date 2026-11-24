@@ -5,7 +5,7 @@ members = ["crates/deck-core", "crates/deck-convert", "crates/deck-typst", "apps
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/gbegou/decker"
 
 [workspace.dependencies]

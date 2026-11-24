@@ -121,3 +121,10 @@ and round-trip a deck through export and import.
 Per-user build environments from conda-forge are in `conda/`: `conda env create -f
 conda/environment-windows.yml` (or `-linux`), then rustup per user; on Windows the GNU
 toolchain, as the manual's "Windows without admin rights" section describes.
+
+## License
+
+decker is dual-licensed under the MIT license (`LICENSE-MIT`) and the Apache License 2.0
+(`LICENSE-APACHE`), at your option. Unless you state otherwise, any contribution you submit is
+licensed the same way, without additional terms. Bundled fonts carry their own licenses, listed
+in `THIRD-PARTY.md`.
