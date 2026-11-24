@@ -68,6 +68,7 @@ Two environment variables help scripts and tests:
 | --- | --- |
 | `DECKER_OPEN=<file.pptx or folder.deck>` | Opens that deck at startup |
 | `DECKER_PRESENT=1` | Starts the presentation at once; `both` also opens the presenter window on a single monitor |
+| `DECKER_WINDOWED=1` | The audience window as a normal window instead of fullscreen, for debugging |
 
 ## The editor
 

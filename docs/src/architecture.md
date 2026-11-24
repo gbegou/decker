@@ -35,9 +35,13 @@ calls the same state functions as the commands, so a macro and the editor cannot
 
 ![Presentation windows](images/windows.svg)
 
-`start_presentation` lists the monitors: the audience window goes fullscreen on the first
-non-primary one, the presenter window on the primary. With a single monitor only the audience
-window opens.
+The audience and presenter windows are created at startup, hidden, alongside the editor
+window; `start_presentation` lists the monitors, moves the audience window fullscreen onto
+the first non-primary one and the presenter window onto the primary, and shows them. With a
+single monitor only the audience window is shown. They are not created on demand: on
+Windows, a webview created after startup never loaded its page (no page load event at all,
+whether created from a command thread or from the main thread). The app prints `[decker]`
+lines to the terminal with the monitors found and each window's page load events.
 
 ## Why these choices
 
