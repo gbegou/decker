@@ -16,6 +16,7 @@ export interface ElementInfo {
   size: number;
   crop?: Crop;
   mask?: Mask;
+  steps: Step[];
   fill?: string;
   stroke?: { color: string; width: number };
   highlight?: string;
@@ -23,6 +24,15 @@ export interface ElementInfo {
 }
 
 export type Align = "left" | "center" | "right" | "justify";
+
+/** A build step: what changes at click `at`, played over `duration` seconds after `delay`. */
+export interface Step {
+  at: number;
+  set: { x?: number; y?: number; w?: number; h?: number; rotation?: number; opacity?: number; fill?: string };
+  duration?: number;
+  delay?: number;
+  easing?: "ease_in_out" | "linear" | "ease_in" | "ease_out";
+}
 
 /** A run style change; absent fields keep their value; size 0, color "" and font "" reset. */
 export interface StyleChange {
@@ -102,6 +112,7 @@ export const api = {
   addPlaceholder: () => invoke<View>("add_placeholder"),
   addOutline: () => invoke<View>("add_outline"),
   groupElements: (indices: number[]) => invoke<number>("group_elements", { indices }),
+  setSteps: (element: number, steps: Step[]) => invoke<View>("set_steps", { element, steps }),
   ungroupElement: (index: number) => invoke<number>("ungroup_element", { index }),
   styleText: (element: number, from: number | null, to: number | null, change: StyleChange) =>
     invoke<View>("style_text", { element, from, to, change }),

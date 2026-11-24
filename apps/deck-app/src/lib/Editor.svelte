@@ -5,6 +5,7 @@
   import SlideView from "./SlideView.svelte";
   import StyleBar from "./StyleBar.svelte";
   import Help from "./Help.svelte";
+  import Steps from "./Steps.svelte";
 
   let help = $state(false);
 
@@ -571,8 +572,8 @@
       </div>
       <div class="steps">
         Slide {view.slide + 1} / {view.slide_count}
-        {#if view.last_step > 0}
-          · step {view.step} / {view.last_step}
+        {#if view.last_step > 0 || view.step > 0}
+          · click {view.step} / {view.last_step}
           <button onclick={() => api.goto(view!.slide, Math.max(0, view!.step - 1))}>◀</button>
           <button onclick={() => api.goto(view!.slide, view!.step + 1)}>▶</button>
         {/if}
@@ -618,7 +619,11 @@
             <textarea rows="6" value={sel.text} onchange={(e) => api.setText(sel!.index, e.currentTarget.value)}></textarea>
           </label>
         {/if}
-        {#if sel.last_step > 0}<p class="muted">{sel.last_step} build step(s)</p>{/if}
+        {#if sel.kind !== "placeholder" && view.editing_layout === null}
+          <h3>Build steps</h3>
+          <Steps element={sel} current={view.step} last={view.last_step}
+                 onrun={(label, f) => run(label, f)} ongoto={(step) => api.goto(view!.slide, step)} />
+        {/if}
       {:else}
         <p class="muted">Click an element to select it, Shift+click to select several (then Group), double-click its text to edit it in place (arrows, Shift for a selection, Enter for a paragraph, Escape to finish). Drag to move, corner handle to resize, Delete to remove.</p>
       {/if}

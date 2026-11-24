@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use deck_core::{
     native, svg, text, transfer, Color, Crop, Deck, Element, Layout, Mask, MathRenderer, Paragraph, Placeholder, Rect,
-    Slide, Stroke, TextBox,
+    Slide, Step, Stroke, TextBox,
 };
 
 #[derive(Default)]
@@ -178,6 +178,8 @@ pub struct ElementInfo {
     pub crop: Option<Crop>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mask: Option<Mask>,
+    /// The element's build steps.
+    pub steps: Vec<Step>,
     /// Fill color of text boxes and shapes, text color of formulas, muted color of the plan.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fill: Option<Color>,
@@ -345,7 +347,8 @@ impl AppState {
                         Element::Outline(_) => "outline",
                         Element::Group(_) => "group",
                     },
-                    rect: *e.rect(),
+                    // As shown at the viewed click: a move step changes it.
+                    rect: e.state_at(self.step).rect,
                     text: match e {
                         Element::Text(t) => t.text(),
                         Element::Shape(s) => s.paragraphs.iter().map(Paragraph::text).collect::<Vec<_>>().join("\n"),
@@ -365,6 +368,7 @@ impl AppState {
                     .unwrap_or(svg::DEFAULT_FONT_SIZE),
                     crop: if let Element::Image(i) = e { Some(i.crop) } else { None },
                     mask: if let Element::Image(i) = e { Some(i.mask) } else { None },
+                    steps: e.steps().to_vec(),
                     fill: element_style_info(e).0,
                     stroke: element_style_info(e).1,
                     highlight: element_style_info(e).2,
@@ -420,6 +424,7 @@ impl AppState {
                 size: svg::DEFAULT_FONT_SIZE,
                 crop: if let Element::Image(i) = e { Some(i.crop) } else { None },
                 mask: if let Element::Image(i) = e { Some(i.mask) } else { None },
+                steps: e.steps().to_vec(),
                 fill: element_style_info(e).0,
                 stroke: element_style_info(e).1,
                 highlight: element_style_info(e).2,
@@ -436,6 +441,7 @@ impl AppState {
                 size: ph.size.unwrap_or(svg::DEFAULT_FONT_SIZE),
                 crop: None,
                 mask: None,
+                steps: vec![],
                 fill: None,
                 stroke: None,
                 highlight: None,
@@ -726,6 +732,28 @@ impl AppState {
     pub fn set_rect(&mut self, element: usize, rect: Rect) -> Result<(), String> {
         self.touch_target();
         let rect = Rect { w: rect.w.max(1.0), h: rect.h.max(1.0), ..rect };
+        // Viewing a build step the element changes at: the drag edits that
+        // step's target box rather than the base position.
+        let step = self.step;
+        if step > 0 && self.editing_layout.is_none() {
+            if let Some(e) = self.elements_mut()?.get_mut(element) {
+                let steps = e.steps_mut();
+                let target = match steps.iter_mut().position(|st| st.at == step) {
+                    Some(i) => &mut steps[i],
+                    None => {
+                        // Dragging at a click the element has no step at: a move step there.
+                        steps.push(Step { at: step, duration: 0.5, ..Default::default() });
+                        steps.sort_by_key(|st| st.at);
+                        steps.iter_mut().find(|st| st.at == step).expect("just inserted")
+                    }
+                };
+                target.set.x = Some(rect.x);
+                target.set.y = Some(rect.y);
+                target.set.w = Some(rect.w);
+                target.set.h = Some(rect.h);
+                return Ok(());
+            }
+        }
         if self.editing_layout.is_some() {
             let layout = self.layout_mut()?;
             if element >= layout.elements.len() {
@@ -812,9 +840,10 @@ impl AppState {
             Some(layout) => &layout.elements,
             None => &slide.elements,
         };
+        let shown = |e: &Element| if self.editing_layout.is_some() { *e.rect() } else { e.state_at(self.step).rect };
         let (rect, paragraphs) = match elements.get(element) {
-            Some(Element::Text(t)) => (t.rect, &t.paragraphs),
-            Some(Element::Shape(s)) => (s.rect, &s.paragraphs),
+            Some(e @ Element::Text(t)) => (shown(e), &t.paragraphs),
+            Some(e @ Element::Shape(s)) => (shown(e), &s.paragraphs),
             Some(_) => return Err("not a text element".into()),
             None => return Err("no such element".into()),
         };
@@ -1037,6 +1066,15 @@ impl AppState {
             }
             Element::Image(_) | Element::Group(_) => return Err("select one element to style it".into()),
         }
+        Ok(())
+    }
+
+    /// Replaces an element's build steps (sorted by click).
+    pub fn set_steps(&mut self, element: usize, mut steps: Vec<Step>) -> Result<(), String> {
+        self.touch_target();
+        steps.sort_by_key(|s| s.at);
+        let e = self.elements_mut()?.get_mut(element).ok_or("no such element")?;
+        *e.steps_mut() = steps;
         Ok(())
     }
 

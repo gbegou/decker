@@ -20,6 +20,15 @@ Playing step N interpolates from the state at N − 1 over the step's duration.
 A group's steps apply to the group as a whole: its children fade, move, grow or spin
 together, while keeping steps of their own.
 
+## In the editor
+
+Select an element: the **Build steps** panel lists its steps with everything they change, and
+offers **Appear on click** and **Disappear on click**. The ◀ ▶ controls under the canvas show
+the slide at a given click; viewing click 1 or later, dragging or resizing an element sets
+where it is at that click, creating a move step if there is none (**+ Move step** does the
+same from the panel). Each step's visibility, position, size, rotation, fill, duration,
+delay and easing are editable in place; **view** shows that click.
+
 Each step has `at` (the click that triggers it), `set` (the overrides), `duration`, `delay`
 and `easing`. A slide consumes as many clicks as its highest step before moving on.
 

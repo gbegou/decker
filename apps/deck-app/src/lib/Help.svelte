@@ -23,6 +23,8 @@
       ["Ctrl+B · Ctrl+I", "Bold · italic (selection, or the whole box when not editing)"],
       ["Style bar", "Size, color, font, alignment, bullets; fill and outline of boxes and shapes; plan colors"],
       ["Image panel", "Crop to a shape; percentage cut from each edge"],
+      ["Build steps panel", "Appear or disappear on click, move steps (drag the element while viewing the step), rotation, fill, timing"],
+      ["◀ ▶ under the canvas", "View the slide at a given click"],
     ]],
     ["Layouts", [
       ["Layout selector · Edit layout · + New layout", "The slide's layout; open the layout editor; create one"],

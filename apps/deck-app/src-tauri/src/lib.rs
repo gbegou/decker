@@ -247,6 +247,17 @@ fn style_element(app: AppHandle, state: Shared, element: usize, change: ElementS
 }
 
 #[tauri::command]
+fn set_steps(app: AppHandle, state: Shared, element: usize, steps: Vec<deck_core::Step>) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.set_steps(element, steps)?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+#[tauri::command]
 fn group_elements(app: AppHandle, state: Shared, indices: Vec<usize>) -> Result<usize, String> {
     let at = state.lock().map_err(err)?.group(&indices)?;
     edited(&app);
@@ -655,6 +666,7 @@ pub fn run() {
             add_placeholder,
             add_outline,
             group_elements,
+            set_steps,
             ungroup_element,
             style_text,
             style_paragraphs,
