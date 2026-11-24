@@ -65,38 +65,38 @@
     if (typeof index === "number") { editing = null; selected = index; also = []; }
   }
 
-  /** Paste: an image from the clipboard becomes an element; text goes to the box being edited. */
-  function onPaste(e: ClipboardEvent) {
-    const target = e.target as HTMLElement | null;
-    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
-    const data = e.clipboardData;
-    if (!data || !view?.slide_count) return;
-    const image = Array.from(data.items).find((i) => i.type.startsWith("image/"))?.getAsFile();
-    const text = data.getData("text/plain");
-    if (!image && !text) {
-      // Some web views hand the page no image (WebKitGTK): read the
-      // system clipboard from the Rust side instead.
-      e.preventDefault();
-      enqueue(() => run("Image pasted", api.pasteImage).then((i) => { if (i === null) status = "Nothing to paste"; else selectAdded(i); }));
-      return;
-    }
-    if (image) {
-      e.preventDefault();
-      const ext = image.type.split("/")[1]?.replace("jpeg", "jpg") || "png";
-      const name = image.name && image.name !== "image.png" ? image.name : `pasted.${ext}`;
-      image.arrayBuffer().then((buf) => {
-        let bin = "";
-        const bytes = new Uint8Array(buf);
-        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-        enqueue(() => run("Image pasted", () => api.addImage(name, btoa(bin))).then(selectAdded));
-      });
-      return;
-    }
-    if (text && editing) {
-      e.preventDefault();
-      const ed = editing;
-      enqueue(() => applyEdit(Math.min(ed.caret, ed.anchor), Math.max(ed.caret, ed.anchor), text));
-    }
+  /** Selects the elements a paste or an add command returned. */
+  function selectAll(indices: number[]) {
+    if (!indices.length) return;
+    editing = null;
+    selected = indices[0];
+    also = indices.slice(1);
+  }
+
+  /** Ctrl+V outside inputs: copied elements, a clipboard image, or text into the box being edited. */
+  function pasteClipboard() {
+    const ed = editing;
+    enqueue(() =>
+      run("Pasted", api.paste).then((r) => {
+        if (!r) return;
+        if (r.added.length) selectAll(r.added);
+        else if (r.text && ed) return applyEdit(Math.min(ed.caret, ed.anchor), Math.max(ed.caret, ed.anchor), r.text);
+        else status = "Nothing to paste";
+      }),
+    );
+  }
+
+  /** Ctrl+C / Ctrl+X on the selection (not while editing text). */
+  function copySelection(cut: boolean) {
+    if (selected === null) return;
+    const indices = [selected, ...also];
+    run(cut ? "Cut" : "Copied", async () => {
+      await api.copyElements(indices);
+      if (cut) {
+        selected = null; also = []; editing = null;
+        for (const i of [...indices].sort((a, b) => b - a)) await api.deleteElement(i);
+      }
+    });
   }
 
   async function run<T>(label: string, f: () => Promise<T>): Promise<T | undefined> {
@@ -471,6 +471,16 @@
       e.preventDefault();
       return;
     }
+    if ((e.key === "v" || e.key === "V") && (e.ctrlKey || e.metaKey) && view?.slide_count) {
+      pasteClipboard();
+      e.preventDefault();
+      return;
+    }
+    if ((e.key === "c" || e.key === "x" || e.key === "C" || e.key === "X") && (e.ctrlKey || e.metaKey) && !editing && selected !== null) {
+      copySelection(e.key.toLowerCase() === "x");
+      e.preventDefault();
+      return;
+    }
     if ((e.key === "b" || e.key === "i") && (e.ctrlKey || e.metaKey) && selected !== null && view) {
       const el = view.elements[selected];
       if (el.kind === "text" || el.kind === "shape") {
@@ -524,7 +534,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onKey} onpaste={onPaste} />
+<svelte:window onkeydown={onKey} />
 
 <div class="editor">
   <header>

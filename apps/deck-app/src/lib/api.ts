@@ -140,8 +140,10 @@ export const api = {
   /** Adds an image from bytes (base64), centered at (x, y) in slide points when given; returns its index. */
   addImage: (name: string, data: string, x?: number, y?: number) =>
     invoke<number>("add_image", { name, data, x: x ?? null, y: y ?? null }),
-  /** Adds the system clipboard's image, if any; returns its index. */
-  pasteImage: () => invoke<number | null>("paste_image"),
+  /** Copies elements of the current slide to the system clipboard. */
+  copyElements: (indices: number[]) => invoke<void>("copy_elements", { indices }),
+  /** Pastes the system clipboard: copied elements or an image (their indices), else its text. */
+  paste: () => invoke<{ added: number[]; text: string | null }>("paste"),
   /** Adds an image from a file on disk (a drop); returns its index. */
   addImageFile: (path: string, x?: number, y?: number) => invoke<number>("add_image_file", { path, x: x ?? null, y: y ?? null }),
   deleteElement: (element: number) => invoke<View>("delete_element", { element }),

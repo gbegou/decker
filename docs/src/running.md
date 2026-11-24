@@ -98,6 +98,11 @@ Two environment variables help scripts and tests:
   at their pixel size, scaled down to fit half the slide (tiny icons are scaled up). The file is copied into the
   deck's `assets/` folder. An unsaved deck keeps it in a temporary folder until **Save as**
   moves everything to the chosen one. Pasting text while editing a box inserts it.
+- Ctrl+C and Ctrl+X copy or cut the selected elements, Ctrl+V pastes them, slightly
+  offset, on the current slide or layout, in this deck or in another running copy of decker.
+  Within a deck the pasted image elements share the file in `assets/`; across decks the
+  file is copied once. Resizing, cropping or masking never changes the file: those are
+  properties of the element, so two copies of one picture can be cropped differently.
 - **+ Text**, **+ Slide**, **Duplicate** and **− Slide** do what they say; a new slide starts
   from the current slide's [layout](layouts.md). **Insert from deck…** copies slides from
   another deck. Page Up and Page Down change slide.

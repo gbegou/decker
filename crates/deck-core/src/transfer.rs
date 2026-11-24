@@ -131,6 +131,54 @@ impl<'a> AssetCopier<'a> {
     }
 }
 
+/// Elements copied to the clipboard: their deck folder lets a paste into
+/// another deck bring the images along, while a paste into the same
+/// deck reuses them.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Clip {
+    pub decker: u32,
+    pub dir: String,
+    pub elements: Vec<Element>,
+}
+
+impl Clip {
+    /// The marker the clipboard text starts with.
+    pub const PREFIX: &'static str = "{\"decker\":";
+
+    pub fn new(dir: &Path, elements: Vec<Element>) -> Self {
+        Self { decker: 1, dir: dir.display().to_string(), elements }
+    }
+
+    pub fn to_text(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    /// Parses clipboard text, `None` when it is not a clip.
+    pub fn parse(text: &str) -> Option<Self> {
+        text.starts_with(Self::PREFIX).then(|| serde_json::from_str(text).ok()).flatten()
+    }
+
+    /// The elements for the deck in `dst_dir`, images copied into it
+    /// when they come from another folder, each moved by `offset`.
+    pub fn take(self, dst_dir: &Path, offset: f64) -> Result<Vec<Element>, NativeError> {
+        let src_dir = Path::new(&self.dir);
+        let mut elements = self.elements;
+        if !self.dir.is_empty() && src_dir != dst_dir {
+            let mut assets = AssetCopier::new(src_dir, dst_dir);
+            for e in &mut elements {
+                assets.remap(e)?;
+            }
+        }
+        for e in &mut elements {
+            let mut r = *e.rect();
+            r.x += offset;
+            r.y += offset;
+            e.set_rect(r);
+        }
+        Ok(elements)
+    }
+}
+
 /// Saves `deck` under `dst_dir`, bringing its images, `typst/` and `fonts/`
 /// files along when it was loaded from another folder (`src_dir`, empty
 /// for a deck that never had one). Returns the deck as saved (image
@@ -343,6 +391,33 @@ mod tests {
         let c = base.join("c.deck");
         save_as(&Deck::new("n"), Path::new(""), &c).unwrap();
         assert!(c.join("deck.json").is_file());
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn clips_round_trip_and_copy_foreign_images() {
+        let base = std::env::temp_dir().join(format!("decker-clip-{}", std::process::id()));
+        let (a, b) = (base.join("a.deck"), base.join("b.deck"));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&a).unwrap();
+        let src = add_image(&a, "pic.png", b"png").unwrap();
+        let img =
+            Element::Image(Image { rect: Rect::new(10.0, 10.0, 50.0, 50.0), src: src.clone(), ..Default::default() });
+        let clip = Clip::new(&a, vec![img, Element::Text(TextBox::plain(Rect::new(0.0, 0.0, 10.0, 10.0), "t"))]);
+        let text = clip.to_text();
+        assert!(text.starts_with(Clip::PREFIX));
+        assert_eq!(Clip::parse(&text), Some(clip.clone()));
+        assert_eq!(Clip::parse("hello"), None);
+        // Same deck: the file is reused, the copies are offset.
+        let same = clip.clone().take(&a, 20.0).unwrap();
+        assert_eq!(same[0].rect(), &Rect::new(30.0, 30.0, 50.0, 50.0));
+        assert!(matches!(&same[0], Element::Image(i) if i.src == src));
+        assert_eq!(std::fs::read_dir(a.join("assets")).unwrap().count(), 1);
+        // Another deck: the file is copied once.
+        std::fs::create_dir_all(&b).unwrap();
+        let other = clip.take(&b, 0.0).unwrap();
+        assert!(matches!(&other[0], Element::Image(i) if i.src == "assets/pic.png"));
+        assert!(b.join("assets/pic.png").is_file());
         std::fs::remove_dir_all(&base).unwrap();
     }
 }

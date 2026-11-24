@@ -244,6 +244,15 @@ fn element_style_info(e: &Element) -> (Option<Color>, Option<Stroke>, Option<Col
     }
 }
 
+/// Whether an element (or a group) holds an image.
+fn has_image(e: &Element) -> bool {
+    match e {
+        Element::Image(_) => true,
+        Element::Group(g) => g.children.iter().any(has_image),
+        _ => false,
+    }
+}
+
 impl AppState {
     pub fn load(&mut self, deck: Deck, dir: PathBuf) {
         self.math = Math::for_deck(&dir);
@@ -1075,9 +1084,7 @@ impl AppState {
             return Err("no deck".into());
         }
         if self.dir.as_os_str().is_empty() {
-            let dir = std::env::temp_dir().join(format!("decker-untitled-{}", std::process::id()));
-            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            self.dir = dir;
+            self.temp_dir()?;
         }
         let ext = Path::new(name).extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
         let name = match ext.as_deref() {
@@ -1103,6 +1110,49 @@ impl AppState {
         let elements = self.elements_mut()?;
         elements.push(Element::Image(deck_core::Image { rect, src, ..Default::default() }));
         Ok(elements.len() - 1)
+    }
+
+    /// The clipboard text for `indices` of the current slide or layout.
+    pub fn copy_elements(&self, indices: &[usize]) -> Result<String, String> {
+        let (deck, slide) = self.current().ok_or("no slide")?;
+        let elements = match self.editing_layout.as_deref().and_then(|n| deck.layout(n)) {
+            Some(layout) => &layout.elements,
+            None => &slide.elements,
+        };
+        let mut sorted: Vec<usize> = indices.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        let picked: Vec<Element> = sorted.iter().filter_map(|&i| elements.get(i).cloned()).collect();
+        if picked.is_empty() {
+            return Err("nothing to copy".into());
+        }
+        Ok(transfer::Clip::new(&self.dir, picked).to_text())
+    }
+
+    /// Pastes copied elements onto the current slide or layout, images
+    /// copied into this deck when they come from another. Returns the
+    /// indices of the new elements.
+    pub fn paste_elements(&mut self, clip: transfer::Clip) -> Result<Vec<usize>, String> {
+        if self.deck.is_none() {
+            return Err("no deck".into());
+        }
+        if self.dir.as_os_str().is_empty() && clip.elements.iter().any(has_image) {
+            self.temp_dir()?;
+        }
+        let pasted = clip.take(&self.dir, 20.0).map_err(|e| e.to_string())?;
+        self.touch_target();
+        let elements = self.elements_mut()?;
+        let first = elements.len();
+        elements.extend(pasted);
+        Ok((first..elements.len()).collect())
+    }
+
+    /// Gives a deck that has no folder yet a temporary one for its assets.
+    fn temp_dir(&mut self) -> Result<(), String> {
+        let dir = std::env::temp_dir().join(format!("decker-untitled-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        self.dir = dir;
+        Ok(())
     }
 
     pub fn add_text(&mut self) -> Result<(), String> {

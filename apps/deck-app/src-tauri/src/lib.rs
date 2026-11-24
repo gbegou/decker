@@ -18,6 +18,21 @@ use state::{AppState, ElementStyle, TextLayout, ThemeChange, View};
 
 type Shared<'a> = State<'a, Mutex<AppState>>;
 
+/// The system clipboard, kept alive for the whole run: on X11 the copied
+/// contents are served by the owning process and vanish when the handle
+/// is dropped.
+struct SystemClipboard(Mutex<Option<arboard::Clipboard>>);
+
+impl SystemClipboard {
+    fn with<T>(&self, f: impl FnOnce(&mut arboard::Clipboard) -> Result<T, String>) -> Result<T, String> {
+        let mut guard = self.0.lock().map_err(err)?;
+        if guard.is_none() {
+            *guard = Some(arboard::Clipboard::new().map_err(err)?);
+        }
+        f(guard.as_mut().expect("clipboard opened"))
+    }
+}
+
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
@@ -116,19 +131,46 @@ fn add_image(
     Ok(index)
 }
 
-/// Adds the image on the system clipboard, when there is one: the
-/// fallback for a paste event the web view hands no image to (WebKitGTK).
+/// Copies elements of the current slide to the system clipboard.
 #[tauri::command]
-fn paste_image(app: AppHandle, state: Shared) -> Result<Option<usize>, String> {
-    let Some(png) = clipboard_png()? else { return Ok(None) };
-    let index = state.lock().map_err(err)?.add_image("pasted.png", &png, None)?;
-    edited(&app);
-    Ok(Some(index))
+fn copy_elements(state: Shared, clipboard: State<SystemClipboard>, indices: Vec<usize>) -> Result<(), String> {
+    let text = state.lock().map_err(err)?.copy_elements(&indices)?;
+    clipboard.with(|c| c.set_text(text).map_err(err))
+}
+
+/// What a paste did: elements or an image added (their indices), or the
+/// clipboard's text for the box being edited.
+#[derive(Debug, Default, serde::Serialize)]
+struct Pasted {
+    added: Vec<usize>,
+    text: Option<String>,
+}
+
+/// Pastes the system clipboard: copied elements, else an image, else
+/// text, which is returned for the caller to insert. The clipboard is
+/// read on the Rust side because WebKitGTK hands the page no image.
+#[tauri::command]
+fn paste(app: AppHandle, state: Shared, clipboard: State<SystemClipboard>) -> Result<Pasted, String> {
+    let (text, png) = clipboard.with(|c| {
+        let text = c.get_text().ok();
+        let png = if text.is_some() { None } else { clipboard_png(c)? };
+        Ok((text, png))
+    })?;
+    if let Some(clip) = text.as_deref().and_then(deck_core::transfer::Clip::parse) {
+        let added = state.lock().map_err(err)?.paste_elements(clip)?;
+        edited(&app);
+        return Ok(Pasted { added, text: None });
+    }
+    if let Some(png) = png {
+        let index = state.lock().map_err(err)?.add_image("pasted.png", &png, None)?;
+        edited(&app);
+        return Ok(Pasted { added: vec![index], text: None });
+    }
+    Ok(Pasted { added: vec![], text: text.filter(|t| !t.is_empty()) })
 }
 
 /// The clipboard's image as PNG bytes, `None` when it holds none.
-fn clipboard_png() -> Result<Option<Vec<u8>>, String> {
-    let mut clipboard = arboard::Clipboard::new().map_err(err)?;
+fn clipboard_png(clipboard: &mut arboard::Clipboard) -> Result<Option<Vec<u8>>, String> {
     let image = match clipboard.get_image() {
         Ok(i) => i,
         Err(arboard::Error::ContentNotAvailable) => return Ok(None),
@@ -708,6 +750,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(initial))
+        .manage(SystemClipboard(Mutex::new(None)))
         .setup(move |app| {
             // The presentation windows, hidden until "Present". Created here,
             // at startup, like the editor window: on Windows a webview created
@@ -778,7 +821,8 @@ pub fn run() {
             add_text,
             add_image,
             add_image_file,
-            paste_image,
+            copy_elements,
+            paste,
             delete_element,
             start_presentation,
             stop_presentation,
