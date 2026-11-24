@@ -1,4 +1,12 @@
-# Math
+# Text and math
+
+Text boxes are typeset by Typst, embedded in the application: line breaking at the box width,
+bold, italic, size, color and font per run, alignment, bullets by level, and inline formulas
+(`"math": true` on a run) in the flow of the sentence. The editor, the projector, the
+thumbnails and the PDF therefore show the same lines. Without the `typst` feature, text is
+wrapped by an estimate. Text defaults to the bundled DejaVu Sans at 18 pt.
+
+## Formulas
 
 Formulas are written in [Typst math](https://typst.app/docs/reference/math/) and rendered by
 Typst itself, embedded in the application as a library (the `deck-typst` crate, behind the

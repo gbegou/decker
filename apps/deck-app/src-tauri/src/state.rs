@@ -90,6 +90,8 @@ pub struct ElementInfo {
     pub rect: Rect,
     pub text: String,
     pub last_step: u32,
+    /// Size of the first run in points, for the in-place editor.
+    pub size: f64,
 }
 
 impl AppState {
@@ -235,6 +237,13 @@ impl AppState {
                         Element::Image(i) => i.src.clone(),
                     },
                     last_step: e.last_step(),
+                    size: match e {
+                        Element::Text(t) => t.paragraphs.first().and_then(|p| p.runs.first()).and_then(|r| r.size),
+                        Element::Shape(s) => s.paragraphs.first().and_then(|p| p.runs.first()).and_then(|r| r.size),
+                        Element::Math(m) => m.size,
+                        Element::Image(_) => None,
+                    }
+                    .unwrap_or(svg::DEFAULT_FONT_SIZE),
                 })
                 .collect(),
             presenting: self.presenting,

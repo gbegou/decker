@@ -1,7 +1,7 @@
 # Roadmap
 
-1. Typst as the text layout engine too (formulas already use it), so that line wrapping is
-   exact and inline formulas render; until then text is wrapped by an estimate.
+1. Editing text in the typeset box itself (caret and selection from Typst's layout), and
+   PDF pages as native Typst text so that text stays selectable.
 2. Embedded Python (PyO3) exposing the document model as a macro API.
 3. Editor: styles (font, size, color, alignment), shapes and images, undo, step editing,
    a layout editor.

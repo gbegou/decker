@@ -119,7 +119,7 @@ def stack() -> str:
 
     b["convert"] = Box(260, 60, 190, 60, "deck-convert", ["PPTX import / export"])
     b["core"] = Box(260, 150, 190, 70, "deck-core", ["model · native format", "SVG renderer"])
-    b["typst"] = Box(260, 250, 190, 50, "deck-typst", ["Typst: math now, text later"])
+    b["typst"] = Box(260, 250, 190, 50, "deck-typst", ["Typst: text, math, PDF"])
     b["app"] = Box(540, 110, 200, 90, "deck-app (Tauri)", ["state · commands", "windows"])
     b["py"] = Box(540, 250, 200, 50, "Python macros", ["PyO3, planned"], style=PLAN, dashed=True)
 
@@ -140,7 +140,7 @@ def stack() -> str:
         arrow(355, 120, 355, 150, "Deck"),
         arrow(170, 180, 260, 180, both=True, label="serde JSON"),
         arrow(260, 275, 170, 275, dashed=True),
-        arrow(355, 250, 355, 220, "MathImage"),
+        arrow(355, 250, 355, 220, "typeset SVG"),
         arrow(450, 185, 540, 160, "render_step → SVG", label_dy=-10),
         arrow(640, 250, 640, 200, dashed=True, label="same state functions", label_dy=14),
         arrow(740, 140, 840, 88, "View", label_dy=-8),

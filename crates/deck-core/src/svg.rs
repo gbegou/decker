@@ -26,11 +26,18 @@ pub struct MathImage {
     pub height: f64,
 }
 
-/// Renders formulas. `deck-typst` implements it; without one, formulas
-/// are drawn as their source.
+/// Typesets formulas and text. `deck-typst` implements it; without one,
+/// formulas are drawn as their source and text is wrapped by an estimate.
 pub trait MathRenderer {
     /// Renders Typst math `source` with the deck's `preamble` in scope.
     fn render_math(&self, preamble: &str, source: &str, size: f64, color: Color) -> Option<MathImage>;
+
+    /// Typesets paragraphs in a column `width` points wide. The result's
+    /// height is the text's natural height; `None` falls back to the
+    /// estimate.
+    fn render_text(&self, _preamble: &str, _paragraphs: &[Paragraph], _width: f64) -> Option<MathImage> {
+        None
+    }
 }
 
 /// The renderer that draws formulas as their source text.
@@ -117,7 +124,7 @@ fn element_body(
         match element {
             Element::Text(t) => {
                 shape_body(out, r, ShapeKind::Rectangle, st.fill.or(t.fill), t.stroke);
-                text_body(out, r, &t.paragraphs);
+                text_body(out, r, &t.paragraphs, &deck.math_preamble, math);
             }
             Element::Image(i) => {
                 let _ = write!(
@@ -132,7 +139,7 @@ fn element_body(
             }
             Element::Shape(s) => {
                 shape_body(out, r, s.kind, st.fill.or(s.fill), s.stroke);
-                text_body(out, r, &s.paragraphs);
+                text_body(out, r, &s.paragraphs, &deck.math_preamble, math);
             }
             Element::Math(m) => math_body(out, r, m, &deck.math_preamble, math),
         }
@@ -210,7 +217,34 @@ fn shape_body(out: &mut String, r: &Rect, kind: ShapeKind, fill: Option<Color>, 
     };
 }
 
-fn text_body(out: &mut String, r: &Rect, paragraphs: &[Paragraph]) {
+/// Text in a box: typeset by the renderer when it can, nested as an inner
+/// `<svg>` at the box's top-left inset; else the estimate below.
+fn text_body(out: &mut String, r: &Rect, paragraphs: &[Paragraph], preamble: &str, math: &dyn MathRenderer) {
+    if paragraphs.iter().all(|p| p.text().is_empty()) {
+        return;
+    }
+    let width = (r.w - 2.0 * PADDING).max(1.0);
+    if let Some(img) = math.render_text(preamble, paragraphs, width) {
+        if img.width > 0.0 && img.height > 0.0 {
+            let _ = write!(
+                out,
+                r#"<svg x="{}" y="{}" width="{}" height="{}" viewBox="0 0 {} {}" overflow="visible" data-text="typeset">{}</svg>"#,
+                fmt(r.x + PADDING),
+                fmt(r.y + PADDING),
+                fmt(img.width),
+                fmt(img.height),
+                fmt(img.width),
+                fmt(img.height),
+                img.content
+            );
+            return;
+        }
+    }
+    text_estimate(out, r, paragraphs);
+}
+
+/// One `<text>` per line, wrapped on an estimated glyph width.
+fn text_estimate(out: &mut String, r: &Rect, paragraphs: &[Paragraph]) {
     let mut y = r.y + PADDING;
     let width = (r.w - 2.0 * PADDING).max(1.0);
     for p in paragraphs {
@@ -411,6 +445,22 @@ mod tests {
         fn render_math(&self, preamble: &str, source: &str, size: f64, _: Color) -> Option<MathImage> {
             Some(MathImage { content: format!("<path d=\"{preamble}{source}\"/>"), width: size * 10.0, height: size })
         }
+        fn render_text(&self, _: &str, paragraphs: &[Paragraph], width: f64) -> Option<MathImage> {
+            Some(MathImage { content: format!("<path d=\"{}\"/>", paragraphs[0].text()), width, height: 30.0 })
+        }
+    }
+
+    #[test]
+    fn typeset_text_is_nested_at_the_box_inset() {
+        let mut deck = Deck::new("t");
+        deck.slides.push(Slide {
+            elements: vec![Element::Text(TextBox::plain(Rect::new(100.0, 50.0, 400.0, 200.0), "Hello"))],
+            ..Default::default()
+        });
+        let svg = render_step_with(&deck, &deck.slides[0], 0, &FakeMath);
+        assert!(svg.contains(r#"<svg x="104" y="54" width="392" height="30" viewBox="0 0 392 30" overflow="visible" data-text="typeset"><path d="Hello"/></svg>"#), "{svg}");
+        let plain = render_step(&deck, &deck.slides[0], 0);
+        assert!(plain.contains("<text "), "fallback without a typesetter");
     }
 
     #[test]

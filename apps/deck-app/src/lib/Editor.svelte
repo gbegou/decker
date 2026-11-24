@@ -107,9 +107,7 @@
     const el = view.elements[index];
     if (el.kind === "image") return;
     selected = index;
-    // The first run's size, read from the rendered SVG: a reasonable default for the overlay.
-    const m = new RegExp(`<g id="e${index}"[\\s\\S]*?font-size="([\\d.]+)"`).exec(view.svg);
-    editing = { index, text: el.text, size: m ? parseFloat(m[1]) : 18 };
+    editing = { index, text: el.text, size: el.size };
     queueMicrotask(() => { editor?.focus(); editor?.select(); });
   }
 

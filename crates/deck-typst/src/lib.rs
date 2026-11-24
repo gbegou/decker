@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use typst::diag::{FileError, FileResult, SourceDiagnostic};
 use typst::foundations::{Bytes, Datetime};
@@ -19,7 +19,12 @@ use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
 use typst::{Library, LibraryExt, World};
 
-use deck_core::{Color, Deck, MathImage, MathRenderer};
+use deck_core::{Align, Color, Deck, MathImage, MathRenderer, Paragraph, Run};
+
+/// The font text boxes default to (bundled, see [`DEJAVU_SANS`]).
+pub const DEFAULT_FONT: &str = "DejaVu Sans";
+/// The size text runs default to, in points.
+pub const DEFAULT_SIZE: f64 = 18.0;
 
 /// The folder of a deck whose `.typ` files are importable by formulas.
 pub const TYPST_DIR: &str = "typst";
@@ -52,6 +57,8 @@ struct Shared {
     book: LazyHash<FontBook>,
     fonts: Vec<Font>,
     files: HashMap<FileId, Source>,
+    /// Typeset results by source text, so that a slide re-renders fast.
+    cache: Mutex<HashMap<String, MathImage>>,
 }
 
 /// Binary files (slide images) a document can read, by virtual path.
@@ -97,6 +104,7 @@ impl Engine {
                 book: LazyHash::new(book),
                 fonts,
                 files,
+                cache: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -116,6 +124,55 @@ impl Engine {
             color.to_hex()
         );
         self.render_document(&text)
+    }
+
+    /// Typesets paragraphs in a column `width` points wide: runs with their
+    /// style, alignment, bullets by level, inline math runs as formulas.
+    /// The result's height is the text's natural height.
+    pub fn render_text(&self, preamble: &str, paragraphs: &[Paragraph], width: f64) -> Result<MathImage, Error> {
+        let mut text = format!(
+            "#set page(width: {width}pt, height: auto, margin: 0pt, fill: none)\n#set text(size: {DEFAULT_SIZE}pt, font: \"{DEFAULT_FONT}\", fill: black, top-edge: \"ascender\", bottom-edge: \"descender\")\n#set par(leading: 0.4em)\n#set block(spacing: 0.6em)\n#set list(marker: [•], indent: 0pt, body-indent: 0.5em)\n{preamble}\n"
+        );
+        for p in paragraphs {
+            let body: String = p.runs.iter().map(run_markup).collect();
+            let body = if body.trim().is_empty() { "#v(1em)".to_string() } else { body };
+            let aligned = match p.align {
+                Align::Left => body,
+                Align::Center => format!("#align(center)[{body}]"),
+                Align::Right => format!("#align(right)[{body}]"),
+                Align::Justify => format!("#par(justify: true)[{body}]"),
+            };
+            match p.bullet {
+                Some(level) => {
+                    let _ = std::fmt::Write::write_fmt(
+                        &mut text,
+                        format_args!(
+                            "#block(inset: (left: {}pt))[#list([{aligned}])]\n",
+                            f64::from(level) * 1.5 * DEFAULT_SIZE
+                        ),
+                    );
+                }
+                None => {
+                    text.push_str(&aligned);
+                    text.push_str("\n\n");
+                }
+            }
+        }
+        self.render_cached(&text)
+    }
+
+    fn render_cached(&self, text: &str) -> Result<MathImage, Error> {
+        if let Some(hit) = self.inner.cache.lock().ok().and_then(|c| c.get(text).cloned()) {
+            return Ok(hit);
+        }
+        let img = self.render_document(text)?;
+        if let Ok(mut c) = self.inner.cache.lock() {
+            if c.len() > 4096 {
+                c.clear();
+            }
+            c.insert(text.to_string(), img.clone());
+        }
+        Ok(img)
     }
 
     /// Writes the deck as a PDF: one page per slide at its final build
@@ -179,6 +236,39 @@ impl Engine {
 impl MathRenderer for Engine {
     fn render_math(&self, preamble: &str, source: &str, size: f64, color: Color) -> Option<MathImage> {
         Engine::render_math(self, preamble, source, size, color).ok()
+    }
+
+    fn render_text(&self, preamble: &str, paragraphs: &[Paragraph], width: f64) -> Option<MathImage> {
+        Engine::render_text(self, preamble, paragraphs, width).ok()
+    }
+}
+
+/// A run as Typst markup: `#text(...)[...]` with its style, or math.
+fn run_markup(run: &Run) -> String {
+    if run.text == "\n" {
+        return "#linebreak()".into();
+    }
+    let mut args = vec![];
+    if run.bold {
+        args.push("weight: \"bold\"".to_string());
+    }
+    if run.italic {
+        args.push("style: \"italic\"".to_string());
+    }
+    if let Some(size) = run.size {
+        args.push(format!("size: {size}pt"));
+    }
+    if let Some(c) = run.color {
+        args.push(format!("fill: rgb(\"{}\")", c.to_hex()));
+    }
+    if let Some(f) = &run.font {
+        args.push(format!("font: (\"{}\", \"{DEFAULT_FONT}\")", f.replace('"', "")));
+    }
+    let body = if run.math { format!("${}$", run.text) } else { typst_markup(&run.text) };
+    if args.is_empty() {
+        body
+    } else {
+        format!("#text({})[{body}]", args.join(", "))
     }
 }
 
@@ -294,6 +384,42 @@ mod tests {
             "no registry"
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn typesets_paragraphs() {
+        use deck_core::*;
+        let e = Engine::new();
+        let plain = e.render_text("", &[Paragraph::plain("Hello world")], 400.0).unwrap();
+        assert!((plain.width - 400.0).abs() < 0.01, "the column width is the page width");
+        assert!(plain.height >= 18.0 && plain.height < 30.0, "one full line box: {}", plain.height);
+        assert!(plain.content.contains("<symbol"), "glyph outlines");
+
+        let long = Paragraph::plain("word ".repeat(60));
+        let wrapped = e.render_text("", &[long], 300.0).unwrap();
+        assert!(wrapped.height > 3.0 * plain.height, "many lines: {}", wrapped.height);
+
+        let styled = Paragraph {
+            runs: vec![
+                Run {
+                    text: "Bold ".into(),
+                    bold: true,
+                    size: Some(28.0),
+                    color: Some(Color::rgb(0xCC, 0, 0)),
+                    ..Default::default()
+                },
+                Run { text: "italic ".into(), italic: true, ..Default::default() },
+                Run { text: "x^2 + y^2".into(), math: true, ..Default::default() },
+            ],
+            align: Align::Center,
+            bullet: Some(1),
+        };
+        let img = e.render_text("", &[styled, Paragraph::plain("plain [brackets] #hash")], 500.0).unwrap();
+        assert!(img.content.to_lowercase().contains("#cc0000"));
+        assert!(img.height > plain.height * 1.5);
+
+        let again = e.render_text("", &[Paragraph::plain("Hello world")], 400.0).unwrap();
+        assert_eq!(again, plain, "cached");
     }
 
     #[test]

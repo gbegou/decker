@@ -16,7 +16,7 @@
 
 - [Architecture](architecture.md)
 - [Build steps and animations](steps.md)
-- [Math](math.md)
+- [Text and math](math.md)
 - [Development](development.md)
 - [Roadmap](roadmap.md)
 

@@ -11,6 +11,7 @@ export interface ElementInfo {
   rect: Rect;
   text: string;
   last_step: number;
+  size: number;
 }
 
 export interface View {

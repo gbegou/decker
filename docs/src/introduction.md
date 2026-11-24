@@ -10,7 +10,8 @@ A free, fast, modern alternative to PowerPoint, written in Rust, for Linux and W
   between decks with their images and layouts.
 - **Sections** become PDF bookmarks; **PDF export** keeps text selectable and formulas crisp.
 - **Build steps** reveal, move, grow or recolor elements click by click, with one mechanism.
-- **Formulas** in Typst math, rendered by Typst embedded, with the deck's own notations.
+- **Text and formulas** typeset by Typst embedded: exact line breaking, inline math, the
+  deck's own notations, identical on screen and in PDF.
 - **Python macros** (planned) see the same document model as the editor.
 
 Status: first draft. The document model, the native format, an SVG renderer, the PPTX
