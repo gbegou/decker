@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use base64::Engine;
 use serde::Serialize;
 
-use deck_core::{native, svg, transfer, Crop, Deck, Element, Mask, MathRenderer, Paragraph, Rect, Slide, TextBox};
+use deck_core::{
+    native, svg, text, transfer, Crop, Deck, Element, Mask, MathRenderer, Paragraph, Rect, Slide, TextBox,
+};
 
 #[derive(Default)]
 pub struct AppState {
@@ -28,9 +30,36 @@ pub struct AppState {
     assets: HashMap<String, String>,
 }
 
+/// The character boxes of a text element, in slide points.
+#[derive(Debug, Clone, Serialize)]
+pub struct TextLayout {
+    pub text: String,
+    /// One box per character plus the caret box at the end.
+    pub chars: Vec<CharRect>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct CharRect {
+    pub x: f64,
+    pub right: f64,
+    pub top: f64,
+    pub bottom: f64,
+}
+
 /// The formula renderer, chosen at compile time. With Typst, it serves
 /// the `typst/*.typ` files of the open deck.
-pub struct Math(Box<dyn MathRenderer + Send + Sync>);
+pub struct Math(Box<dyn MathRenderer + Send + Sync>, #[allow(dead_code)] Option<deck_typst_engine::Engine>);
+
+/// The Typst engine type when the feature is on, else a stand-in.
+#[cfg(feature = "typst")]
+mod deck_typst_engine {
+    pub use deck_typst::Engine;
+}
+#[cfg(not(feature = "typst"))]
+mod deck_typst_engine {
+    #[derive(Clone)]
+    pub struct Engine;
+}
 
 impl Default for Math {
     fn default() -> Self {
@@ -41,13 +70,34 @@ impl Default for Math {
 impl Math {
     #[cfg(feature = "typst")]
     pub fn for_deck(dir: &Path) -> Self {
-        Math(Box::new(deck_typst::Engine::for_deck(dir)))
+        let engine = deck_typst::Engine::for_deck(dir);
+        Math(Box::new(engine.clone()), Some(engine))
     }
 
     #[cfg(not(feature = "typst"))]
     pub fn for_deck(_dir: &Path) -> Self {
-        Math(Box::new(deck_core::NoMath))
+        Math(Box::new(deck_core::NoMath), None)
     }
+
+    /// Character boxes in box coordinates, when the typesetter is Typst.
+    #[cfg(feature = "typst")]
+    fn layout(&self, preamble: &str, paragraphs: &[Paragraph], width: f64) -> Option<Vec<deck_typst::CharBox>> {
+        self.1.as_ref().and_then(|e| e.layout_text(preamble, paragraphs, width).ok())
+    }
+
+    #[cfg(not(feature = "typst"))]
+    fn layout(&self, _: &str, _: &[Paragraph], _: f64) -> Option<Vec<NoBox>> {
+        None
+    }
+}
+
+#[cfg(not(feature = "typst"))]
+#[allow(dead_code)]
+pub struct NoBox {
+    pub x: f64,
+    pub right: f64,
+    pub top: f64,
+    pub bottom: f64,
 }
 
 /// Everything a window needs to draw itself.
@@ -390,6 +440,51 @@ impl AppState {
             Element::Image(_) => return Err("an image has no text".into()),
         }
         Ok(())
+    }
+
+    /// The paragraphs of a text box or shape, for the caret editor.
+    fn paragraphs_mut(&mut self, element: usize) -> Result<&mut Vec<Paragraph>, String> {
+        let slide = self.slide_mut()?;
+        match slide.elements.get_mut(element) {
+            Some(Element::Text(t)) => Ok(&mut t.paragraphs),
+            Some(Element::Shape(s)) => Ok(&mut s.paragraphs),
+            Some(_) => Err("not a text element".into()),
+            None => Err("no such element".into()),
+        }
+    }
+
+    /// Character boxes of a text element, in slide coordinates, plus the
+    /// caret box after the last character. `None` without the typesetter.
+    pub fn text_layout(&self, element: usize) -> Result<Option<TextLayout>, String> {
+        let (deck, slide) = self.current().ok_or("no slide")?;
+        let (rect, paragraphs) = match slide.elements.get(element) {
+            Some(Element::Text(t)) => (t.rect, &t.paragraphs),
+            Some(Element::Shape(s)) => (s.rect, &s.paragraphs),
+            Some(_) => return Err("not a text element".into()),
+            None => return Err("no such element".into()),
+        };
+        let Some(boxes) = self.math.layout(&deck.math_preamble, paragraphs, (rect.w - 2.0 * svg::PADDING).max(1.0))
+        else {
+            return Ok(None);
+        };
+        let (ox, oy) = (rect.x + svg::PADDING, rect.y + svg::PADDING);
+        Ok(Some(TextLayout {
+            text: text::flat_text(paragraphs),
+            chars: boxes
+                .into_iter()
+                .map(|b| CharRect { x: ox + b.x, right: ox + b.right, top: oy + b.top, bottom: oy + b.bottom })
+                .collect(),
+        }))
+    }
+
+    /// Replaces `from..to` of a text element by `insert`; returns the caret
+    /// index after the edit.
+    pub fn text_edit(&mut self, element: usize, from: usize, to: usize, insert: &str) -> Result<usize, String> {
+        self.touch(Some(self.slide));
+        let paragraphs = self.paragraphs_mut(element)?;
+        let (from, to) = (from.min(to), from.max(to));
+        let at = text::delete(paragraphs, from, to);
+        Ok(text::insert(paragraphs, at, insert))
     }
 
     /// Sets an image's crop and mask.

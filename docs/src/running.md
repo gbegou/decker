@@ -74,8 +74,11 @@ Two environment variables help scripts and tests:
 
 - The left column lists the slides; click one to edit it.
 - On the canvas, click an element to select it, drag it to move it, drag the corner handle to
-  resize it, press Delete to remove it. Double-click a text box to edit its text in place:
-  Enter starts a paragraph, Ctrl+Enter or a click elsewhere applies, Escape cancels.
+  resize it, press Delete to remove it. Double-click a text box to edit its text in place, with a
+  caret inside the typeset text: type, Backspace and Delete, arrows, Home and End, Shift with
+  any of those for a selection, Ctrl+A, Enter for a new paragraph, a click to place the caret,
+  Escape or a click outside to finish. Typing continues the style of the character before the
+  caret. Formulas inside a text are skipped by the caret; edit them in the side panel.
 - The right panel edits the selected element's position, size and text (one paragraph per
   line), and the slide's speaker notes. For an image it offers the crop: a shape to clip to
   (rectangle, ellipse, rounded rectangle with its corner radius) and the percentage cut off

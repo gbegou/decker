@@ -1,7 +1,7 @@
 # Roadmap
 
-1. Editing text in the typeset box itself (caret and selection from Typst's layout), and
-   PDF pages as native Typst text so that text stays selectable.
+1. PDF pages as native Typst text so that text stays selectable; mouse drag selection and
+   double-click word selection in the text editor.
 2. Embedded Python (PyO3) exposing the document model as a macro API.
 3. Editor: styles (font, size, color, alignment), shapes and images, undo, step editing,
    a layout editor.

@@ -31,6 +31,17 @@ Every window subscribes to `view-changed` and re-fetches the view. Windows never
 other, and no window keeps state of its own beyond what it is drawing. The future Python API
 calls the same state functions as the commands, so a macro and the editor cannot disagree.
 
+## Text editing
+
+Text is edited where it is drawn. Double-clicking a text box asks Rust for the layout of every
+character (`text_layout`: the box of each character as Typst placed it, read from the typeset
+frame, plus the caret box after the end); the editor draws the caret and the selection in its
+overlay from those boxes and sends each key as an edit (`text_edit`: replace a range of the
+flat text by a string). `deck_core::text` applies edits to paragraphs and runs by flat index,
+so styles survive typing, and the slide is re-rendered. Key actions are queued in the
+front-end so that fast typing keeps its order, and view responses that arrive out of order
+are dropped.
+
 ## Presentation windows
 
 ![Presentation windows](images/windows.svg)

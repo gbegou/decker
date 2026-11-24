@@ -964,6 +964,7 @@ name = "deck-typst"
 version = "0.1.0"
 dependencies = [
  "deck-core",
+ "serde",
  "thiserror 2.0.21",
  "typst",
  "typst-assets",

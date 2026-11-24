@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-  import { api, watchView, watchThumbnails, presentationKeys, type View, type Rect, type Crop, type Mask } from "./api";
+  import { api, watchView, watchThumbnails, presentationKeys, type View, type Rect, type Crop, type Mask, type TextLayout } from "./api";
   import SlideView from "./SlideView.svelte";
 
   let view = $state<View | null>(null);
@@ -16,6 +16,8 @@
     const stopView = watchView((v) => {
       view = v;
       if (selected !== null && selected >= v.elements.length) selected = null;
+      if (editing && (editing.index >= v.elements.length || v.slide !== editingSlide)) editing = null;
+      editingSlide = v.slide;
     });
     const stopThumbs = watchThumbnails((t) => (thumbnails = t));
     return () => { stopView(); stopThumbs(); };
@@ -97,33 +99,160 @@
   // through the rendered width.
   let drag: { index: number; startX: number; startY: number; rect: Rect; mode: "move" | "resize" } | null = null;
 
-  // In-place text editing: a textarea laid over the element, in slide
-  // coordinates, so it scales with the canvas.
-  let editing = $state<{ index: number; text: string; size: number } | null>(null);
-  let editor = $state<HTMLTextAreaElement>();
+  // In-place text editing with a caret drawn in the overlay. The caret is
+  // a flat character index into the element's text; Rust applies edits and
+  // returns the layout of every character, so what you see is the typeset
+  // text itself. Without the Typst feature the layout is null and the side
+  // panel's text field remains the way to edit.
+  let editing = $state<{ index: number; caret: number; anchor: number; layout: TextLayout } | null>(null);
+  let caretGoalX: number | null = null;
+  // Key actions run one after another, each seeing the state left by the
+  // previous one, so fast typing never drops or reorders characters.
+  let queue: Promise<void> = Promise.resolve();
+  function enqueue(action: () => void | Promise<void>) {
+    queue = queue.then(action).catch((e) => { status = `Edit failed: ${e}`; });
+  }
+  let editingSlide = -1;
 
-  function startEdit(index: number) {
+  async function startEdit(index: number, at?: { x: number; y: number }) {
     if (!view) return;
     const el = view.elements[index];
-    if (el.kind === "image") return;
+    if (el.kind === "image" || el.kind === "math") return;
     selected = index;
-    editing = { index, text: el.text, size: el.size };
-    queueMicrotask(() => { editor?.focus(); editor?.select(); });
+    const layout = await api.textLayout(index);
+    if (!layout) { status = "Text editing in place needs the Typst feature"; return; }
+    const caret = at ? caretAt(layout, at.x, at.y) : layout.chars.length - 1;
+    editing = { index, caret, anchor: caret, layout };
   }
 
-  async function commitEdit() {
+  async function refreshLayout() {
     if (!editing) return;
-    const { index, text } = editing;
-    editing = null;
-    if (view && view.elements[index] && text !== view.elements[index].text) {
-      await run("Text changed", () => api.setText(index, text));
-    }
+    const layout = await api.textLayout(editing.index);
+    if (!editing || !layout) { editing = null; return; }
+    editing.layout = layout;
+    const last = layout.chars.length - 1;
+    editing.caret = Math.min(editing.caret, last);
+    editing.anchor = Math.min(editing.anchor, last);
   }
 
-  function editorKey(e: KeyboardEvent) {
+  // The character index nearest a point in slide coordinates: the line
+  // whose box contains y (or the closest), then the nearest edge in x.
+  function caretAt(layout: TextLayout, x: number, y: number): number {
+    const chars = layout.chars;
+    if (chars.length <= 1) return 0;
+    let bestLine = Infinity, lineTop = 0, lineBottom = 0;
+    for (const c of chars) {
+      const d = y < c.top ? c.top - y : y > c.bottom ? y - c.bottom : 0;
+      if (d < bestLine) { bestLine = d; lineTop = c.top; lineBottom = c.bottom; }
+    }
+    let best = chars.length - 1, bestD = Infinity;
+    chars.forEach((c, i) => {
+      if (Math.abs(c.top - lineTop) > 0.5 && Math.abs(c.bottom - lineBottom) > 0.5) return;
+      // The nearest character edge: its left edge gives this index, its right edge the next.
+      const candidates: [number, number][] = [[i, Math.abs(x - c.x)], [Math.min(i + 1, chars.length - 1), Math.abs(x - c.right)]];
+      for (const [idx, d] of candidates) if (d < bestD) { bestD = d; best = idx; }
+    });
+    return best;
+  }
+
+  function lineOf(layout: TextLayout, i: number) {
+    const c = layout.chars[Math.min(i, layout.chars.length - 1)];
+    return { top: c.top, bottom: c.bottom };
+  }
+
+  function moveVertical(dir: -1 | 1) {
+    if (!editing) return editing!.caret;
+    const { layout, caret } = editing;
+    const cur = lineOf(layout, caret);
+    const x = caretGoalX ?? layout.chars[caret].x;
+    caretGoalX = x;
+    // The nearest line strictly above or below the current one.
+    let target: { top: number; bottom: number } | null = null;
+    for (const c of layout.chars) {
+      const above = c.bottom <= cur.top + 0.5, below = c.top >= cur.bottom - 0.5;
+      if ((dir < 0 && above) || (dir > 0 && below)) {
+        if (!target || (dir < 0 ? c.top > target.top : c.top < target.top)) target = { top: c.top, bottom: c.bottom };
+      }
+    }
+    if (!target) return dir < 0 ? 0 : layout.chars.length - 1;
+    return caretAt(layout, x, (target.top + target.bottom) / 2);
+  }
+
+  async function applyEdit(from: number, to: number, insert: string) {
+    if (!editing) return;
+    const caret = await api.textEdit(editing.index, from, to, insert);
+    if (editing) { editing.caret = caret; editing.anchor = caret; }
+    await refreshLayout();
+  }
+
+  /// A key: queued, so that positions are read when the action runs.
+  function editorKey(e: KeyboardEvent): boolean {
+    if (!editing) return false;
+    const handled = keyAction(e.key, e.shiftKey, e.ctrlKey || e.metaKey, e.altKey);
+    if (handled) enqueue(handled);
+    return handled !== null;
+  }
+
+  function keyAction(key: string, shift: boolean, ctrl: boolean, alt: boolean): (() => void | Promise<void>) | null {
+    const withState = (f: (st: { caret: number; anchor: number; layout: TextLayout; lo: number; hi: number; last: number }) => void | Promise<void>) => () => {
+      if (!editing) return;
+      const { caret, anchor, layout } = editing;
+      return f({ caret, anchor, layout, lo: Math.min(caret, anchor), hi: Math.max(caret, anchor), last: layout.chars.length - 1 });
+    };
+    const setCaret = (i: number, keepAnchor: boolean) => {
+      if (!editing) return;
+      editing.caret = Math.max(0, Math.min(editing.layout.chars.length - 1, i));
+      if (!keepAnchor) editing.anchor = editing.caret;
+    };
+    if (key !== "ArrowUp" && key !== "ArrowDown") caretGoalX = null;
+    switch (key) {
+      case "Escape": return () => { editing = null; };
+      case "ArrowLeft": return withState(({ caret, lo, hi }) => setCaret(lo !== hi && !shift ? lo : caret - 1, shift));
+      case "ArrowRight": return withState(({ caret, lo, hi }) => setCaret(lo !== hi && !shift ? hi : caret + 1, shift));
+      case "ArrowUp": return () => setCaret(moveVertical(-1), shift);
+      case "ArrowDown": return () => setCaret(moveVertical(1), shift);
+      case "Home": return withState(({ caret, layout }) => { const l = lineOf(layout, caret); let i = caret; while (i > 0 && Math.abs(layout.chars[i - 1].top - l.top) < 0.5) i--; setCaret(i, shift); });
+      case "End": return withState(({ caret, layout, last }) => { const l = lineOf(layout, caret); let i = caret; while (i < last && Math.abs(layout.chars[i + 1].top - l.top) < 0.5 && layout.text[i] !== "\n") i++; setCaret(i, shift); });
+      case "Backspace": return withState(({ caret, lo, hi }) => (lo !== hi ? applyEdit(lo, hi, "") : caret > 0 ? applyEdit(caret - 1, caret, "") : undefined));
+      case "Delete": return withState(({ caret, lo, hi, last }) => (lo !== hi ? applyEdit(lo, hi, "") : caret < last ? applyEdit(caret, caret + 1, "") : undefined));
+      case "Enter": return withState(({ lo, hi }) => applyEdit(lo, hi, "\n"));
+    }
+    if (key === "a" && ctrl) return withState(({ last }) => { if (editing) { editing.anchor = 0; editing.caret = last; } });
+    if (key.length === 1 && !ctrl && !alt) return withState(({ lo, hi }) => applyEdit(lo, hi, key));
+    return null;
+  }
+
+  // Slide coordinates of a pointer event on the canvas.
+  function slidePoint(e: PointerEvent | MouseEvent): { x: number; y: number } {
+    const r = canvas!.getBoundingClientRect();
+    return { x: ((e.clientX - r.left) / r.width) * view!.width, y: ((e.clientY - r.top) / r.height) * view!.height };
+  }
+
+  function editorPointerDown(e: PointerEvent) {
+    if (!editing) return;
+    const p = slidePoint(e);
+    const shift = e.shiftKey;
+    enqueue(() => {
+      if (!editing) return;
+      const i = caretAt(editing.layout, p.x, p.y);
+      editing.caret = i;
+      if (!shift) editing.anchor = i;
+      caretGoalX = null;
+    });
     e.stopPropagation();
-    if (e.key === "Escape") { editing = null; }
-    else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { commitEdit(); }
+  }
+
+  // Selection rectangles, one per line.
+  function selectionRects(ed: { caret: number; anchor: number; layout: TextLayout }): { x: number; y: number; w: number; h: number }[] {
+    const lo = Math.min(ed.caret, ed.anchor), hi = Math.max(ed.caret, ed.anchor);
+    const out: { x: number; y: number; w: number; h: number }[] = [];
+    for (let i = lo; i < hi; i++) {
+      const c = ed.layout.chars[i];
+      const cur = out[out.length - 1];
+      if (cur && Math.abs(cur.y - c.top) < 0.5) { cur.w = Math.max(cur.w, c.right - cur.x); }
+      else out.push({ x: c.x, y: c.top, w: c.right - c.x, h: c.bottom - c.top });
+    }
+    return out;
   }
 
   function scale(): number {
@@ -158,7 +287,11 @@
 
   function onKey(e: KeyboardEvent) {
     const tag = (e.target as HTMLElement).tagName;
-    if (tag === "TEXTAREA" || tag === "INPUT") return;
+    if (tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return;
+    if (editing) {
+      if (editorKey(e)) e.preventDefault();
+      return;
+    }
     if (e.key === "Delete" && selected !== null) {
       const i = selected;
       selected = null;
@@ -233,7 +366,7 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div class="canvas" bind:this={canvas} style="aspect-ratio: {view.width} / {view.height}"
-             onpointermove={moveDrag} onpointerup={endDrag} onclick={() => (selected = null)}>
+             onpointermove={moveDrag} onpointerup={endDrag} onclick={() => { selected = null; editing = null; }}>
           <SlideView svg={view.svg} width={view.width} height={view.height} />
           <svg class="overlay" viewBox="0 0 {view.width} {view.height}" preserveAspectRatio="none">
             {#each view.elements as el (el.index)}
@@ -241,7 +374,7 @@
               <rect class="hit" class:selected={el.index === selected}
                     x={el.rect.x} y={el.rect.y} width={el.rect.w} height={el.rect.h}
                     onpointerdown={(e) => startDrag(e, el.index, "move")}
-                    ondblclick={(e) => { e.stopPropagation(); startEdit(el.index); }} />
+                    ondblclick={(e) => { e.stopPropagation(); startEdit(el.index, slidePoint(e)); }} />
               {#if el.index === selected}
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <rect class="handle" x={el.rect.x + el.rect.w - 6} y={el.rect.y + el.rect.h - 6} width="12" height="12"
@@ -251,11 +384,16 @@
           </svg>
           {#if editing && view.elements[editing.index]}
             {@const r = view.elements[editing.index].rect}
+            {@const c = editing.layout.chars[editing.caret]}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <textarea class="inline-editor" bind:this={editor} bind:value={editing.text}
-                      style="left: {(r.x / view.width) * 100}%; top: {(r.y / view.height) * 100}%; width: {(r.w / view.width) * 100}%; height: {(r.h / view.height) * 100}%; font-size: {editing.size * scale()}px"
-                      onkeydown={editorKey} onblur={commitEdit} onclick={(e) => e.stopPropagation()} onpointerdown={(e) => e.stopPropagation()}
-                      spellcheck="false"></textarea>
+            <svg class="overlay text-editing" viewBox="0 0 {view.width} {view.height}" preserveAspectRatio="none"
+                 onpointerdown={editorPointerDown} onclick={(e) => e.stopPropagation()}>
+              <rect class="edit-frame" x={r.x} y={r.y} width={r.w} height={r.h} />
+              {#each selectionRects(editing) as s}
+                <rect class="selection" x={s.x} y={s.y} width={s.w} height={s.h} />
+              {/each}
+              <line class="caret" x1={c.x} y1={c.top} x2={c.x} y2={c.bottom} />
+            </svg>
           {/if}
         </div>
       </div>
@@ -301,7 +439,7 @@
         {/if}
         {#if sel.last_step > 0}<p class="muted">{sel.last_step} build step(s)</p>{/if}
       {:else}
-        <p class="muted">Click an element to select it, double-click to edit its text in place (Ctrl+Enter applies, Escape cancels). Drag to move, corner handle to resize, Delete to remove.</p>
+        <p class="muted">Click an element to select it, double-click its text to edit it in place (arrows, Shift for a selection, Enter for a paragraph, Escape to finish). Drag to move, corner handle to resize, Delete to remove.</p>
       {/if}
       <h3>Section</h3>
       <label>starts section
@@ -383,11 +521,11 @@
   .hit:hover { stroke: var(--accent); stroke-dasharray: 4 2; }
   .hit.selected { stroke: var(--accent); stroke-width: 2; }
   .handle { fill: var(--accent); cursor: nwse-resize; }
-  .inline-editor {
-    position: absolute; box-sizing: border-box; margin: 0; padding: 4px; resize: none; overflow: hidden;
-    background: rgba(255, 255, 255, 0.92); color: black; border: 2px solid var(--accent); border-radius: 0;
-    font-family: sans-serif; line-height: 1.2; outline: none;
-  }
+  .text-editing { cursor: text; }
+  .edit-frame { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 3; }
+  .selection { fill: rgba(79, 140, 255, 0.35); }
+  .caret { stroke: black; stroke-width: 1.5; animation: blink 1s steps(2, start) infinite; }
+  @keyframes blink { to { visibility: hidden; } }
   .steps { padding: 6px 16px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
   .props { grid-area: props; overflow-y: auto; padding: 12px; border-left: 1px solid var(--border); }
   .props h3 { margin: 12px 0 6px; font-size: 13px; color: var(--muted); text-transform: uppercase; }

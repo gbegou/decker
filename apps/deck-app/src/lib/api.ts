@@ -43,6 +43,12 @@ export interface View {
   in_subsection: string | null;
 }
 
+/** Character boxes of a text element, in slide points; the last is the caret after the end. */
+export interface TextLayout {
+  text: string;
+  chars: { x: number; right: number; top: number; bottom: number }[];
+}
+
 export const api = {
   open: (path: string) => invoke<View>("open", { path }),
   newDeck: () => invoke<View>("new_deck"),
@@ -59,6 +65,8 @@ export const api = {
   setText: (element: number, text: string) => invoke<View>("set_text", { element, text }),
   setNotes: (notes: string) => invoke<View>("set_notes", { notes }),
   setImage: (element: number, crop: Crop, mask: Mask) => invoke<View>("set_image", { element, crop, mask }),
+  textLayout: (element: number) => invoke<TextLayout | null>("text_layout", { element }),
+  textEdit: (element: number, from: number, to: number, insert: string) => invoke<number>("text_edit", { element, from, to, insert }),
   addSlide: () => invoke<View>("add_slide"),
   deleteSlide: () => invoke<View>("delete_slide"),
   duplicateSlide: () => invoke<View>("duplicate_slide"),

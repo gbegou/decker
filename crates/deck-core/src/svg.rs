@@ -15,7 +15,8 @@ pub const DEFAULT_FONT: &str = "sans-serif";
 /// Average glyph width as a fraction of the font size, for word wrapping.
 const GLYPH_WIDTH: f64 = 0.55;
 const LINE_HEIGHT: f64 = 1.2;
-const PADDING: f64 = 4.0;
+/// Inset of text inside its box, in points.
+pub const PADDING: f64 = 4.0;
 
 /// A rendered formula: the children of an SVG root (glyph outlines), and
 /// its natural size in points.

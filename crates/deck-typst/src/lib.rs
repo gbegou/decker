@@ -20,6 +20,7 @@ use typst::utils::LazyHash;
 use typst::{Library, LibraryExt, World};
 
 use deck_core::{Align, Color, Deck, MathImage, MathRenderer, Paragraph, Run};
+use typst::layout::{Frame, FrameItem, Point, Transform};
 
 /// The font text boxes default to (bundled, see [`DEJAVU_SANS`]).
 pub const DEFAULT_FONT: &str = "DejaVu Sans";
@@ -130,37 +131,67 @@ impl Engine {
     /// style, alignment, bullets by level, inline math runs as formulas.
     /// The result's height is the text's natural height.
     pub fn render_text(&self, preamble: &str, paragraphs: &[Paragraph], width: f64) -> Result<MathImage, Error> {
-        let mut text = format!(
-            "#set page(width: {width}pt, height: auto, margin: 0pt, fill: none)\n#set text(size: {DEFAULT_SIZE}pt, font: \"{DEFAULT_FONT}\", fill: black, top-edge: \"ascender\", bottom-edge: \"descender\")\n#set par(leading: 0.4em)\n#set block(spacing: 0.6em)\n#set list(marker: [•], indent: 0pt, body-indent: 0.5em)\n{preamble}\n"
-        );
-        for p in paragraphs {
-            let body: String = p.runs.iter().map(run_markup).collect();
-            let body = if body.trim().is_empty() { "#v(1em)".to_string() } else { body };
-            let aligned = match p.align {
-                Align::Left => body,
-                Align::Center => format!("#align(center)[{body}]"),
-                Align::Right => format!("#align(right)[{body}]"),
-                Align::Justify => format!("#par(justify: true)[{body}]"),
-            };
-            match p.bullet {
-                Some(level) => {
-                    let _ = std::fmt::Write::write_fmt(
-                        &mut text,
-                        format_args!(
-                            "#block(inset: (left: {}pt))[#list([{aligned}])]\n",
-                            f64::from(level) * 1.5 * DEFAULT_SIZE
-                        ),
-                    );
-                }
-                None => {
-                    text.push_str(&aligned);
-                    text.push_str("\n\n");
-                }
-            }
-        }
-        self.render_cached(&text)
+        self.render_cached(&text_source(preamble, paragraphs, width))
     }
 
+    /// The box of every character of `paragraphs` as typeset in a column
+    /// `width` wide, plus one more for the caret at the end: the geometry
+    /// of a text caret and selection. Characters the layout does not show
+    /// as such (paragraph breaks, spaces eaten by a line break, formula
+    /// source) get the position where they end.
+    pub fn layout_text(&self, preamble: &str, paragraphs: &[Paragraph], width: f64) -> Result<Vec<CharBox>, Error> {
+        let text = text_source(preamble, paragraphs, width);
+        let main_id = FileId::new(None, VirtualPath::new("/main.typ"));
+        let binaries = Binaries::new();
+        let world = Sandbox { shared: &self.inner, main: Source::new(main_id, text), binaries: &binaries };
+        let document: PagedDocument =
+            typst::compile(&world).output.map_err(|errors| Error::Typst(describe(&errors)))?;
+        let page = document.pages.first().ok_or(Error::Empty)?;
+        let mut glyphs = vec![];
+        collect_glyphs(&page.frame, Point::zero(), &mut glyphs);
+        Ok(map_chars(&deck_core::text::flat_text(paragraphs), &glyphs, is_math_mask(paragraphs)))
+    }
+
+    #[doc(hidden)]
+    pub fn text_source_for(preamble: &str, paragraphs: &[Paragraph], width: f64) -> String {
+        text_source(preamble, paragraphs, width)
+    }
+}
+
+/// The Typst source of a text box.
+fn text_source(preamble: &str, paragraphs: &[Paragraph], width: f64) -> String {
+    let mut text = format!(
+            "#set page(width: {width}pt, height: auto, margin: 0pt, fill: none)\n#set text(size: {DEFAULT_SIZE}pt, font: \"{DEFAULT_FONT}\", fill: black, top-edge: \"ascender\", bottom-edge: \"descender\")\n#set par(leading: 0.4em)\n#set block(spacing: 0.6em)\n#set list(marker: [•], indent: 0pt, body-indent: 0.5em)\n{preamble}\n"
+        );
+    for p in paragraphs {
+        let body: String = p.runs.iter().map(run_markup).collect();
+        let body = if body.trim().is_empty() { "#v(1em)".to_string() } else { body };
+        let aligned = match p.align {
+            Align::Left => body,
+            Align::Center => format!("#align(center)[{body}]"),
+            Align::Right => format!("#align(right)[{body}]"),
+            Align::Justify => format!("#par(justify: true)[{body}]"),
+        };
+        match p.bullet {
+            Some(level) => {
+                let _ = std::fmt::Write::write_fmt(
+                    &mut text,
+                    format_args!(
+                        "#block(inset: (left: {}pt))[#list([{aligned}])]\n",
+                        f64::from(level) * 1.5 * DEFAULT_SIZE
+                    ),
+                );
+            }
+            None => {
+                text.push_str(&aligned);
+                text.push_str("\n\n");
+            }
+        }
+    }
+    text
+}
+
+impl Engine {
     fn render_cached(&self, text: &str) -> Result<MathImage, Error> {
         if let Some(hit) = self.inner.cache.lock().ok().and_then(|c| c.get(text).cloned()) {
             return Ok(hit);
@@ -231,6 +262,140 @@ impl Engine {
         let height = page.frame.height().to_pt();
         Ok(MathImage { content: svg_children(&svg), width, height })
     }
+}
+
+/// A character's box in the typeset text: `x` is its left edge, `right`
+/// its right edge, `top` and `bottom` the line box it sits on.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct CharBox {
+    pub x: f64,
+    pub right: f64,
+    pub top: f64,
+    pub bottom: f64,
+}
+
+/// A positioned glyph of the page, in reading order.
+struct GlyphPos {
+    text: String,
+    x: f64,
+    right: f64,
+    top: f64,
+    bottom: f64,
+}
+
+fn collect_glyphs(frame: &Frame, offset: Point, out: &mut Vec<GlyphPos>) {
+    for (pos, item) in frame.items() {
+        let p = Point::new(offset.x + pos.x, offset.y + pos.y);
+        match item {
+            FrameItem::Group(g) => {
+                // Only the translation of the transform matters for text boxes.
+                let t: Transform = g.transform;
+                collect_glyphs(&g.frame, Point::new(p.x + t.tx, p.y + t.ty), out);
+            }
+            FrameItem::Text(t) => {
+                let size = t.size.to_pt();
+                let m = t.font.metrics();
+                let top = p.y.to_pt() - m.ascender.at(t.size).to_pt();
+                let bottom = p.y.to_pt() - m.descender.at(t.size).to_pt();
+                let mut x = p.x.to_pt();
+                for g in &t.glyphs {
+                    let adv = g.x_advance.at(t.size).to_pt();
+                    let range = g.range.start as usize..g.range.end as usize;
+                    let text = t.text.get(range).unwrap_or("").to_string();
+                    out.push(GlyphPos { text, x, right: x + adv, top, bottom });
+                    x += adv;
+                    let _ = size;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Which flat characters belong to formula runs (never matched to glyphs).
+fn is_math_mask(paragraphs: &[Paragraph]) -> Vec<bool> {
+    let mut mask = vec![];
+    for (i, p) in paragraphs.iter().enumerate() {
+        if i > 0 {
+            mask.push(false);
+        }
+        for r in &p.runs {
+            mask.extend(r.text.chars().map(|_| r.math));
+        }
+    }
+    mask
+}
+
+/// Walks the glyphs in reading order and assigns each flat character a
+/// box: matching glyph text consumes characters; glyphs that match nothing
+/// (bullets, hyphens, formulas) are skipped; characters the layout dropped
+/// (breaks, spaces at line ends, formula source) take the end of the last
+/// matched glyph. The last entry is the caret box after the final character.
+fn map_chars(flat: &str, glyphs: &[GlyphPos], math: Vec<bool>) -> Vec<CharBox> {
+    let chars: Vec<char> = flat.chars().collect();
+    let mut boxes: Vec<Option<CharBox>> = vec![None; chars.len()];
+    let mut ci = 0usize;
+    let mut last = CharBox { x: 0.0, right: 0.0, top: 0.0, bottom: 0.0 };
+    let mut gi = 0usize;
+    while gi < glyphs.len() && ci < chars.len() {
+        let g = &glyphs[gi];
+        let gchars: Vec<char> = g.text.chars().collect();
+        if gchars.is_empty() {
+            gi += 1;
+            continue;
+        }
+        // Skip characters the layout never shows as glyphs.
+        while ci < chars.len() && (math[ci] || chars[ci] == '\n') {
+            boxes[ci] = Some(CharBox { x: last.right, right: last.right, top: last.top, bottom: last.bottom });
+            ci += 1;
+        }
+        if ci >= chars.len() {
+            break;
+        }
+        if gchars[0] == chars[ci] {
+            // A glyph may cover several characters (ligatures): split its width.
+            let n = gchars.len().min(chars.len() - ci);
+            let step = (g.right - g.x) / n as f64;
+            for (k, &gc) in gchars.iter().enumerate().take(n) {
+                if chars[ci] != gc {
+                    break;
+                }
+                let b = CharBox {
+                    x: g.x + step * k as f64,
+                    right: g.x + step * (k + 1) as f64,
+                    top: g.top,
+                    bottom: g.bottom,
+                };
+                boxes[ci] = Some(b);
+                last = b;
+                ci += 1;
+            }
+            gi += 1;
+        } else if chars[ci] == ' ' {
+            // A space swallowed by a line break: it ends where the line ends.
+            boxes[ci] = Some(CharBox { x: last.right, right: last.right, top: last.top, bottom: last.bottom });
+            ci += 1;
+        } else {
+            gi += 1;
+        }
+    }
+    let mut out: Vec<CharBox> = Vec::with_capacity(chars.len() + 1);
+    let mut prev = CharBox { x: 0.0, right: 0.0, top: 0.0, bottom: 0.0 };
+    for b in boxes {
+        let b = b.unwrap_or(CharBox { x: prev.right, right: prev.right, top: prev.top, bottom: prev.bottom });
+        out.push(b);
+        prev = b;
+    }
+    // The caret after the last character: a new line after a break, else the right edge.
+    let end = match chars.last() {
+        Some('\n') => {
+            let h = prev.bottom - prev.top;
+            CharBox { x: 0.0, right: 0.0, top: prev.bottom, bottom: prev.bottom + h.max(1.0) }
+        }
+        _ => CharBox { x: prev.right, right: prev.right, top: prev.top, bottom: prev.bottom },
+    };
+    out.push(end);
+    out
 }
 
 impl MathRenderer for Engine {
@@ -420,6 +585,55 @@ mod tests {
 
         let again = e.render_text("", &[Paragraph::plain("Hello world")], 400.0).unwrap();
         assert_eq!(again, plain, "cached");
+    }
+
+    #[test]
+    fn lays_out_characters() {
+        use deck_core::*;
+        let e = Engine::new();
+        let paragraphs = vec![
+            Paragraph {
+                runs: vec![Run::plain("Hello "), Run { text: "wide".into(), bold: true, ..Default::default() }],
+                ..Default::default()
+            },
+            Paragraph { runs: vec![Run::plain("second line here")], bullet: Some(0), ..Default::default() },
+        ];
+        let boxes = e.layout_text("", &paragraphs, 400.0).unwrap();
+        let flat = deck_core::text::flat_text(&paragraphs);
+        assert_eq!(boxes.len(), flat.chars().count() + 1);
+        let h = &boxes[0];
+        assert!(h.x >= 0.0 && h.right > h.x && h.bottom > h.top, "{h:?}");
+        // Characters of one word advance left to right on the same line.
+        for k in 1..5 {
+            assert!(boxes[k].x >= boxes[k - 1].right - 0.01, "{:?} after {:?}", boxes[k], boxes[k - 1]);
+            assert_eq!(boxes[k].top, boxes[0].top);
+        }
+        // The second paragraph sits on a lower line, indented by the bullet.
+        let s = &boxes[12];
+        assert!(s.top > boxes[0].bottom - 0.01, "second line below the first: {s:?} vs {:?}", boxes[0]);
+        assert!(s.x > boxes[0].x, "bullet indent: {s:?}");
+        // The caret at the very end is at the right of the last character.
+        let end = boxes.last().unwrap();
+        assert!((end.x - boxes[boxes.len() - 2].right).abs() < 0.01);
+
+        // A wrapped line: the space at the break takes the line end, the next word starts a new line.
+        let long = vec![Paragraph::plain("aaaa bbbb cccc dddd eeee ffff gggg hhhh")];
+        let boxes = e.layout_text("", &long, 120.0).unwrap();
+        let lines: std::collections::BTreeSet<i64> = boxes.iter().map(|b| (b.top * 10.0) as i64).collect();
+        assert!(lines.len() >= 2, "wrapped onto several lines");
+        // Formula source characters all collapse to one position, outside the formula.
+        let math = vec![Paragraph {
+            runs: vec![
+                Run::plain("a "),
+                Run { text: "x^2".into(), math: true, ..Default::default() },
+                Run::plain(" b"),
+            ],
+            ..Default::default()
+        }];
+        let boxes = e.layout_text("", &math, 300.0).unwrap();
+        assert_eq!(boxes[2].x, boxes[3].x);
+        assert_eq!(boxes[3].x, boxes[4].x);
+        assert!(boxes[6].x > boxes[4].x, "text after the formula continues to the right");
     }
 
     #[test]

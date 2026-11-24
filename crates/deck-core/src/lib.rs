@@ -10,6 +10,7 @@
 pub mod model;
 pub mod native;
 pub mod svg;
+pub mod text;
 pub mod transfer;
 
 pub use model::*;

@@ -13,7 +13,7 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 use deck_core::{Crop, Deck, Mask, Rect};
-use state::{AppState, View};
+use state::{AppState, TextLayout, View};
 
 type Shared<'a> = State<'a, Mutex<AppState>>;
 
@@ -168,6 +168,30 @@ fn set_text(app: AppHandle, state: Shared, element: usize, text: String) -> Resu
     };
     edited(&app);
     Ok(view)
+}
+
+/// Character boxes of a text element of the current slide (`None` without Typst).
+#[tauri::command]
+fn text_layout(state: Shared, element: usize) -> Result<Option<TextLayout>, String> {
+    state.lock().map_err(err)?.text_layout(element)
+}
+
+/// Replaces `from..to` by `insert` in a text element; returns the new caret.
+#[tauri::command]
+fn text_edit(
+    app: AppHandle,
+    state: Shared,
+    element: usize,
+    from: usize,
+    to: usize,
+    insert: String,
+) -> Result<usize, String> {
+    let caret = {
+        let mut s = state.lock().map_err(err)?;
+        s.text_edit(element, from, to, &insert)?
+    };
+    edited(&app);
+    Ok(caret)
 }
 
 #[tauri::command]
@@ -438,6 +462,8 @@ pub fn run() {
             set_text,
             set_notes,
             set_image,
+            text_layout,
+            text_edit,
             add_slide,
             delete_slide,
             duplicate_slide,
