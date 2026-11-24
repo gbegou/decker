@@ -417,7 +417,7 @@ mod tests {
         assert!(p.iter().all(|q| q.bullet.is_none()));
         let info = style_info(&sample(), 7, 9);
         assert!(info.bold && !info.italic);
-        assert_eq!(style_info(&sample(), 0, 11).bold, false, "mixed range is not all bold");
+        assert!(!style_info(&sample(), 0, 11).bold, "mixed range is not all bold");
         assert_eq!(style_info(&sample(), 12, 12).bullet, Some(0));
     }
 
