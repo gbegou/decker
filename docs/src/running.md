@@ -81,6 +81,9 @@ Two environment variables help scripts and tests:
   any of those for a selection, Ctrl+A, Enter for a new paragraph, a click to place the caret,
   Escape or a click outside to finish. Typing continues the style of the character before the
   caret. Formulas inside a text are skipped by the caret; edit them in the side panel.
+- Shift+click selects several elements; **Group** (Ctrl+G) makes them one element that
+  moves, resizes and animates together, **Ungroup** (Ctrl+Shift+G) takes it apart. PowerPoint
+  groups import as groups, with their animations on the group.
 - With an element selected, the style bar above the canvas sets bold, italic, size, color,
   font, alignment and bullet level (the selection while editing text, else the whole box;
   Ctrl+B and Ctrl+I too), the fill and outline of boxes and shapes, and the size and colors

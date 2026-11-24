@@ -195,7 +195,7 @@ fn element_style_info(e: &Element) -> (Option<Color>, Option<Stroke>, Option<Col
         Element::Shape(s) => (s.fill, s.stroke, None, None),
         Element::Math(m) => (m.color, None, None, None),
         Element::Outline(o) => (o.color, None, o.highlight, Some(o.subsections)),
-        Element::Image(_) => (None, None, None, None),
+        Element::Image(_) | Element::Group(_) => (None, None, None, None),
     }
 }
 
@@ -246,12 +246,16 @@ impl AppState {
 
     /// Reads and encodes the slide's images not yet in the cache.
     fn cache_assets(&mut self, slide: &Slide) {
-        let srcs: Vec<String> = slide
-            .elements
-            .iter()
-            .filter_map(|e| if let Element::Image(i) = e { Some(i.src.clone()) } else { None })
-            .filter(|src| !self.assets.contains_key(src))
-            .collect();
+        fn collect(e: &Element, out: &mut Vec<String>) {
+            match e {
+                Element::Image(i) => out.push(i.src.clone()),
+                Element::Group(g) => g.children.iter().for_each(|c| collect(c, out)),
+                _ => {}
+            }
+        }
+        let mut all = vec![];
+        slide.elements.iter().for_each(|e| collect(e, &mut all));
+        let srcs: Vec<String> = all.into_iter().filter(|src| !self.assets.contains_key(src)).collect();
         for src in srcs {
             if let Some(uri) = data_uri(&self.dir.join(&src)) {
                 self.assets.insert(src, uri);
@@ -339,6 +343,7 @@ impl AppState {
                         Element::Shape(_) => "shape",
                         Element::Math(_) => "math",
                         Element::Outline(_) => "outline",
+                        Element::Group(_) => "group",
                     },
                     rect: *e.rect(),
                     text: match e {
@@ -347,6 +352,7 @@ impl AppState {
                         Element::Math(m) => m.source.clone(),
                         Element::Image(i) => i.src.clone(),
                         Element::Outline(_) => String::new(),
+                        Element::Group(g) => format!("{} elements", g.children.len()),
                     },
                     last_step: e.last_step(),
                     size: match e {
@@ -354,7 +360,7 @@ impl AppState {
                         Element::Shape(s) => s.paragraphs.first().and_then(|p| p.runs.first()).and_then(|r| r.size),
                         Element::Math(m) => m.size,
                         Element::Outline(o) => o.size,
-                        Element::Image(_) => None,
+                        Element::Image(_) | Element::Group(_) => None,
                     }
                     .unwrap_or(svg::DEFAULT_FONT_SIZE),
                     crop: if let Element::Image(i) = e { Some(i.crop) } else { None },
@@ -399,6 +405,7 @@ impl AppState {
                     Element::Shape(_) => "shape",
                     Element::Math(_) => "math",
                     Element::Outline(_) => "outline",
+                    Element::Group(_) => "group",
                 },
                 rect: *e.rect(),
                 text: match e {
@@ -407,6 +414,7 @@ impl AppState {
                     Element::Math(m) => m.source.clone(),
                     Element::Image(i) => i.src.clone(),
                     Element::Outline(_) => String::new(),
+                    Element::Group(g) => format!("{} elements", g.children.len()),
                 },
                 last_step: e.last_step(),
                 size: svg::DEFAULT_FONT_SIZE,
@@ -727,7 +735,7 @@ impl AppState {
             }
         }
         let e = self.elements_mut()?.get_mut(element).ok_or("no such element")?;
-        *e.rect_mut() = rect;
+        e.set_rect(rect);
         Ok(())
     }
 
@@ -781,6 +789,7 @@ impl AppState {
             Element::Math(m) => m.source = text.to_string(),
             Element::Image(_) => return Err("an image has no text".into()),
             Element::Outline(_) => return Err("the outline is computed from the sections".into()),
+            Element::Group(_) => return Err("ungroup to edit the texts of a group".into()),
         }
         Ok(())
     }
@@ -1026,9 +1035,22 @@ impl AppState {
                     o.subsections = sub;
                 }
             }
-            Element::Image(_) => return Err("an image has no style".into()),
+            Element::Image(_) | Element::Group(_) => return Err("select one element to style it".into()),
         }
         Ok(())
+    }
+
+    /// Groups the elements at `indices` of the current slide or layout.
+    pub fn group(&mut self, indices: &[usize]) -> Result<usize, String> {
+        self.touch_target();
+        deck_core::group_elements(self.elements_mut()?, indices)
+            .ok_or_else(|| "select at least two elements".to_string())
+    }
+
+    /// Ungroups the group at `index`; returns how many elements it held.
+    pub fn ungroup(&mut self, index: usize) -> Result<usize, String> {
+        self.touch_target();
+        deck_core::ungroup_element(self.elements_mut()?, index).ok_or_else(|| "not a group".to_string())
     }
 
     /// Adds an outline ("plan") element to the current slide.

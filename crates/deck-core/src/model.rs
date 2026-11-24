@@ -244,6 +244,8 @@ pub enum Element {
     /// The deck's sections, with the slide's own section highlighted: a
     /// "plan" slide that repeats at each section start.
     Outline(OutlineBox),
+    /// Elements moved, resized and animated together.
+    Group(Group),
 }
 
 impl Element {
@@ -254,6 +256,7 @@ impl Element {
             Element::Shape(s) => &s.rect,
             Element::Math(m) => &m.rect,
             Element::Outline(o) => &o.rect,
+            Element::Group(g) => &g.rect,
         }
     }
 
@@ -264,6 +267,17 @@ impl Element {
             Element::Shape(s) => &mut s.rect,
             Element::Math(m) => &mut m.rect,
             Element::Outline(o) => &mut o.rect,
+            Element::Group(g) => &mut g.rect,
+        }
+    }
+
+    /// Moves and resizes the element to `rect`; a group carries its
+    /// children along, scaled.
+    pub fn set_rect(&mut self, rect: Rect) {
+        if let Element::Group(g) = self {
+            g.set_rect(rect);
+        } else {
+            *self.rect_mut() = rect;
         }
     }
 
@@ -275,6 +289,18 @@ impl Element {
             Element::Shape(s) => &s.steps,
             Element::Math(m) => &m.steps,
             Element::Outline(o) => &o.steps,
+            Element::Group(g) => &g.steps,
+        }
+    }
+
+    pub fn steps_mut(&mut self) -> &mut Vec<Step> {
+        match self {
+            Element::Text(t) => &mut t.steps,
+            Element::Image(i) => &mut i.steps,
+            Element::Shape(s) => &mut s.steps,
+            Element::Math(m) => &mut m.steps,
+            Element::Outline(o) => &mut o.steps,
+            Element::Group(g) => &mut g.steps,
         }
     }
 
@@ -292,6 +318,88 @@ impl Element {
     pub fn last_step(&self) -> u32 {
         self.steps().iter().map(|s| s.at).max().unwrap_or(0)
     }
+}
+
+/// Elements moved, resized and animated together. Children keep slide
+/// coordinates; `rect` is their bounding box.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Group {
+    pub rect: Rect,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<Step>,
+    pub children: Vec<Element>,
+}
+
+impl Group {
+    /// A group of `children`, with their bounding box.
+    pub fn of(children: Vec<Element>) -> Self {
+        Self { rect: bounding(&children), steps: vec![], children }
+    }
+
+    /// Moves and scales the children so that the group fills `rect`.
+    pub fn set_rect(&mut self, rect: Rect) {
+        let old = self.rect;
+        let sx = if old.w > 0.0 { rect.w / old.w } else { 1.0 };
+        let sy = if old.h > 0.0 { rect.h / old.h } else { 1.0 };
+        for c in &mut self.children {
+            let r = *c.rect();
+            c.set_rect(Rect {
+                x: rect.x + (r.x - old.x) * sx,
+                y: rect.y + (r.y - old.y) * sy,
+                w: r.w * sx,
+                h: r.h * sy,
+            });
+        }
+        self.rect = rect;
+    }
+}
+
+/// The bounding box of elements (zero when there are none).
+pub fn bounding(elements: &[Element]) -> Rect {
+    let mut it = elements.iter().map(|e| *e.rect());
+    let Some(first) = it.next() else { return Rect::default() };
+    let (mut x0, mut y0, mut x1, mut y1) = (first.x, first.y, first.x + first.w, first.y + first.h);
+    for r in it {
+        x0 = x0.min(r.x);
+        y0 = y0.min(r.y);
+        x1 = x1.max(r.x + r.w);
+        y1 = y1.max(r.y + r.h);
+    }
+    Rect::new(x0, y0, x1 - x0, y1 - y0)
+}
+
+/// Replaces the elements at `indices` (at least two) by one group, placed
+/// where the first of them was. Returns the group's index.
+pub fn group_elements(elements: &mut Vec<Element>, indices: &[usize]) -> Option<usize> {
+    let mut idx: Vec<usize> = indices.iter().copied().filter(|&i| i < elements.len()).collect();
+    idx.sort_unstable();
+    idx.dedup();
+    if idx.len() < 2 {
+        return None;
+    }
+    let at = idx[0];
+    let mut children = vec![];
+    for &i in idx.iter().rev() {
+        children.push(elements.remove(i));
+    }
+    children.reverse();
+    elements.insert(at, Element::Group(Group::of(children)));
+    Some(at)
+}
+
+/// Replaces the group at `index` by its children, in place. Returns how
+/// many elements took its place.
+pub fn ungroup_element(elements: &mut Vec<Element>, index: usize) -> Option<usize> {
+    match elements.get(index) {
+        Some(Element::Group(_)) => {}
+        _ => return None,
+    }
+    let Element::Group(g) = elements.remove(index) else { unreachable!() };
+    let n = g.children.len();
+    for (k, c) in g.children.into_iter().enumerate() {
+        elements.insert(index + k, c);
+    }
+    Some(n)
 }
 
 /// The deck's outline as a list: every section, the one the slide belongs
@@ -852,6 +960,33 @@ mod tests {
         let json = serde_json::to_string(&deck).unwrap();
         assert!(json.contains("\"layouts\""));
         assert_eq!(serde_json::from_str::<Deck>(&json).unwrap(), deck);
+    }
+
+    #[test]
+    fn groups_move_and_scale_their_children() {
+        let mut elements = vec![
+            Element::Shape(Shape { rect: Rect::new(10.0, 10.0, 20.0, 20.0), ..Default::default() }),
+            Element::Text(TextBox::plain(Rect::new(100.0, 50.0, 50.0, 10.0), "t")),
+            Element::Shape(Shape { rect: Rect::new(0.0, 0.0, 5.0, 5.0), ..Default::default() }),
+        ];
+        assert_eq!(group_elements(&mut elements, &[2]), None, "one element is not a group");
+        let at = group_elements(&mut elements, &[1, 0]).unwrap();
+        assert_eq!((at, elements.len()), (0, 2));
+        let Element::Group(g) = &elements[0] else { panic!() };
+        assert_eq!(g.rect, Rect::new(10.0, 10.0, 140.0, 50.0));
+        assert_eq!(g.children.len(), 2);
+        // Move by (+10, +20) and double the width: children follow.
+        elements[0].set_rect(Rect::new(20.0, 30.0, 280.0, 50.0));
+        let Element::Group(g) = &elements[0] else { panic!() };
+        assert_eq!(*g.children[0].rect(), Rect::new(20.0, 30.0, 40.0, 20.0));
+        assert_eq!(*g.children[1].rect(), Rect::new(200.0, 70.0, 100.0, 10.0));
+        let json = serde_json::to_string(&elements[0]).unwrap();
+        assert!(json.contains("\"type\":\"group\"") && json.contains("\"children\""));
+        assert_eq!(serde_json::from_str::<Element>(&json).unwrap(), elements[0]);
+        assert_eq!(ungroup_element(&mut elements, 0), Some(2));
+        assert_eq!(elements.len(), 3);
+        assert_eq!(*elements[1].rect(), Rect::new(200.0, 70.0, 100.0, 10.0));
+        assert_eq!(ungroup_element(&mut elements, 2), None, "not a group");
     }
 
     #[test]

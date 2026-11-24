@@ -105,6 +105,11 @@ impl Vars {
                 s.paragraphs = self.paragraphs(&s.paragraphs);
                 Element::Shape(s)
             }
+            Element::Group(g) => {
+                let mut g = g.clone();
+                g.children = g.children.iter().map(|c| self.element(c)).collect();
+                Element::Group(g)
+            }
             other => other.clone(),
         }
     }

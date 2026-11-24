@@ -15,7 +15,8 @@
       ["+ section · + subsection (hover a thumbnail)", "Start a section there; click a header to rename, clear to remove"],
     ]],
     ["Elements", [
-      ["Click", "Select; drag to move; corner handle to resize; Delete to remove"],
+      ["Click · Shift+click", "Select; add to the selection; drag to move; corner handle to resize; Delete to remove"],
+      ["Group · Ungroup (Ctrl+G · Ctrl+Shift+G)", "Several elements become one, moved, resized and animated together"],
       ["+ Text · + Plan", "A text box; the sections list with the current one highlighted"],
       ["Double-click a text", "Edit in place: type, Backspace/Delete, arrows, Home/End, Shift+arrows to select, Ctrl+A"],
       ["Enter · Escape", "New paragraph · finish editing"],

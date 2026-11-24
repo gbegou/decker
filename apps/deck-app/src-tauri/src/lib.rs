@@ -247,6 +247,20 @@ fn style_element(app: AppHandle, state: Shared, element: usize, change: ElementS
 }
 
 #[tauri::command]
+fn group_elements(app: AppHandle, state: Shared, indices: Vec<usize>) -> Result<usize, String> {
+    let at = state.lock().map_err(err)?.group(&indices)?;
+    edited(&app);
+    Ok(at)
+}
+
+#[tauri::command]
+fn ungroup_element(app: AppHandle, state: Shared, index: usize) -> Result<usize, String> {
+    let n = state.lock().map_err(err)?.ungroup(index)?;
+    edited(&app);
+    Ok(n)
+}
+
+#[tauri::command]
 fn add_outline(app: AppHandle, state: Shared) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
@@ -640,6 +654,8 @@ pub fn run() {
             delete_layout,
             add_placeholder,
             add_outline,
+            group_elements,
+            ungroup_element,
             style_text,
             style_paragraphs,
             style_info,

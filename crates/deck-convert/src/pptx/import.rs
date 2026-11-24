@@ -392,8 +392,11 @@ fn import_tree(
             }
             "grpSp" => {
                 // Child coordinates are in the group's own space; map them
-                // onto the slide with the group's transform.
+                // onto the slide with the group's transform, then keep the
+                // children together as one group element.
                 let group_offset = group_offset(node, offset);
+                let mut children = vec![];
+                let mut child_ids = vec![];
                 import_tree(
                     node,
                     part,
@@ -401,11 +404,19 @@ fn import_tree(
                     images,
                     report,
                     inherit,
-                    elements,
+                    &mut children,
                     group_offset,
-                    shape_ids,
+                    &mut child_ids,
                     skip_placeholders,
                 )?;
+                match children.len() {
+                    0 => {}
+                    1 => {
+                        elements.push(children.remove(0));
+                        shape_ids.push(child_ids.remove(0));
+                    }
+                    _ => elements.push(Element::Group(Group::of(children))),
+                }
             }
             "nvGrpSpPr" | "grpSpPr" => {}
             "graphicFrame" => report.warnings.push(format!("{part}: table, chart or diagram skipped")),
@@ -423,8 +434,8 @@ fn import_tree(
             other => report.warnings.push(format!("{part}: element {other} skipped")),
         }
         // Remember the PowerPoint shape id of each imported element, for
-        // the timing tree. Group children keep their own ids.
-        if tag != "grpSp" {
+        // the timing tree (a group's id animates the whole group).
+        if tag != "grpSp" || elements.len() == before + 1 && matches!(elements.last(), Some(Element::Group(_))) {
             let id = node
                 .descendants()
                 .find(|n| n.has_tag_name((NS_P, "cNvPr")))
@@ -514,6 +525,7 @@ fn steps_mut(e: &mut Element) -> &mut Vec<Step> {
         Element::Shape(s) => &mut s.steps,
         Element::Math(m) => &mut m.steps,
         Element::Outline(o) => &mut o.steps,
+        Element::Group(g) => &mut g.steps,
     }
 }
 

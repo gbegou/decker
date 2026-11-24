@@ -110,6 +110,12 @@ impl<'a> AssetCopier<'a> {
     }
 
     fn remap(&mut self, element: &mut Element) -> Result<(), NativeError> {
+        if let Element::Group(g) = element {
+            for c in &mut g.children {
+                self.remap(c)?;
+            }
+            return Ok(());
+        }
         let Element::Image(img) = element else { return Ok(()) };
         if let Some(dst) = self.done.get(&img.src) {
             img.src = dst.clone();

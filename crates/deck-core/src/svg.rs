@@ -176,6 +176,36 @@ fn element_body(
                 text_body(out, r, &s.paragraphs, &deck.math_preamble, math);
             }
             Element::Math(m) => math_body(out, r, m, &deck.math_preamble, math),
+            Element::Group(g) => {
+                // The group's movement and scaling at this step, as a transform
+                // of the children drawn at their base positions.
+                let (sx, sy) = (
+                    if g.rect.w > 0.0 { r.w / g.rect.w } else { 1.0 },
+                    if g.rect.h > 0.0 { r.h / g.rect.h } else { 1.0 },
+                );
+                let moved = (r.x - g.rect.x).abs() > 1e-9
+                    || (r.y - g.rect.y).abs() > 1e-9
+                    || (sx - 1.0).abs() > 1e-9
+                    || (sy - 1.0).abs() > 1e-9;
+                if moved {
+                    let _ = write!(
+                        out,
+                        r#"<g transform="translate({} {}) scale({} {}) translate({} {})">"#,
+                        fmt(r.x),
+                        fmt(r.y),
+                        fmt(sx),
+                        fmt(sy),
+                        fmt(-g.rect.x),
+                        fmt(-g.rect.y)
+                    );
+                }
+                for child in &g.children {
+                    element_body(out, deck, child, step, math, None, slide_index);
+                }
+                if moved {
+                    out.push_str("</g>");
+                }
+            }
             Element::Outline(o) => {
                 let paragraphs = deck.outline_paragraphs(slide_index, o);
                 if paragraphs.is_empty() {
@@ -538,6 +568,34 @@ mod tests {
         assert!(second.contains("Intro 2/2"), "{second}");
         let editor = render_layout(&deck, &deck.layouts[0], &NoMath);
         assert!(editor.contains("{{section}}"), "the layout editor shows the variables themselves");
+    }
+
+    #[test]
+    fn groups_render_their_children_under_one_state() {
+        let mut deck = Deck::new("t");
+        let mut g = Group::of(vec![
+            Element::Shape(Shape {
+                rect: Rect::new(10.0, 10.0, 20.0, 20.0),
+                fill: Some(Color::BLACK),
+                ..Default::default()
+            }),
+            Element::Shape(Shape {
+                rect: Rect::new(50.0, 10.0, 20.0, 20.0),
+                fill: Some(Color::WHITE),
+                ..Default::default()
+            }),
+        ]);
+        g.steps = vec![
+            Step::disappear(0),
+            Step::appear(1),
+            Step { at: 2, set: Overrides { x: Some(110.0), ..Default::default() }, ..Default::default() },
+        ];
+        deck.slides.push(Slide { elements: vec![Element::Group(g)], ..Default::default() });
+        let s0 = render_step(&deck, &deck.slides[0], 0);
+        assert!(s0.contains(r#"<g id="e0" opacity="0">"#), "the whole group fades: {s0}");
+        assert_eq!(s0.matches("<rect ").count(), 3, "background + two children");
+        let s2 = render_step(&deck, &deck.slides[0], 2);
+        assert!(s2.contains(r#"transform="translate(110 10) scale(1 1) translate(-10 -10)""#), "moved as one: {s2}");
     }
 
     #[test]

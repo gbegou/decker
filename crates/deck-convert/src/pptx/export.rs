@@ -383,9 +383,9 @@ fn write_element(
     where_: &str,
     warnings: &mut Vec<String>,
 ) -> Result<()> {
-    let xml = &mut part.xml;
     match element {
         Element::Text(t) => {
+            let xml = &mut part.xml;
             let (cnv, nv) = match ph {
                 Some(tag) => {
                     (r#"<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>"#.to_string(), format!("<p:nvPr>{tag}</p:nvPr>"))
@@ -402,6 +402,7 @@ fn write_element(
             );
         }
         Element::Shape(s) => {
+            let xml = &mut part.xml;
             let prst = match s.kind {
                 ShapeKind::Rectangle => "rect",
                 ShapeKind::Ellipse => "ellipse",
@@ -416,17 +417,51 @@ fn write_element(
                 tx_body(&s.paragraphs)
             );
         }
+        Element::Group(g) => {
+            // Children keep slide coordinates: the child space equals the group's box.
+            let r = &g.rect;
+            let _ = write!(
+                part.xml,
+                r#"<p:grpSp><p:nvGrpSpPr><p:cNvPr id="{id}" name="Group {id}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="{}" y="{}"/><a:ext cx="{}" cy="{}"/><a:chOff x="{}" y="{}"/><a:chExt cx="{}" cy="{}"/></a:xfrm></p:grpSpPr>"#,
+                emu(r.x),
+                emu(r.y),
+                emu(r.w),
+                emu(r.h),
+                emu(r.x),
+                emu(r.y),
+                emu(r.w),
+                emu(r.h)
+            );
+            for (k, child) in g.children.iter().enumerate() {
+                // Child ids must be unique in the slide: derive them from the group's.
+                write_element(
+                    part,
+                    media_count,
+                    add,
+                    deck_dir,
+                    deck,
+                    slide_index,
+                    child,
+                    id * 100 + k + 1,
+                    None,
+                    where_,
+                    warnings,
+                )?;
+            }
+            part.xml.push_str("</p:grpSp>");
+        }
         Element::Outline(o) => {
             // The outline as it reads on this slide: a plain text box.
             let paragraphs = deck.outline_paragraphs(slide_index, o);
             let _ = write!(
-                xml,
+                part.xml,
                 r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Outline {id}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>{}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>{}</p:sp>"#,
                 xfrm(&o.rect),
                 tx_body(&paragraphs)
             );
         }
         Element::Math(m) => {
+            let xml = &mut part.xml;
             warnings.push(format!("{where_}: formula exported as its source text"));
             let p = Paragraph {
                 runs: vec![Run {
@@ -741,6 +776,18 @@ mod tests {
                     source: "x^2".into(),
                     ..Default::default()
                 }),
+                Element::Group({
+                    let mut g = Group::of(vec![
+                        Element::Shape(Shape {
+                            rect: Rect::new(700.0, 100.0, 50.0, 50.0),
+                            fill: Some(Color::BLACK),
+                            ..Default::default()
+                        }),
+                        Element::Text(TextBox::plain(Rect::new(760.0, 100.0, 150.0, 50.0), "grouped")),
+                    ]);
+                    g.steps = vec![Step::disappear(0), Step::appear(1)];
+                    g
+                }),
             ],
             ..Default::default()
         });
@@ -808,7 +855,12 @@ mod tests {
         assert_eq!(s.name, "first");
         assert_eq!(s.background, Some(Color::rgb(0x11, 0x22, 0x33)));
         assert_eq!(s.notes, "note line");
-        assert_eq!(s.elements.len(), 4);
+        assert_eq!(s.elements.len(), 5);
+        let Element::Group(g) = &s.elements[4] else { panic!("group") };
+        assert_eq!(g.children.len(), 2);
+        assert_eq!(*g.children[1].rect(), Rect::new(760.0, 100.0, 150.0, 50.0));
+        assert_eq!(g.rect, Rect::new(700.0, 100.0, 210.0, 50.0));
+        assert_eq!(g.steps.len(), 2, "the entrance animates the group: {:?}", g.steps);
         let Element::Text(t) = &s.elements[0] else { panic!("text") };
         assert_eq!(t.rect, Rect::new(50.0, 40.0, 400.0, 60.0));
         assert_eq!(t.paragraphs[0].align, Align::Center);

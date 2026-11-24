@@ -17,6 +17,9 @@ Playing step N interpolates from the state at N − 1 over the step's duration.
 | Color change | `fill` |
 | Move | `x`, `y` |
 
+A group's steps apply to the group as a whole: its children fade, move, grow or spin
+together, while keeping steps of their own.
+
 Each step has `at` (the click that triggers it), `set` (the overrides), `duration`, `delay`
 and `easing`. A slide consumes as many clicks as its highest step before moving on.
 

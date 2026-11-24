@@ -11,6 +11,9 @@
   let view = $state<View | null>(null);
   let thumbnails = $state<string[]>([]);
   let selected = $state<number | null>(null);
+  // Further selected elements (Shift+click), for grouping.
+  let also = $state<number[]>([]);
+  const selection = $derived(selected === null ? [] : [selected, ...also.filter((i) => i !== selected)]);
   let status = $state("");
   // The "insert slides from another deck" picker.
   let picker = $state<{ path: string; thumbs: string[]; chosen: boolean[] } | null>(null);
@@ -20,6 +23,7 @@
     const stopView = watchView((v) => {
       view = v;
       if (selected !== null && selected >= v.elements.length) selected = null;
+      also = also.filter((i) => i < v.elements.length);
       if (editing && (editing.index >= v.elements.length || v.slide !== editingSlide || v.editing_layout !== editingLayout)) editing = null;
       editingSlide = v.slide;
       editingLayout = v.editing_layout;
@@ -137,6 +141,26 @@
     }
     dragging = null;
     dropAt = null;
+  }
+
+  async function groupSelection() {
+    const idx = selection;
+    if (idx.length < 2) return;
+    await run("Grouped", async () => {
+      const at = await api.groupElements(idx);
+      also = [];
+      selected = at;
+    });
+  }
+
+  async function ungroupSelection() {
+    if (!sel || sel.kind !== "group") return;
+    const at = sel.index;
+    await run("Ungrouped", async () => {
+      const n = await api.ungroupElement(at);
+      selected = at;
+      also = Array.from({ length: n - 1 }, (_, k) => at + 1 + k);
+    });
   }
 
   // The outline in the slide stack: headers above the slides that start a
@@ -333,6 +357,16 @@
 
   function startDrag(e: PointerEvent, index: number, mode: "move" | "resize") {
     if (!view) return;
+    if (e.shiftKey && mode === "move") {
+      // Shift+click toggles the element in the multi-selection.
+      if (selected === null) selected = index;
+      else if (selected === index) { selected = also.shift() ?? null; }
+      else if (also.includes(index)) also = also.filter((i) => i !== index);
+      else also = [...also, index];
+      e.stopPropagation();
+      return;
+    }
+    also = [];
     selected = index;
     drag = { index, startX: e.clientX, startY: e.clientY, rect: { ...view.elements[index].rect }, mode };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -363,6 +397,11 @@
     if (tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return;
     if (e.key === "?" ) { help = !help; return; }
     if (e.key === "Escape" && help) { help = false; return; }
+    if ((e.key === "g" || e.key === "G") && (e.ctrlKey || e.metaKey)) {
+      if (e.shiftKey) ungroupSelection(); else groupSelection();
+      e.preventDefault();
+      return;
+    }
     if ((e.key === "b" || e.key === "i") && (e.ctrlKey || e.metaKey) && selected !== null && view) {
       const el = view.elements[selected];
       if (el.kind === "text" || el.kind === "shape") {
@@ -441,6 +480,8 @@
     {:else if view?.slide_count}
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
       <button onclick={() => run("Added outline", api.addOutline)} title="The sections, the current one highlighted: a plan slide">+ Plan</button>
+      {#if selection.length >= 2}<button onclick={groupSelection} title="Group the selected elements (Ctrl+G)">Group</button>{/if}
+      {#if sel?.kind === "group"}<button onclick={ungroupSelection} title="Ungroup (Ctrl+Shift+G)">Ungroup</button>{/if}
       <button onclick={() => run("Added slide", api.addSlide)}>+ Slide</button>
       <button onclick={() => run("Duplicated slide", api.duplicateSlide)}>Duplicate</button>
       <button onclick={() => run("Deleted slide", api.deleteSlide)}>− Slide</button>
@@ -497,12 +538,12 @@
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div class="canvas" bind:this={canvas} style="aspect-ratio: {view.width} / {view.height}"
              onpointermove={moveDrag} onpointerup={endDrag}
-             onclick={(e) => { if ((e.target as Element).closest(".hit, .handle, .text-editing")) return; selected = null; editing = null; }}>
+             onclick={(e) => { if ((e.target as Element).closest(".hit, .handle, .text-editing")) return; selected = null; also = []; editing = null; }}>
           <SlideView svg={view.svg} width={view.width} height={view.height} />
           <svg class="overlay" viewBox="0 0 {view.width} {view.height}" preserveAspectRatio="none">
             {#each view.elements as el (el.index)}
               <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <rect class="hit" class:selected={el.index === selected}
+              <rect class="hit" class:selected={selection.includes(el.index)}
                     x={el.rect.x} y={el.rect.y} width={el.rect.w} height={el.rect.h}
                     onpointerdown={(e) => startDrag(e, el.index, "move")}
                     ondblclick={(e) => { e.stopPropagation(); startEdit(el.index, slidePoint(e)); }} />
@@ -563,6 +604,8 @@
             <label>bottom <input type="number" min="0" max="95" value={Math.round(sel.crop.bottom * 100)} onchange={(e) => setCrop("bottom", +e.currentTarget.value)} /></label>
           </div>
           <p class="muted">The kept part of the image fills the box.</p>
+        {:else if sel.kind === "group"}
+          <p class="muted">A group of {sel.text}: moves, resizes and animates as one. Ungroup (Ctrl+Shift+G) to edit its parts.</p>
         {:else if sel.kind === "outline"}
           <p class="muted">The plan: every section, the one this slide belongs to in bold, with its subsections. Duplicate this slide and drag a copy to the start of each section; each copy highlights its own.</p>
         {:else if sel.kind === "placeholder"}
@@ -577,7 +620,7 @@
         {/if}
         {#if sel.last_step > 0}<p class="muted">{sel.last_step} build step(s)</p>{/if}
       {:else}
-        <p class="muted">Click an element to select it, double-click its text to edit it in place (arrows, Shift for a selection, Enter for a paragraph, Escape to finish). Drag to move, corner handle to resize, Delete to remove.</p>
+        <p class="muted">Click an element to select it, Shift+click to select several (then Group), double-click its text to edit it in place (arrows, Shift for a selection, Enter for a paragraph, Escape to finish). Drag to move, corner handle to resize, Delete to remove.</p>
       {/if}
       {#if view.editing_layout === null}
       <h3>Section</h3>
