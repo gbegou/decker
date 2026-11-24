@@ -764,7 +764,11 @@ fn paragraph(p: Node) -> (Paragraph, bool) {
         } else if n.has_tag_name((NS_A, "br")) {
             runs.push(Run::plain("\n"));
         } else if n.has_tag_name((NS_A, "fld")) {
-            let text = child(n, NS_A, "t").and_then(|t| t.text()).unwrap_or("").to_string();
+            // A slide number field becomes the `{{slide}}` variable.
+            let text = match n.attribute("type") {
+                Some("slidenum") => "{{slide}}".to_string(),
+                _ => child(n, NS_A, "t").and_then(|t| t.text()).unwrap_or("").to_string(),
+            };
             runs.push(Run::plain(text));
         }
     }

@@ -7,7 +7,8 @@ use base64::Engine;
 use serde::Serialize;
 
 use deck_core::{
-    native, svg, text, transfer, Crop, Deck, Element, Mask, MathRenderer, Paragraph, Rect, Slide, TextBox,
+    native, svg, text, transfer, Crop, Deck, Element, Layout, Mask, MathRenderer, Paragraph, Placeholder, Rect, Slide,
+    TextBox,
 };
 
 #[derive(Default)]
@@ -23,6 +24,8 @@ pub struct AppState {
     /// `""`, `"black"` or `"white"`: the audience window shows a blank
     /// screen of that color instead of the slide (B and W keys).
     pub blank: String,
+    /// The layout being edited instead of a slide, by name.
+    pub editing_layout: Option<String>,
     pub warnings: Vec<String>,
     /// Rendered thumbnails, one per slide; `None` when stale.
     thumbs: Vec<Option<String>>,
@@ -134,6 +137,8 @@ pub struct View {
     /// Per slide: the section and subsection it starts, for the outline
     /// shown in the slide stack.
     pub starts: Vec<SlideStart>,
+    /// The layout being edited, when the canvas shows a layout.
+    pub editing_layout: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -262,8 +267,12 @@ impl AppState {
                 in_section: None,
                 in_subsection: None,
                 starts: vec![],
+                editing_layout: None,
             };
         };
+        if let Some(layout) = self.editing_layout.as_deref().and_then(|n| deck.layout(n)) {
+            return self.layout_view(deck, layout);
+        }
         let render = |s: &Slide, step: u32| self.render(deck, s, step);
         let next_svg = if self.step < slide.last_step() {
             Some(render(slide, self.step + 1))
@@ -327,6 +336,191 @@ impl AppState {
                 .iter()
                 .map(|s| SlideStart { section: s.section.clone(), subsection: s.subsection.clone() })
                 .collect(),
+            editing_layout: None,
+        }
+    }
+
+    /// The view of a layout under edit: its static elements, then its
+    /// placeholders as elements of kind `placeholder` whose text is the name.
+    fn layout_view(&self, deck: &Deck, layout: &Layout) -> View {
+        let svg = inline_assets(&svg::render_layout(deck, layout, &*self.math.0), &self.dir, &self.assets);
+        let mut elements: Vec<ElementInfo> = layout
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(index, e)| ElementInfo {
+                index,
+                kind: match e {
+                    Element::Text(_) => "text",
+                    Element::Image(_) => "image",
+                    Element::Shape(_) => "shape",
+                    Element::Math(_) => "math",
+                },
+                rect: *e.rect(),
+                text: match e {
+                    Element::Text(t) => t.text(),
+                    Element::Shape(s) => s.paragraphs.iter().map(Paragraph::text).collect::<Vec<_>>().join("\n"),
+                    Element::Math(m) => m.source.clone(),
+                    Element::Image(i) => i.src.clone(),
+                },
+                last_step: e.last_step(),
+                size: svg::DEFAULT_FONT_SIZE,
+                crop: if let Element::Image(i) = e { Some(i.crop) } else { None },
+                mask: if let Element::Image(i) = e { Some(i.mask) } else { None },
+            })
+            .collect();
+        for (k, ph) in layout.placeholders.iter().enumerate() {
+            elements.push(ElementInfo {
+                index: layout.elements.len() + k,
+                kind: "placeholder",
+                rect: ph.rect,
+                text: ph.name.clone(),
+                last_step: 0,
+                size: ph.size.unwrap_or(svg::DEFAULT_FONT_SIZE),
+                crop: None,
+                mask: None,
+            });
+        }
+        let starts = deck
+            .slides
+            .iter()
+            .map(|s| SlideStart { section: s.section.clone(), subsection: s.subsection.clone() })
+            .collect();
+        View {
+            title: deck.title.clone(),
+            dir: self.dir.display().to_string(),
+            width: deck.width,
+            height: deck.height,
+            slide: self.slide,
+            slide_count: deck.slides.len(),
+            step: 0,
+            last_step: 0,
+            svg,
+            next_svg: None,
+            notes: String::new(),
+            elements,
+            presenting: self.presenting,
+            blank: self.blank.clone(),
+            warnings: self.warnings.clone(),
+            layouts: deck.layouts.iter().map(|l| l.name.clone()).collect(),
+            layout: Some(layout.name.clone()),
+            section: None,
+            subsection: None,
+            in_section: None,
+            in_subsection: None,
+            starts,
+            editing_layout: Some(layout.name.clone()),
+        }
+    }
+
+    // ----- layouts -----
+
+    /// Enters (`Some(name)`) or leaves (`None`) the layout editor.
+    pub fn edit_layout(&mut self, name: Option<String>) -> Result<(), String> {
+        if let Some(n) = &name {
+            let deck = self.deck.as_ref().ok_or("no deck")?;
+            if deck.layout(n).is_none() {
+                return Err(format!("no layout named {n}"));
+            }
+        }
+        self.editing_layout = name;
+        Ok(())
+    }
+
+    /// A new empty layout, entered for editing. Returns its name.
+    pub fn new_layout(&mut self) -> Result<String, String> {
+        let deck = self.deck.as_mut().ok_or("no deck")?;
+        let mut n = deck.layouts.len() + 1;
+        let mut name = format!("Layout {n}");
+        while deck.layout(&name).is_some() {
+            n += 1;
+            name = format!("Layout {n}");
+        }
+        deck.layouts.push(Layout { name: name.clone(), ..Default::default() });
+        self.editing_layout = Some(name.clone());
+        Ok(name)
+    }
+
+    /// Renames the layout under edit, in the slides that use it too.
+    pub fn rename_layout(&mut self, new_name: String) -> Result<(), String> {
+        let new_name = new_name.trim().to_string();
+        if new_name.is_empty() {
+            return Err("a layout needs a name".into());
+        }
+        let old = self.editing_layout.clone().ok_or("no layout under edit")?;
+        let deck = self.deck.as_mut().ok_or("no deck")?;
+        if old != new_name && deck.layout(&new_name).is_some() {
+            return Err(format!("a layout named {new_name} exists"));
+        }
+        for l in deck.layouts.iter_mut().filter(|l| l.name == old) {
+            l.name = new_name.clone();
+        }
+        for s in deck.slides.iter_mut().filter(|s| s.layout.as_deref() == Some(old.as_str())) {
+            s.layout = Some(new_name.clone());
+        }
+        self.editing_layout = Some(new_name);
+        self.touch(None);
+        Ok(())
+    }
+
+    /// Deletes the layout under edit; its slides keep their elements and
+    /// lose the layout. Leaves the layout editor.
+    pub fn delete_layout(&mut self) -> Result<(), String> {
+        let name = self.editing_layout.take().ok_or("no layout under edit")?;
+        let deck = self.deck.as_mut().ok_or("no deck")?;
+        deck.layouts.retain(|l| l.name != name);
+        for s in deck.slides.iter_mut().filter(|s| s.layout.as_deref() == Some(name.as_str())) {
+            s.layout = None;
+        }
+        self.touch(None);
+        Ok(())
+    }
+
+    /// Adds a placeholder to the layout under edit.
+    pub fn add_placeholder(&mut self) -> Result<(), String> {
+        let (w, h) = self.deck.as_ref().map(|d| (d.width, d.height)).ok_or("no deck")?;
+        let layout = self.layout_mut()?;
+        let mut n = layout.placeholders.len() + 1;
+        let mut name = format!("body{n}");
+        while layout.placeholder(&name).is_some() {
+            n += 1;
+            name = format!("body{n}");
+        }
+        layout.placeholders.push(Placeholder {
+            name,
+            rect: Rect::new(w * 0.1, h * 0.3, w * 0.8, h * 0.4),
+            bullets: true,
+            ..Default::default()
+        });
+        self.touch(None);
+        Ok(())
+    }
+
+    fn layout_mut(&mut self) -> Result<&mut Layout, String> {
+        let name = self.editing_layout.clone().ok_or("no layout under edit")?;
+        self.deck
+            .as_mut()
+            .and_then(|d| d.layouts.iter_mut().find(|l| l.name == name))
+            .ok_or_else(|| "no such layout".to_string())
+    }
+
+    /// The elements being edited: the layout's when a layout is under
+    /// edit, else the current slide's.
+    fn elements_mut(&mut self) -> Result<&mut Vec<Element>, String> {
+        if self.editing_layout.is_some() {
+            Ok(&mut self.layout_mut()?.elements)
+        } else {
+            Ok(&mut self.slide_mut()?.elements)
+        }
+    }
+
+    /// Marks what the current edit changes: the slide, or every slide of
+    /// the layout under edit.
+    fn touch_target(&mut self) {
+        if self.editing_layout.is_some() {
+            self.touch(None);
+        } else {
+            self.touch(Some(self.slide));
         }
     }
 
@@ -405,6 +599,7 @@ impl AppState {
     }
 
     pub fn navigate(&mut self, action: &str) {
+        self.editing_layout = None;
         let Some((deck, slide)) = self.current() else { return };
         let count = deck.slides.len();
         let last_step = slide.last_step();
@@ -453,6 +648,7 @@ impl AppState {
     }
 
     pub fn goto(&mut self, slide: usize, step: u32) {
+        self.editing_layout = None;
         if let Some(deck) = &self.deck {
             if slide < deck.slides.len() {
                 self.slide = slide;
@@ -467,17 +663,52 @@ impl AppState {
     }
 
     pub fn set_rect(&mut self, element: usize, rect: Rect) -> Result<(), String> {
-        self.touch(Some(self.slide));
-        let slide = self.slide_mut()?;
-        let e = slide.elements.get_mut(element).ok_or("no such element")?;
-        *e.rect_mut() = Rect { w: rect.w.max(1.0), h: rect.h.max(1.0), ..rect };
+        self.touch_target();
+        let rect = Rect { w: rect.w.max(1.0), h: rect.h.max(1.0), ..rect };
+        if self.editing_layout.is_some() {
+            let layout = self.layout_mut()?;
+            if element >= layout.elements.len() {
+                let ph = layout.placeholders.get_mut(element - layout.elements.len()).ok_or("no such element")?;
+                ph.rect = rect;
+                return Ok(());
+            }
+        }
+        let e = self.elements_mut()?.get_mut(element).ok_or("no such element")?;
+        *e.rect_mut() = rect;
         Ok(())
     }
 
     pub fn set_text(&mut self, element: usize, text: &str) -> Result<(), String> {
-        self.touch(Some(self.slide));
-        let slide = self.slide_mut()?;
-        let e = slide.elements.get_mut(element).ok_or("no such element")?;
+        self.touch_target();
+        if self.editing_layout.is_some() {
+            let layout_name = self.editing_layout.clone().unwrap_or_default();
+            let layout = self.layout_mut()?;
+            if element >= layout.elements.len() {
+                // Renaming a placeholder: the slides that fill it follow.
+                let k = element - layout.elements.len();
+                let new_name = text.trim().to_string();
+                if new_name.is_empty() {
+                    return Err("a placeholder needs a name".into());
+                }
+                let old = layout.placeholders.get(k).map(|p| p.name.clone()).ok_or("no such element")?;
+                if old != new_name && layout.placeholder(&new_name).is_some() {
+                    return Err(format!("a placeholder named {new_name} exists"));
+                }
+                layout.placeholders[k].name = new_name.clone();
+                let deck = self.deck.as_mut().ok_or("no deck")?;
+                for s in deck.slides.iter_mut().filter(|s| s.layout.as_deref() == Some(layout_name.as_str())) {
+                    for e in &mut s.elements {
+                        if let Element::Text(t) = e {
+                            if t.placeholder.as_deref() == Some(old.as_str()) {
+                                t.placeholder = Some(new_name.clone());
+                            }
+                        }
+                    }
+                }
+                return Ok(());
+            }
+        }
+        let e = self.elements_mut()?.get_mut(element).ok_or("no such element")?;
         let paragraphs = |old: &[Paragraph]| -> Vec<Paragraph> {
             text.lines()
                 .enumerate()
@@ -502,8 +733,7 @@ impl AppState {
 
     /// The paragraphs of a text box or shape, for the caret editor.
     fn paragraphs_mut(&mut self, element: usize) -> Result<&mut Vec<Paragraph>, String> {
-        let slide = self.slide_mut()?;
-        match slide.elements.get_mut(element) {
+        match self.elements_mut()?.get_mut(element) {
             Some(Element::Text(t)) => Ok(&mut t.paragraphs),
             Some(Element::Shape(s)) => Ok(&mut s.paragraphs),
             Some(_) => Err("not a text element".into()),
@@ -515,7 +745,11 @@ impl AppState {
     /// caret box after the last character. `None` without the typesetter.
     pub fn text_layout(&self, element: usize) -> Result<Option<TextLayout>, String> {
         let (deck, slide) = self.current().ok_or("no slide")?;
-        let (rect, paragraphs) = match slide.elements.get(element) {
+        let elements = match self.editing_layout.as_deref().and_then(|n| deck.layout(n)) {
+            Some(layout) => &layout.elements,
+            None => &slide.elements,
+        };
+        let (rect, paragraphs) = match elements.get(element) {
             Some(Element::Text(t)) => (t.rect, &t.paragraphs),
             Some(Element::Shape(s)) => (s.rect, &s.paragraphs),
             Some(_) => return Err("not a text element".into()),
@@ -538,7 +772,7 @@ impl AppState {
     /// Replaces `from..to` of a text element by `insert`; returns the caret
     /// index after the edit.
     pub fn text_edit(&mut self, element: usize, from: usize, to: usize, insert: &str) -> Result<usize, String> {
-        self.touch(Some(self.slide));
+        self.touch_target();
         let paragraphs = self.paragraphs_mut(element)?;
         let (from, to) = (from.min(to), from.max(to));
         let at = text::delete(paragraphs, from, to);
@@ -646,21 +880,31 @@ impl AppState {
     }
 
     pub fn add_text(&mut self) -> Result<(), String> {
-        self.touch(Some(self.slide));
+        self.touch_target();
         let (w, h) = self.deck.as_ref().map(|d| (d.width, d.height)).ok_or("no deck")?;
-        let slide = self.slide_mut()?;
         let rect = Rect::new(w * 0.1, h * 0.4, w * 0.8, h * 0.15);
-        slide.elements.push(Element::Text(TextBox::plain(rect, "Text")));
+        self.elements_mut()?.push(Element::Text(TextBox::plain(rect, "Text")));
         Ok(())
     }
 
     pub fn delete_element(&mut self, element: usize) -> Result<(), String> {
-        self.touch(Some(self.slide));
-        let slide = self.slide_mut()?;
-        if element >= slide.elements.len() {
+        self.touch_target();
+        if self.editing_layout.is_some() {
+            let layout = self.layout_mut()?;
+            if element >= layout.elements.len() {
+                let k = element - layout.elements.len();
+                if k >= layout.placeholders.len() {
+                    return Err("no such element".into());
+                }
+                layout.placeholders.remove(k);
+                return Ok(());
+            }
+        }
+        let elements = self.elements_mut()?;
+        if element >= elements.len() {
             return Err("no such element".into());
         }
-        slide.elements.remove(element);
+        elements.remove(element);
         Ok(())
     }
 }

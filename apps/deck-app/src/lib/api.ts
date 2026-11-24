@@ -9,7 +9,7 @@ export type Mask = { kind: "rectangle" } | { kind: "ellipse" } | { kind: "rounde
 
 export interface ElementInfo {
   index: number;
-  kind: "text" | "image" | "shape" | "math";
+  kind: "text" | "image" | "shape" | "math" | "placeholder";
   rect: Rect;
   text: string;
   last_step: number;
@@ -42,6 +42,8 @@ export interface View {
   in_section: string | null;
   in_subsection: string | null;
   starts: { section: string | null; subsection: string | null }[];
+  /** The layout shown on the canvas instead of a slide, when editing one. */
+  editing_layout: string | null;
 }
 
 /** Character boxes of a text element, in slide points; the last is the caret after the end. */
@@ -74,6 +76,11 @@ export const api = {
   deleteSlide: () => invoke<View>("delete_slide"),
   duplicateSlide: () => invoke<View>("duplicate_slide"),
   moveSlide: (from: number, to: number) => invoke<View>("move_slide", { from, to }),
+  editLayout: (name: string | null) => invoke<View>("edit_layout", { name }),
+  newLayout: () => invoke<View>("new_layout"),
+  renameLayout: (name: string) => invoke<View>("rename_layout", { name }),
+  deleteLayout: () => invoke<View>("delete_layout"),
+  addPlaceholder: () => invoke<View>("add_placeholder"),
   setLayout: (name: string | null) => invoke<View>("set_layout", { name }),
   peekDeck: (path: string) => invoke<string[]>("peek_deck", { path }),
   importSlides: (path: string, indices: number[]) => invoke<View>("import_slides", { path, indices }),

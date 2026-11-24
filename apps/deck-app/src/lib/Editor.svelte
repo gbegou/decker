@@ -16,8 +16,9 @@
     const stopView = watchView((v) => {
       view = v;
       if (selected !== null && selected >= v.elements.length) selected = null;
-      if (editing && (editing.index >= v.elements.length || v.slide !== editingSlide)) editing = null;
+      if (editing && (editing.index >= v.elements.length || v.slide !== editingSlide || v.editing_layout !== editingLayout)) editing = null;
       editingSlide = v.slide;
+      editingLayout = v.editing_layout;
     });
     const stopThumbs = watchThumbnails((t) => (thumbnails = t));
     return () => { stopView(); stopThumbs(); };
@@ -167,11 +168,12 @@
     queue = queue.then(action).catch((e) => { status = `Edit failed: ${e}`; });
   }
   let editingSlide = -1;
+  let editingLayout: string | null = null;
 
   async function startEdit(index: number, at?: { x: number; y: number }) {
     if (!view) return;
     const el = view.elements[index];
-    if (el.kind === "image" || el.kind === "math") return;
+    if (el.kind === "image" || el.kind === "math" || el.kind === "placeholder") return;
     selected = index;
     const layout = await api.textLayout(index);
     if (!layout) { status = "Text editing in place needs the Typst feature"; return; }
@@ -397,7 +399,15 @@
     <button onclick={exportPptx} disabled={!view?.slide_count}>Export PPTX…</button>
     <button onclick={exportPdf} disabled={!view?.slide_count}>Export PDF…</button>
     <span class="spacer"></span>
-    {#if view?.slide_count}
+    {#if view?.editing_layout !== null && view?.editing_layout !== undefined}
+      <span class="banner">Layout
+        <input class="layout-name" value={view.editing_layout} onchange={(e) => run("Layout renamed", () => api.renameLayout(e.currentTarget.value))} />
+      </span>
+      <button onclick={() => run("Added text", api.addText)}>+ Text</button>
+      <button onclick={() => run("Added placeholder", api.addPlaceholder)}>+ Placeholder</button>
+      <button onclick={() => run("Layout deleted", api.deleteLayout)}>Delete layout</button>
+      <button class="primary" onclick={() => run("Back to slides", () => api.editLayout(null))}>Done</button>
+    {:else if view?.slide_count}
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
       <button onclick={() => run("Added slide", api.addSlide)}>+ Slide</button>
       <button onclick={() => run("Duplicated slide", api.duplicateSlide)}>Duplicate</button>
@@ -515,6 +525,11 @@
             <label>bottom <input type="number" min="0" max="95" value={Math.round(sel.crop.bottom * 100)} onchange={(e) => setCrop("bottom", +e.currentTarget.value)} /></label>
           </div>
           <p class="muted">The kept part of the image fills the box.</p>
+        {:else if sel.kind === "placeholder"}
+          <label>placeholder name
+            <input type="text" value={sel.text} onchange={(e) => run("Placeholder renamed", () => api.setText(sel!.index, e.currentTarget.value))} />
+          </label>
+          <p class="muted">Slides fill this slot by name; "title" and "subtitle" map to PowerPoint's own placeholders.</p>
         {:else if sel.kind !== "image"}
           <label>{sel.kind === "math" ? "formula" : "text"}
             <textarea rows="6" value={sel.text} onchange={(e) => api.setText(sel!.index, e.currentTarget.value)}></textarea>
@@ -524,6 +539,7 @@
       {:else}
         <p class="muted">Click an element to select it, double-click its text to edit it in place (arrows, Shift for a selection, Enter for a paragraph, Escape to finish). Drag to move, corner handle to resize, Delete to remove.</p>
       {/if}
+      {#if view.editing_layout === null}
       <h3>Section</h3>
       <label>starts section
         <input type="text" value={view.section ?? ""} placeholder={view.in_section ?? "none"}
@@ -534,18 +550,29 @@
                onchange={(e) => run("Subsection set", () => api.setSection(view!.section, e.currentTarget.value || null))} />
       </label>
       <p class="muted">Sections become PDF bookmarks and PowerPoint sections.</p>
-      <h3>Layout</h3>
-      {#if view.layouts.length}
-        <select value={view.layout ?? ""} onchange={(e) => run("Layout set", () => api.setLayout(e.currentTarget.value || null))}>
-          <option value="">none</option>
-          {#each view.layouts as name}<option value={name}>{name}</option>{/each}
-        </select>
-        <p class="muted">"+ Slide" starts from this layout's placeholders.</p>
-      {:else}
-        <p class="muted">No layouts in this deck. Importing a PPTX brings its masters along.</p>
       {/if}
+      <h3>Layout</h3>
+      {#if view.editing_layout !== null}
+        <p class="muted">Static elements of the layout are drawn under every slide that uses it; placeholders (dashed) are the slots new slides start from. In texts, these variables are filled per slide: <code>{"{{section}}"}</code>, <code>{"{{subsection}}"}</code>, <code>{"{{slide}}"}</code>, <code>{"{{slides}}"}</code>, <code>{"{{title}}"}</code>, <code>{"{{deck}}"}</code>, <code>{"{{date}}"}</code>.</p>
+      {:else}
+        {#if view.layouts.length}
+          <select value={view.layout ?? ""} onchange={(e) => run("Layout set", () => api.setLayout(e.currentTarget.value || null))}>
+            <option value="">none</option>
+            {#each view.layouts as name}<option value={name}>{name}</option>{/each}
+          </select>
+          <p class="muted">"+ Slide" starts from this layout's placeholders.</p>
+        {:else}
+          <p class="muted">No layouts in this deck. Importing a PPTX brings its masters along.</p>
+        {/if}
+        <div class="row">
+          {#if view.layout}<button onclick={() => run("Editing layout", () => api.editLayout(view!.layout))}>Edit layout</button>{/if}
+          <button onclick={() => run("New layout", api.newLayout)}>+ New layout</button>
+        </div>
+      {/if}
+      {#if view.editing_layout === null}
       <h3>Notes</h3>
       <textarea rows="8" value={view.notes} onchange={(e) => api.setNotes(e.currentTarget.value)}></textarea>
+      {/if}
       {#if view.warnings.length}
         <h3>Import warnings</h3>
         <ul class="muted">{#each view.warnings as w}<li>{w}</li>{/each}</ul>
@@ -590,8 +617,13 @@
     grid-template-areas: "head head head" "slides main props" "foot foot foot";
     height: 100%;
   }
-  header { grid-area: head; display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); align-items: center; }
+  header { grid-area: head; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); align-items: center; }
+  header button { white-space: nowrap; }
   .spacer { flex: 1; }
+  .banner { color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .layout-name { width: 160px; padding: 3px 6px; }
+  .row { display: flex; gap: 6px; margin-top: 6px; }
+  code { background: var(--bg); padding: 0 3px; border-radius: 3px; font-size: 11px; }
   .slides { grid-area: slides; overflow-y: auto; padding: 8px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
   .stack-item { position: relative; border-top: 2px solid transparent; border-bottom: 2px solid transparent; cursor: grab; }
   .stack-item.dragging { opacity: 0.4; }

@@ -575,7 +575,43 @@ fn tx_body(paragraphs: &[Paragraph]) -> String {
                 out.push_str("<a:br/>");
                 continue;
             }
-            out.push_str(r#"<a:r><a:rPr lang="en-US""#);
+            // `{{slide}}` is PowerPoint's slide number field; other
+            // variables have no PowerPoint equivalent and go out as text.
+            let mut pieces = r.text.split("{{slide}}").peekable();
+            while let Some(piece) = pieces.next() {
+                if !piece.is_empty() {
+                    let mut run = r.clone();
+                    run.text = piece.to_string();
+                    out.push_str(&run_xml(&run, None));
+                }
+                if pieces.peek().is_some() {
+                    let mut run = r.clone();
+                    run.text = "1".into();
+                    out.push_str(&run_xml(&run, Some("slidenum")));
+                }
+            }
+        }
+        out.push_str("</a:p>");
+    }
+    out.push_str("</p:txBody>");
+    out
+}
+
+/// A run, or a field of that `kind` with the run's style.
+fn run_xml(r: &Run, field: Option<&str>) -> String {
+    let mut out = String::new();
+    {
+        match field {
+            Some(kind) => {
+                let _ = write!(
+                    out,
+                    r#"<a:fld id="{{B6F5B7C2-0000-4000-8000-00000000{:04X}}}" type="{kind}"><a:rPr lang="en-US""#,
+                    r.text.len()
+                );
+            }
+            None => out.push_str(r#"<a:r><a:rPr lang="en-US""#),
+        }
+        {
             if r.bold {
                 out.push_str(r#" b="1""#);
             }
@@ -592,11 +628,10 @@ fn tx_body(paragraphs: &[Paragraph]) -> String {
             if let Some(f) = &r.font {
                 let _ = write!(out, r#"<a:latin typeface="{}"/>"#, esc(f));
             }
-            let _ = write!(out, r#"</a:rPr><a:t>{}</a:t></a:r>"#, esc(&r.text));
+            let close = if field.is_some() { "</a:fld>" } else { "</a:r>" };
+            let _ = write!(out, r#"</a:rPr><a:t>{}</a:t>{close}"#, esc(&r.text));
         }
-        out.push_str("</a:p>");
     }
-    out.push_str("</p:txBody>");
     out
 }
 

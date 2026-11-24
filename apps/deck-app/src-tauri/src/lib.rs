@@ -149,6 +149,61 @@ fn move_slide(app: AppHandle, state: Shared, from: usize, to: usize) -> Result<V
 }
 
 #[tauri::command]
+fn edit_layout(app: AppHandle, state: Shared, name: Option<String>) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.edit_layout(name.filter(|n| !n.is_empty()))?;
+        s.view()
+    };
+    changed(&app);
+    Ok(view)
+}
+
+#[tauri::command]
+fn new_layout(app: AppHandle, state: Shared) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.new_layout()?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+#[tauri::command]
+fn rename_layout(app: AppHandle, state: Shared, name: String) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.rename_layout(name)?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+#[tauri::command]
+fn delete_layout(app: AppHandle, state: Shared) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.delete_layout()?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+#[tauri::command]
+fn add_placeholder(app: AppHandle, state: Shared) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.add_placeholder()?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+#[tauri::command]
 fn get_view(state: Shared) -> Result<View, String> {
     Ok(state.lock().map_err(err)?.view())
 }
@@ -486,6 +541,11 @@ pub fn run() {
             set_section,
             set_section_of,
             move_slide,
+            edit_layout,
+            new_layout,
+            rename_layout,
+            delete_layout,
+            add_placeholder,
             get_view,
             get_thumbnails,
             navigate,

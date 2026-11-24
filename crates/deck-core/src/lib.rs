@@ -12,6 +12,7 @@ pub mod native;
 pub mod svg;
 pub mod text;
 pub mod transfer;
+pub mod vars;
 
 pub use model::*;
 pub use svg::{MathImage, MathRenderer, NoMath};

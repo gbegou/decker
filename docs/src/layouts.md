@@ -50,8 +50,32 @@ export produces real placeholders and how a slide keeps its link to the layout.
   placeholder, at the placeholder's position and style, showing the placeholder's name.
 - **Duplicate** copies the current slide.
 
-Editing a layout itself (its static elements and placeholders) is done in `deck.json` for
-now; a layout editor is on the roadmap.
+## Editing a layout
+
+**Edit layout**, under the layout selector, shows the layout on the canvas instead of a
+slide: its background, its static elements, editable like slide elements (drag, resize,
+double-click to type), and its placeholders as dashed boxes with their name, which move and
+resize the same way and are renamed in the panel (slides that fill the placeholder follow the
+new name). **+ Text** and **+ Placeholder** add elements, **Delete layout** removes the layout
+(its slides keep their elements), the name field renames it, **Done** returns to the slides.
+**+ New layout** creates an empty one and opens it.
+
+## Variables
+
+In a layout's texts, these are replaced on each slide that uses the layout:
+
+| Variable | Value |
+| --- | --- |
+| `{{section}}`, `{{subsection}}` | The section and subsection the slide belongs to |
+| `{{slide}}`, `{{slides}}` | The slide number and the number of slides |
+| `{{title}}` | The slide's title (its name, else the first line of its first text box) |
+| `{{deck}}` | The deck's title |
+| `{{date}}` | Today's date, `YYYY-MM-DD` |
+
+A footer such as `{{section}} › {{subsection}}` on the left and `{{slide}} / {{slides}}` on the
+right therefore maintains itself. Unknown names are left as written. In PPTX export,
+`{{slide}}` becomes PowerPoint's slide-number field and comes back as `{{slide}}` on import;
+the other variables have no PowerPoint equivalent and are exported as their text.
 
 ## PPTX
 

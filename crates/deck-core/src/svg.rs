@@ -76,15 +76,56 @@ pub fn render_step_with(deck: &Deck, slide: &Slide, step: u32, math: &dyn MathRe
     let bg = slide.background.or(layout.and_then(|l| l.background)).unwrap_or(Color::WHITE);
     let _ = write!(out, r#"<rect width="100%" height="100%" fill="{}"/>"#, bg.to_hex());
     if let Some(layout) = layout {
-        // The layout's static elements, under the slide, at their final step.
+        // The layout's static elements, under the slide, at their final
+        // step, with the variables of this slide substituted.
+        let index = deck.slides.iter().position(|s| std::ptr::eq(s, slide));
+        let vars = index.map(|i| crate::vars::Vars::for_slide(deck, i));
         out.push_str(r#"<g id="layout">"#);
         for element in &layout.elements {
+            let substituted = vars.as_ref().map(|v| v.element(element));
+            let element = substituted.as_ref().unwrap_or(element);
             element_body(&mut out, deck, element, element.last_step(), math, None);
         }
         out.push_str("</g>");
     }
     for (index, element) in slide.elements.iter().enumerate() {
         element_body(&mut out, deck, element, step, math, Some(index));
+    }
+    out.push_str("</svg>\n");
+    out
+}
+
+/// Renders a layout for its editor: background, static elements (with
+/// `id="e{index}"` like slide elements), then its placeholders as dashed
+/// boxes showing their names, with ids continuing the numbering.
+pub fn render_layout(deck: &Deck, layout: &Layout, math: &dyn MathRenderer) -> String {
+    let mut out = String::new();
+    let _ = write!(
+        out,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{w}" height="{h}" viewBox="0 0 {w} {h}" font-family="{font}">"#,
+        w = fmt(deck.width),
+        h = fmt(deck.height),
+        font = DEFAULT_FONT
+    );
+    let bg = layout.background.unwrap_or(Color::WHITE);
+    let _ = write!(out, r#"<rect width="100%" height="100%" fill="{}"/>"#, bg.to_hex());
+    for (index, element) in layout.elements.iter().enumerate() {
+        element_body(&mut out, deck, element, element.last_step(), math, Some(index));
+    }
+    for (k, ph) in layout.placeholders.iter().enumerate() {
+        let index = layout.elements.len() + k;
+        let r = &ph.rect;
+        let _ = write!(
+            out,
+            r##"<g id="e{index}"><rect x="{}" y="{}" width="{}" height="{}" fill="#F3F6FF" stroke="#8AA4D8" stroke-width="1.5" stroke-dasharray="6 4"/>"##,
+            fmt(r.x),
+            fmt(r.y),
+            fmt(r.w),
+            fmt(r.h)
+        );
+        let sample = ph.text_box();
+        text_body(&mut out, r, &sample.paragraphs, &deck.math_preamble, math);
+        out.push_str("</g>");
     }
     out.push_str("</svg>\n");
     out
@@ -457,6 +498,27 @@ mod tests {
         let svg = render_slide(&deck, &deck.slides[1]);
         assert!(!svg.contains("layout"), "unknown layout is ignored");
         assert!(svg.contains(r##"fill="#FFFFFF""##));
+    }
+
+    #[test]
+    fn layout_variables_follow_the_slide() {
+        let mut deck = Deck::new("t");
+        deck.layouts.push(Layout {
+            name: "L".into(),
+            elements: vec![Element::Text(TextBox::plain(
+                Rect::new(0.0, 500.0, 400.0, 30.0),
+                "{{section}} {{slide}}/{{slides}}",
+            ))],
+            ..Default::default()
+        });
+        deck.slides.push(Slide { layout: Some("L".into()), section: Some("Intro".into()), ..Default::default() });
+        deck.slides.push(Slide { layout: Some("L".into()), ..Default::default() });
+        let first = render_slide(&deck, &deck.slides[0]);
+        let second = render_slide(&deck, &deck.slides[1]);
+        assert!(first.contains("Intro 1/2"), "{first}");
+        assert!(second.contains("Intro 2/2"), "{second}");
+        let editor = render_layout(&deck, &deck.layouts[0], &NoMath);
+        assert!(editor.contains("{{section}}"), "the layout editor shows the variables themselves");
     }
 
     #[test]
