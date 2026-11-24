@@ -482,6 +482,26 @@ fn write_element(
                 tx_body(&[p])
             );
         }
+        Element::Media(m) => {
+            // PowerPoint gets the poster as a picture; the clip itself is not embedded.
+            warnings.push(format!("{where_}: video {} exported as its poster picture", m.src));
+            if let Some(poster) = &m.poster {
+                let still = Image { rect: m.rect, steps: m.steps.clone(), src: poster.clone(), ..Default::default() };
+                return write_element(
+                    part,
+                    media_count,
+                    add,
+                    deck_dir,
+                    deck,
+                    slide_index,
+                    &Element::Image(still),
+                    id,
+                    ph,
+                    where_,
+                    warnings,
+                );
+            }
+        }
         Element::Image(img) => {
             let src = deck_dir.join(&img.src);
             let bytes = std::fs::read(&src).with_context(|| format!("reading asset {}", src.display()))?;

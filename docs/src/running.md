@@ -98,6 +98,13 @@ Two environment variables help scripts and tests:
   at their pixel size, scaled down to fit half the slide (tiny icons are scaled up). The file is copied into the
   deck's `assets/` folder. An unsaved deck keeps it in a temporary folder until **Save as**
   moves everything to the chosen one. Pasting text while editing a box inserts it.
+- Videos (`mp4`, `webm`, `mov`) and animated GIFs are added like images: dropped, pasted,
+  or picked with **+ Video…**. The panel sets when they play (as soon as they appear, that is
+  on entering the slide or at their appear step, or on the play button drawn over them) and
+  whether they loop or play once and stop on the last frame; videos can also have their
+  sound on. They play in the audience window; the editor and the presenter's previews show
+  the first frame. Thumbnails, PDF and PowerPoint exports show a poster (a GIF's first
+  frame; a video has none unless the file is given one) with a play glyph.
 - Ctrl+Z undoes any edit of the deck and Ctrl+Y (or Ctrl+Shift+Z) redoes it, also from the
   ↶ ↷ toolbar buttons; a run of typing in one box counts as one step. Opening a deck
   clears the history; saving does not.

@@ -19,7 +19,7 @@
 <div class="audience" style="background: {view?.blank === 'white' ? 'white' : 'black'}" onclick={() => api.navigate("next")} oncontextmenu={(e) => { e.preventDefault(); api.navigate("prev"); }}>
   {#if view && !view.blank}
     <div class="frame" style="aspect-ratio: {view.width} / {view.height}">
-      <SlideView svg={view.svg} width={view.width} height={view.height} animated />
+      <SlideView svg={view.svg} width={view.width} height={view.height} dir={view.dir} mode="show" animated />
     </div>
   {/if}
 </div>

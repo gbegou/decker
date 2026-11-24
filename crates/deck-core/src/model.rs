@@ -306,6 +306,8 @@ impl Slide {
 pub enum Element {
     Text(TextBox),
     Image(Image),
+    /// A video or an animated GIF.
+    Media(Media),
     Shape(Shape),
     Math(MathBlock),
     /// The deck's sections, with the slide's own section highlighted: a
@@ -320,6 +322,7 @@ impl Element {
         match self {
             Element::Text(t) => &t.rect,
             Element::Image(i) => &i.rect,
+            Element::Media(m) => &m.rect,
             Element::Shape(s) => &s.rect,
             Element::Math(m) => &m.rect,
             Element::Outline(o) => &o.rect,
@@ -331,6 +334,7 @@ impl Element {
         match self {
             Element::Text(t) => &mut t.rect,
             Element::Image(i) => &mut i.rect,
+            Element::Media(m) => &mut m.rect,
             Element::Shape(s) => &mut s.rect,
             Element::Math(m) => &mut m.rect,
             Element::Outline(o) => &mut o.rect,
@@ -353,6 +357,7 @@ impl Element {
         match self {
             Element::Text(t) => &t.steps,
             Element::Image(i) => &i.steps,
+            Element::Media(m) => &m.steps,
             Element::Shape(s) => &s.steps,
             Element::Math(m) => &m.steps,
             Element::Outline(o) => &o.steps,
@@ -364,6 +369,7 @@ impl Element {
         match self {
             Element::Text(t) => &mut t.steps,
             Element::Image(i) => &mut i.steps,
+            Element::Media(m) => &mut m.steps,
             Element::Shape(s) => &mut s.steps,
             Element::Math(m) => &mut m.steps,
             Element::Outline(o) => &mut o.steps,
@@ -835,6 +841,50 @@ pub struct Image {
     pub mask: Mask,
 }
 
+/// A video (`mp4`, `webm`…) or an animated GIF in the deck's `assets/`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Media {
+    pub rect: Rect,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<Step>,
+    /// Path relative to the deck folder, e.g. `assets/clip.mp4`.
+    pub src: String,
+    /// A still (the first frame) shown before playback, in thumbnails,
+    /// PDF and PowerPoint exports.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poster: Option<String>,
+    /// When playback starts.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub play: Play,
+    /// Loop, or play once and stop on the last frame.
+    #[serde(default, skip_serializing_if = "is_default", rename = "loop")]
+    pub looping: bool,
+    /// Length in seconds, when known (GIFs: the sum of frame delays).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration: Option<f64>,
+    /// Play the sound; off by default.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub sound: bool,
+}
+
+impl Media {
+    /// Whether the file is an animated GIF (played as an image).
+    pub fn is_gif(&self) -> bool {
+        self.src.to_ascii_lowercase().ends_with(".gif")
+    }
+}
+
+/// When a media element starts playing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Play {
+    /// As soon as the element is shown (slide entered, or its appear step).
+    #[default]
+    OnAppear,
+    /// When the presenter clicks the play button drawn over it.
+    Button,
+}
+
 /// A rectangular crop, as fractions (0 to 1) of the source image removed
 /// from each edge, like PowerPoint's `srcRect`.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
@@ -1057,6 +1107,19 @@ mod tests {
         assert!(json.contains("\"theme\""));
         assert_eq!(serde_json::from_str::<Deck>(&json).unwrap(), deck);
         assert!(!serde_json::to_string(&Deck::new("x")).unwrap().contains("theme"), "the default theme is omitted");
+    }
+
+    #[test]
+    fn media_round_trips_with_defaults_omitted() {
+        let m = Media { rect: Rect::new(1.0, 2.0, 3.0, 4.0), src: "assets/clip.mp4".into(), ..Default::default() };
+        let json = serde_json::to_string(&Element::Media(m.clone())).unwrap();
+        assert!(!json.contains("play") && !json.contains("loop"), "{json}");
+        assert_eq!(serde_json::from_str::<Element>(&json).unwrap(), Element::Media(m));
+        let gif: Media = serde_json::from_str(
+            r#"{"rect":{"x":0,"y":0,"w":1,"h":1},"src":"assets/a.GIF","play":"button","loop":true,"duration":1.5}"#,
+        )
+        .unwrap();
+        assert!(gif.is_gif() && gif.looping && gif.play == Play::Button && gif.duration == Some(1.5));
     }
 
     #[test]

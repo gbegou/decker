@@ -9,7 +9,7 @@ export type Mask = { kind: "rectangle" } | { kind: "ellipse" } | { kind: "rounde
 
 export interface ElementInfo {
   index: number;
-  kind: "text" | "image" | "shape" | "math" | "placeholder" | "outline" | "group";
+  kind: "text" | "image" | "media" | "shape" | "math" | "placeholder" | "outline" | "group";
   rect: Rect;
   text: string;
   last_step: number;
@@ -21,6 +21,7 @@ export interface ElementInfo {
   stroke?: { color: string; width: number };
   highlight?: string;
   subsections?: boolean;
+  media?: MediaInfo;
 }
 
 export type Align = "left" | "center" | "right" | "justify";
@@ -45,7 +46,10 @@ export interface StyleInfo {
 }
 export interface ElementStyle {
   fill?: string; stroke?: string; stroke_width?: number; size?: number; highlight?: string; subsections?: boolean;
+  /** Media: "appear" or "button"; loop; sound. */
+  play?: "appear" | "button"; looping?: boolean; sound?: boolean;
 }
+export interface MediaInfo { play: "on_appear" | "button"; looping: boolean; sound: boolean; duration: number | null; poster: string | null }
 
 export interface Theme {
   font?: string; size?: number; color?: string; accent?: string; palette?: string[];

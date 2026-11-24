@@ -49,7 +49,13 @@
     return () => { stopView(); stopThumbs(); stopDrop(); };
   });
 
-  const IMAGE_FILE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+  const IMAGE_FILE = /\.(png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|m4v|ogv)$/i;
+
+  /** "+ Video…": a video or GIF file picked from disk. */
+  async function addMedia() {
+    const picked = await openDialog({ multiple: false, filters: [{ name: "Video or GIF", extensions: ["mp4", "webm", "mov", "m4v", "ogv", "gif"] }] });
+    if (typeof picked === "string") enqueue(() => run("Media added", () => api.addImageFile(picked)).then(selectAdded));
+  }
   let dropHover = $state(false);
 
   /** Slide coordinates of a point in CSS pixels of the window, when it is over the canvas. */
@@ -575,6 +581,7 @@
       <button class="primary" onclick={() => run("Back to slides", () => api.editLayout(null))}>Done</button>
     {:else if view?.slide_count}
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
+      <button onclick={addMedia} title="A video or an animated GIF; images and clips can also be pasted or dropped">+ Video…</button>
       <button onclick={() => run("Added outline", api.addOutline)} title="The sections, the current one highlighted: a plan slide">+ Plan</button>
       {#if selection.length >= 2}<button onclick={groupSelection} title="Group the selected elements (Ctrl+G)">Group</button>{/if}
       {#if sel?.kind === "group"}<button onclick={ungroupSelection} title="Ungroup (Ctrl+Shift+G)">Ungroup</button>{/if}
@@ -635,7 +642,7 @@
         <div class="canvas" class:drop-hover={dropHover} bind:this={canvas} style="aspect-ratio: {view.width} / {view.height}"
              onpointermove={moveDrag} onpointerup={endDrag}
              onclick={(e) => { if ((e.target as Element).closest(".hit, .handle, .text-editing")) return; selected = null; also = []; editing = null; }}>
-          <SlideView svg={view.svg} width={view.width} height={view.height} />
+          <SlideView svg={view.svg} width={view.width} height={view.height} dir={view.dir} />
           <svg class="overlay" viewBox="0 0 {view.width} {view.height}" preserveAspectRatio="none">
             {#each view.elements as el (el.index)}
               <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -682,6 +689,16 @@
         <label>y <input type="number" value={Math.round(sel.rect.y)} onchange={(e) => api.setRect(sel!.index, { ...sel!.rect, y: +e.currentTarget.value })} /></label>
         <label>w <input type="number" value={Math.round(sel.rect.w)} onchange={(e) => api.setRect(sel!.index, { ...sel!.rect, w: +e.currentTarget.value })} /></label>
         <label>h <input type="number" value={Math.round(sel.rect.h)} onchange={(e) => api.setRect(sel!.index, { ...sel!.rect, h: +e.currentTarget.value })} /></label>
+        {#if sel.kind === "media" && sel.media}
+          <h3>Playback</h3>
+          <label><input type="radio" name="play" checked={sel.media.play === "on_appear"} onchange={() => run("Play on appearance", () => api.styleElement(sel!.index, { play: "appear" }))} /> play when it appears</label>
+          <label><input type="radio" name="play" checked={sel.media.play === "button"} onchange={() => run("Play on click", () => api.styleElement(sel!.index, { play: "button" }))} /> play on its button</label>
+          <label><input type="checkbox" checked={sel.media.looping} onchange={(e) => run("Loop", () => api.styleElement(sel!.index, { looping: e.currentTarget.checked }))} /> loop (else play once and stop)</label>
+          {#if !sel.text.toLowerCase().endsWith(".gif")}
+            <label><input type="checkbox" checked={sel.media.sound} onchange={(e) => run("Sound", () => api.styleElement(sel!.index, { sound: e.currentTarget.checked }))} /> sound</label>
+          {/if}
+          <p class="muted">{sel.text}{sel.media.duration ? ` · ${sel.media.duration.toFixed(1)} s` : ""}. Plays in the presentation windows; the editor shows the first frame. Thumbnails, PDF and PowerPoint exports show the poster.</p>
+        {/if}
         {#if sel.kind === "image" && sel.crop && sel.mask}
           <h3>Crop to shape</h3>
           <select value={sel.mask.kind} onchange={(e) => setMask(e.currentTarget.value)}>
@@ -709,7 +726,7 @@
             <input type="text" value={sel.text} onchange={(e) => run("Placeholder renamed", () => api.setText(sel!.index, e.currentTarget.value))} />
           </label>
           <p class="muted">Slides fill this slot by name; "title" and "subtitle" map to PowerPoint's own placeholders.</p>
-        {:else if sel.kind !== "image"}
+        {:else if sel.kind !== "image" && sel.kind !== "media"}
           <label>{sel.kind === "math" ? "formula" : "text"}
             <textarea rows="6" value={sel.text} onchange={(e) => api.setText(sel!.index, e.currentTarget.value)}></textarea>
           </label>

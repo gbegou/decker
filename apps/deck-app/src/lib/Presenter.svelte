@@ -34,7 +34,7 @@
   {#if view}
     <div class="current">
       <div class="label">Current · slide {view.slide + 1} / {view.slide_count}{#if view.in_section} · {view.in_section}{#if view.in_subsection} › {view.in_subsection}{/if}{/if}{#if view.last_step}, step {view.step} / {view.last_step}{/if}{#if view.blank} · {view.blank.toUpperCase()} SCREEN{/if}</div>
-      <SlideView svg={view.svg} width={view.width} height={view.height} animated />
+      <SlideView svg={view.svg} width={view.width} height={view.height} dir={view.dir} animated />
     </div>
     <div class="side">
       <div class="clock">
@@ -45,7 +45,7 @@
       <div class="next">
         <div class="label">Next</div>
         {#if view.next_svg}
-          <SlideView svg={view.next_svg} width={view.width} height={view.height} />
+          <SlideView svg={view.next_svg} width={view.width} height={view.height} dir={view.dir} />
         {:else}
           <div class="end">End of presentation</div>
         {/if}

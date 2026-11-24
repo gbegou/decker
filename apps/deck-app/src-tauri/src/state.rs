@@ -7,8 +7,8 @@ use base64::Engine;
 use serde::Serialize;
 
 use deck_core::{
-    native, svg, text, transfer, Color, Crop, Deck, Element, Layout, Mask, MathRenderer, Paragraph, Placeholder, Rect,
-    Slide, Step, Stroke, TextBox, TextDefaults, Theme,
+    native, svg, text, transfer, Color, Crop, Deck, Element, Layout, Mask, MathRenderer, Media, Paragraph, Placeholder,
+    Play, Rect, Slide, Step, Stroke, TextBox, TextDefaults, Theme,
 };
 
 #[derive(Default)]
@@ -54,6 +54,13 @@ pub struct ElementStyle {
     pub highlight: Option<String>,
     #[serde(default)]
     pub subsections: Option<bool>,
+    /// Media: `appear` or `button`.
+    #[serde(default)]
+    pub play: Option<String>,
+    #[serde(default)]
+    pub looping: Option<bool>,
+    #[serde(default)]
+    pub sound: Option<bool>,
 }
 
 /// A theme edit (see [`AppState::set_theme`]): `Some("")` clears a field.
@@ -240,6 +247,31 @@ pub struct ElementInfo {
     pub highlight: Option<Color>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subsections: Option<bool>,
+    /// Media: playback settings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media: Option<MediaInfo>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MediaInfo {
+    pub play: Play,
+    pub looping: bool,
+    pub sound: bool,
+    pub duration: Option<f64>,
+    pub poster: Option<String>,
+}
+
+fn media_info(e: &Element) -> Option<MediaInfo> {
+    match e {
+        Element::Media(m) => Some(MediaInfo {
+            play: m.play,
+            looping: m.looping,
+            sound: m.sound,
+            duration: m.duration,
+            poster: m.poster.clone(),
+        }),
+        _ => None,
+    }
 }
 
 fn element_style_info(e: &Element) -> (Option<Color>, Option<Stroke>, Option<Color>, Option<bool>) {
@@ -248,7 +280,7 @@ fn element_style_info(e: &Element) -> (Option<Color>, Option<Stroke>, Option<Col
         Element::Shape(s) => (s.fill, s.stroke, None, None),
         Element::Math(m) => (m.color, None, None, None),
         Element::Outline(o) => (o.color, None, o.highlight, Some(o.subsections)),
-        Element::Image(_) | Element::Group(_) => (None, None, None, None),
+        Element::Image(_) | Element::Media(_) | Element::Group(_) => (None, None, None, None),
     }
 }
 
@@ -262,10 +294,63 @@ struct Snapshot {
 
 const UNDO_LIMIT: usize = 200;
 
+/// What the app needs from an animated GIF: its frame count, length in
+/// seconds and first frame as PNG (the poster).
+struct GifInfo {
+    frames: usize,
+    duration: f64,
+    first_frame_png: Vec<u8>,
+}
+
+fn gif_info(bytes: &[u8]) -> Option<GifInfo> {
+    let mut options = gif::DecodeOptions::new();
+    options.set_color_output(gif::ColorOutput::RGBA);
+    let mut decoder = options.read_info(bytes).ok()?;
+    let (w, h) = (u32::from(decoder.width()), u32::from(decoder.height()));
+    let mut frames = 0;
+    let mut centiseconds = 0u64;
+    let mut first = None;
+    while let Ok(Some(frame)) = decoder.read_next_frame() {
+        if first.is_none() {
+            // The first frame may be smaller than the canvas: paste it.
+            let mut canvas = vec![0u8; (w * h * 4) as usize];
+            for row in 0..u32::from(frame.height) {
+                let y = u32::from(frame.top) + row;
+                if y >= h {
+                    break;
+                }
+                for col in 0..u32::from(frame.width) {
+                    let x = u32::from(frame.left) + col;
+                    if x >= w {
+                        break;
+                    }
+                    let src = ((row * u32::from(frame.width) + col) * 4) as usize;
+                    let dst = ((y * w + x) * 4) as usize;
+                    canvas[dst..dst + 4].copy_from_slice(&frame.buffer[src..src + 4]);
+                }
+            }
+            first = Some(canvas);
+        }
+        // Browsers treat a 0 or 1 cs delay as 10 cs.
+        centiseconds += u64::from(frame.delay.max(2)).max(if frame.delay <= 1 { 10 } else { 0 });
+        frames += 1;
+    }
+    let first = first?;
+    let mut png_bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut png_bytes, w, h);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().ok()?;
+        writer.write_image_data(&first).ok()?;
+    }
+    Some(GifInfo { frames, duration: centiseconds as f64 / 100.0, first_frame_png: png_bytes })
+}
+
 /// Whether an element (or a group) holds an image.
 fn has_image(e: &Element) -> bool {
     match e {
-        Element::Image(_) => true,
+        Element::Image(_) | Element::Media(_) => true,
         Element::Group(g) => g.children.iter().any(has_image),
         _ => false,
     }
@@ -359,6 +444,11 @@ impl AppState {
         inline_assets(&svg::render_step_with(deck, slide, step, &*self.math.0), &self.dir, &self.assets)
     }
 
+    /// The slide with videos and GIFs as their poster: thumbnails, PDF.
+    fn render_still(&self, deck: &Deck, slide: &Slide, step: u32) -> String {
+        inline_assets(&svg::render_step_still(deck, slide, step, &*self.math.0), &self.dir, &self.assets)
+    }
+
     /// Thumbnails of every slide at its final step, rendering only the
     /// stale ones, and caching image data on the way.
     pub fn thumbnails(&mut self) -> Vec<String> {
@@ -367,7 +457,7 @@ impl AppState {
         for (i, slide) in deck.slides.iter().enumerate() {
             if self.thumbs[i].is_none() {
                 self.cache_assets(slide);
-                self.thumbs[i] = Some(self.render(&deck, slide, slide.last_step()));
+                self.thumbs[i] = Some(self.render_still(&deck, slide, slide.last_step()));
             }
         }
         self.deck = Some(deck);
@@ -379,6 +469,7 @@ impl AppState {
         fn collect(e: &Element, out: &mut Vec<String>) {
             match e {
                 Element::Image(i) => out.push(i.src.clone()),
+                Element::Media(m) => out.extend(m.poster.clone()),
                 Element::Group(g) => g.children.iter().for_each(|c| collect(c, out)),
                 _ => {}
             }
@@ -474,6 +565,7 @@ impl AppState {
                     kind: match e {
                         Element::Text(_) => "text",
                         Element::Image(_) => "image",
+                        Element::Media(_) => "media",
                         Element::Shape(_) => "shape",
                         Element::Math(_) => "math",
                         Element::Outline(_) => "outline",
@@ -486,6 +578,7 @@ impl AppState {
                         Element::Shape(s) => s.paragraphs.iter().map(Paragraph::text).collect::<Vec<_>>().join("\n"),
                         Element::Math(m) => m.source.clone(),
                         Element::Image(i) => i.src.clone(),
+                        Element::Media(m) => m.src.clone(),
                         Element::Outline(_) => String::new(),
                         Element::Group(g) => format!("{} elements", g.children.len()),
                     },
@@ -495,7 +588,7 @@ impl AppState {
                         Element::Shape(s) => s.paragraphs.first().and_then(|p| p.runs.first()).and_then(|r| r.size),
                         Element::Math(m) => m.size,
                         Element::Outline(o) => o.size,
-                        Element::Image(_) | Element::Group(_) => None,
+                        Element::Image(_) | Element::Media(_) | Element::Group(_) => None,
                     }
                     .unwrap_or(svg::DEFAULT_FONT_SIZE),
                     crop: if let Element::Image(i) = e { Some(i.crop) } else { None },
@@ -505,6 +598,7 @@ impl AppState {
                     stroke: element_style_info(e).1,
                     highlight: element_style_info(e).2,
                     subsections: element_style_info(e).3,
+                    media: media_info(e),
                 })
                 .collect(),
             presenting: self.presenting,
@@ -542,6 +636,7 @@ impl AppState {
                 kind: match e {
                     Element::Text(_) => "text",
                     Element::Image(_) => "image",
+                    Element::Media(_) => "media",
                     Element::Shape(_) => "shape",
                     Element::Math(_) => "math",
                     Element::Outline(_) => "outline",
@@ -553,6 +648,7 @@ impl AppState {
                     Element::Shape(s) => s.paragraphs.iter().map(Paragraph::text).collect::<Vec<_>>().join("\n"),
                     Element::Math(m) => m.source.clone(),
                     Element::Image(i) => i.src.clone(),
+                    Element::Media(m) => m.src.clone(),
                     Element::Outline(_) => String::new(),
                     Element::Group(g) => format!("{} elements", g.children.len()),
                 },
@@ -565,6 +661,7 @@ impl AppState {
                 stroke: element_style_info(e).1,
                 highlight: element_style_info(e).2,
                 subsections: element_style_info(e).3,
+                media: media_info(e),
             })
             .collect();
         for (k, ph) in layout.placeholders.iter().enumerate() {
@@ -582,6 +679,7 @@ impl AppState {
                 stroke: None,
                 highlight: None,
                 subsections: None,
+                media: None,
             });
         }
         let starts = deck
@@ -838,7 +936,7 @@ impl AppState {
     fn pdf(&self, deck: &Deck, out: &Path) -> Result<(), String> {
         let engine = deck_typst::Engine::for_deck(&self.dir);
         engine
-            .export_pdf(deck, |i| self.render(deck, &deck.slides[i], deck.slides[i].last_step()), out)
+            .export_pdf(deck, |i| self.render_still(deck, &deck.slides[i], deck.slides[i].last_step()), out)
             .map_err(|e| e.to_string())
     }
 
@@ -997,7 +1095,7 @@ impl AppState {
             Element::Text(t) => t.paragraphs = paragraphs(&t.paragraphs),
             Element::Shape(s) => s.paragraphs = paragraphs(&s.paragraphs),
             Element::Math(m) => m.source = text.to_string(),
-            Element::Image(_) => return Err("an image has no text".into()),
+            Element::Image(_) | Element::Media(_) => return Err("an image has no text".into()),
             Element::Outline(_) => return Err("the outline is computed from the sections".into()),
             Element::Group(_) => return Err("ungroup to edit the texts of a group".into()),
         }
@@ -1171,15 +1269,39 @@ impl AppState {
             self.temp_dir()?;
         }
         let ext = Path::new(name).extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
+        let stem = Path::new(name).file_stem().and_then(|s| s.to_str()).unwrap_or("image").to_string();
         let name = match ext.as_deref() {
-            Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg") => name.to_string(),
-            _ => format!("{}.png", Path::new(name).file_stem().and_then(|s| s.to_str()).unwrap_or("image")),
+            Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "mp4" | "webm" | "mov" | "m4v" | "ogv") => {
+                name.to_string()
+            }
+            _ => format!("{stem}.png"),
         };
+        let is_video = matches!(ext.as_deref(), Some("mp4" | "webm" | "mov" | "m4v" | "ogv"));
+        let animated = ext.as_deref() == Some("gif") && gif_info(bytes).map(|g| g.frames > 1).unwrap_or(false);
         let src = transfer::add_image(&self.dir, &name, bytes).map_err(|e| e.to_string())?;
         self.touch_target();
         let (sw, sh) = self.deck.as_ref().map(|d| (d.width, d.height)).ok_or("no deck")?;
-        let (pw, ph) =
-            transfer::image_size(bytes).map(|(w, h)| (f64::from(w), f64::from(h))).unwrap_or((sw * 0.4, sh * 0.4));
+        // A video: 16:9 at 60% of the slide, no poster (the browser shows
+        // its first frame). An animated GIF: its first frame as poster.
+        let mut media = None;
+        if is_video {
+            media = Some(Media { src: src.clone(), ..Default::default() });
+        } else if animated {
+            let info = gif_info(bytes).ok_or("unreadable GIF")?;
+            let poster = transfer::add_image(&self.dir, &format!("{stem}.poster.png"), &info.first_frame_png)
+                .map_err(|e| e.to_string())?;
+            media = Some(Media {
+                src: src.clone(),
+                poster: Some(poster),
+                duration: Some(info.duration),
+                ..Default::default()
+            });
+        }
+        let (pw, ph) = if is_video {
+            (sw * 0.6, sw * 0.6 * 9.0 / 16.0)
+        } else {
+            transfer::image_size(bytes).map(|(w, h)| (f64::from(w), f64::from(h))).unwrap_or((sw * 0.4, sh * 0.4))
+        };
         // Pixel size on the slide, scaled down to fit half of it, or up
         // so that a tiny image (an icon) is still visible.
         let scale = if pw < sw * 0.1 && ph < sh * 0.1 {
@@ -1192,7 +1314,13 @@ impl AppState {
         let rect =
             Rect::new((cx - w / 2.0).clamp(0.0, (sw - w).max(0.0)), (cy - h / 2.0).clamp(0.0, (sh - h).max(0.0)), w, h);
         let elements = self.elements_mut()?;
-        elements.push(Element::Image(deck_core::Image { rect, src, ..Default::default() }));
+        elements.push(match media {
+            Some(mut m) => {
+                m.rect = rect;
+                Element::Media(m)
+            }
+            None => Element::Image(deck_core::Image { rect, src, ..Default::default() }),
+        });
         Ok(elements.len() - 1)
     }
 
@@ -1330,6 +1458,17 @@ impl AppState {
                 }
                 if let Some(sub) = change.subsections {
                     o.subsections = sub;
+                }
+            }
+            Element::Media(m) => {
+                if let Some(p) = &change.play {
+                    m.play = if p == "button" { Play::Button } else { Play::OnAppear };
+                }
+                if let Some(l) = change.looping {
+                    m.looping = l;
+                }
+                if let Some(snd) = change.sound {
+                    m.sound = snd;
                 }
             }
             Element::Image(_) | Element::Group(_) => return Err("select one element to style it".into()),
@@ -1571,6 +1710,33 @@ mod tests {
         s.text_edit(idx, 0, 0, "x").unwrap();
         assert_eq!(s.can_undo_redo(), (true, false));
         assert_eq!(s.undo.len(), 2);
+    }
+
+    #[test]
+    fn gif_info_reads_frames_duration_and_poster() {
+        let mut bytes = Vec::new();
+        {
+            let mut enc = gif::Encoder::new(&mut bytes, 4, 3, &[]).unwrap();
+            for (i, delay) in [(0u8, 50u16), (255, 0)] {
+                let mut frame = gif::Frame::from_rgba(4, 3, &mut [i; 4 * 3 * 4].to_vec());
+                frame.delay = delay;
+                enc.write_frame(&frame).unwrap();
+            }
+        }
+        let info = gif_info(&bytes).unwrap();
+        assert_eq!(info.frames, 2);
+        assert!((info.duration - 0.6).abs() < 1e-9, "50 cs + a 0 delay read as 10 cs: {}", info.duration);
+        assert_eq!(deck_core::transfer::image_size(&info.first_frame_png), Some((4, 3)));
+        let mut s = AppState::default();
+        s.load(deck(), std::env::temp_dir().join(format!("decker-gif-{}", std::process::id())));
+        let idx = s.add_image("anim.gif", &bytes, None).unwrap();
+        let Element::Media(m) = &s.deck.as_ref().unwrap().slides[0].elements[idx] else { panic!("a media element") };
+        assert_eq!(m.poster.as_deref(), Some("assets/anim.poster.png"));
+        assert_eq!(m.duration, Some(0.6));
+        assert!(m.is_gif() && !m.looping && m.play == Play::OnAppear);
+        let idx = s.add_image("clip.mp4", b"not really a video", None).unwrap();
+        assert!(matches!(&s.deck.as_ref().unwrap().slides[0].elements[idx], Element::Media(m) if m.poster.is_none()));
+        let _ = std::fs::remove_dir_all(&s.dir);
     }
 
     #[test]

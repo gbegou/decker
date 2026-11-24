@@ -116,18 +116,30 @@ impl<'a> AssetCopier<'a> {
             }
             return Ok(());
         }
-        let Element::Image(img) = element else { return Ok(()) };
-        if let Some(dst) = self.done.get(&img.src) {
-            img.src = dst.clone();
-            return Ok(());
+        match element {
+            Element::Image(img) => img.src = self.copy(&img.src)?,
+            Element::Media(m) => {
+                m.src = self.copy(&m.src)?;
+                if let Some(poster) = &m.poster {
+                    m.poster = Some(self.copy(poster)?);
+                }
+            }
+            _ => {}
         }
-        let path = self.src_dir.join(&img.src);
-        let bytes = std::fs::read(&path).map_err(|source| NativeError::Io { path: path.clone(), source })?;
-        let name = free_name(self.dst_dir, Path::new(&img.src));
-        let dst = native::add_asset(self.dst_dir, &name, &bytes)?;
-        self.done.insert(img.src.clone(), dst.clone());
-        img.src = dst;
         Ok(())
+    }
+
+    /// The destination path of one asset, copied on first use.
+    fn copy(&mut self, src: &str) -> Result<String, NativeError> {
+        if let Some(dst) = self.done.get(src) {
+            return Ok(dst.clone());
+        }
+        let path = self.src_dir.join(src);
+        let bytes = std::fs::read(&path).map_err(|source| NativeError::Io { path: path.clone(), source })?;
+        let name = free_name(self.dst_dir, Path::new(src));
+        let dst = native::add_asset(self.dst_dir, &name, &bytes)?;
+        self.done.insert(src.to_string(), dst.clone());
+        Ok(dst)
     }
 }
 
@@ -221,6 +233,10 @@ pub fn prune_assets(deck: &Deck, dir: &Path) -> Result<Vec<String>, NativeError>
         match e {
             Element::Image(i) => {
                 used.insert(i.src.clone());
+            }
+            Element::Media(m) => {
+                used.insert(m.src.clone());
+                used.extend(m.poster.clone());
             }
             Element::Group(g) => g.children.iter().for_each(|c| collect(c, used)),
             _ => {}

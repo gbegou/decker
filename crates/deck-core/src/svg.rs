@@ -71,8 +71,19 @@ pub fn render_step(deck: &Deck, slide: &Slide, step: u32) -> String {
 /// `<g id="e{index}">` carrying its opacity and rotation, so that a
 /// presentation window can transition each element in place between steps.
 pub fn render_step_with(deck: &Deck, slide: &Slide, step: u32, math: &dyn MathRenderer) -> String {
+    render_step_mode(deck, slide, step, math, true)
+}
+
+/// [`render_step_with`] with videos and GIFs drawn as their poster (or a
+/// dark box with a play glyph): for thumbnails, PDF and anything that is
+/// not a web view.
+pub fn render_step_still(deck: &Deck, slide: &Slide, step: u32, math: &dyn MathRenderer) -> String {
+    render_step_mode(deck, slide, step, math, false)
+}
+
+fn render_step_mode(deck: &Deck, slide: &Slide, step: u32, math: &dyn MathRenderer, live: bool) -> String {
     let slide_index = deck.slides.iter().position(|s| std::ptr::eq(s, slide));
-    let ctx = Ctx { deck, math, slide_index, defaults: deck.theme_of(slide).defaults() };
+    let ctx = Ctx { deck, math, slide_index, defaults: deck.theme_of(slide).defaults(), live };
     let mut out = String::new();
     let _ = write!(
         out,
@@ -107,7 +118,7 @@ pub fn render_step_with(deck: &Deck, slide: &Slide, step: u32, math: &dyn MathRe
 /// `id="e{index}"` like slide elements), then its placeholders as dashed
 /// boxes showing their names, with ids continuing the numbering.
 pub fn render_layout(deck: &Deck, layout: &Layout, math: &dyn MathRenderer) -> String {
-    let ctx = Ctx { deck, math, slide_index: None, defaults: deck.theme_of_layout(layout).defaults() };
+    let ctx = Ctx { deck, math, slide_index: None, defaults: deck.theme_of_layout(layout).defaults(), live: true };
     let defaults = &ctx.defaults;
     let mut out = String::new();
     let _ = write!(
@@ -148,6 +159,9 @@ struct Ctx<'a> {
     /// The slide's index in the deck, for the outline's highlight.
     slide_index: Option<usize>,
     defaults: TextDefaults,
+    /// Whether videos and GIFs are emitted as playable HTML (for a web
+    /// view) or as their poster (thumbnails, PDF).
+    live: bool,
 }
 
 /// One element at a step: a `<g>` (with `id="e{index}"` for slide
@@ -182,6 +196,7 @@ fn element_body(out: &mut String, ctx: &Ctx, element: &Element, step: u32, index
                 text_body(out, r, &t.paragraphs, &deck.math_preamble, math, defaults);
             }
             Element::Image(i) => image_body(out, r, i, index),
+            Element::Media(m) => media_body(out, r, m, ctx.live),
             Element::Shape(s) => {
                 shape_body(out, r, s.kind, st.fill.or(s.fill), s.stroke);
                 text_body(out, r, &s.paragraphs, &deck.math_preamble, math, defaults);
@@ -237,6 +252,77 @@ fn element_body(out: &mut String, ctx: &Ctx, element: &Element, step: u32, index
         }
         out.push_str("</g>");
     }
+}
+
+/// A video or GIF. Live: a `<foreignObject>` holding a `<video>` or an
+/// `<img>` with `data-` attributes the web view drives (`src` paths are
+/// deck-relative, like image hrefs), plus a play button when playback
+/// waits for a click. Still: the poster, or a dark box with a play glyph.
+fn media_body(out: &mut String, r: &Rect, m: &Media, live: bool) {
+    let (x, y, w, h) = (fmt(r.x), fmt(r.y), fmt(r.w), fmt(r.h));
+    if live {
+        let play = match m.play {
+            Play::OnAppear => "appear",
+            Play::Button => "button",
+        };
+        let common = format!(
+            r#"data-media="{}" data-play="{play}" data-loop="{}" data-duration="{}" data-poster="{}" data-sound="{}" style="width:100%;height:100%;object-fit:contain;display:block""#,
+            escape(&m.src),
+            u8::from(m.looping),
+            m.duration.map(fmt).unwrap_or_default(),
+            m.poster.as_deref().map(escape).unwrap_or_default(),
+            u8::from(m.sound)
+        );
+        let _ = write!(out, r#"<foreignObject x="{x}" y="{y}" width="{w}" height="{h}">"#);
+        if m.is_gif() {
+            let _ = write!(out, r#"<img xmlns="http://www.w3.org/1999/xhtml" {common} alt=""/>"#);
+        } else {
+            let _ = write!(
+                out,
+                r#"<video xmlns="http://www.w3.org/1999/xhtml" {common} preload="auto" playsinline="playsinline"{}{}></video>"#,
+                if m.looping { " loop=\"loop\"" } else { "" },
+                if m.sound { "" } else { " muted=\"muted\"" }
+            );
+        }
+        out.push_str("</foreignObject>");
+        if m.play == Play::Button {
+            play_glyph(out, r, true);
+        }
+    } else {
+        match &m.poster {
+            Some(poster) => {
+                let _ = write!(
+                    out,
+                    r#"<image x="{x}" y="{y}" width="{w}" height="{h}" preserveAspectRatio="xMidYMid meet" xlink:href="{}"/>"#,
+                    escape(poster)
+                );
+            }
+            None => {
+                let _ = write!(out, r##"<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="#202830"/>"##);
+            }
+        }
+        play_glyph(out, r, false);
+    }
+}
+
+/// A round play button centered in `r`; clickable in the web view.
+fn play_glyph(out: &mut String, r: &Rect, clickable: bool) {
+    let radius = (r.w.min(r.h) * 0.12).clamp(8.0, 40.0);
+    let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+    let class = if clickable { r#" class="media-play" style="cursor:pointer""# } else { "" };
+    let _ = write!(
+        out,
+        r##"<g{class}><circle cx="{}" cy="{}" r="{}" fill="#000" fill-opacity="0.55" stroke="#fff" stroke-width="2"/><path d="M{} {}L{} {}L{} {}Z" fill="#fff"/></g>"##,
+        fmt(cx),
+        fmt(cy),
+        fmt(radius),
+        fmt(cx - radius * 0.35),
+        fmt(cy - radius * 0.5),
+        fmt(cx - radius * 0.35),
+        fmt(cy + radius * 0.5),
+        fmt(cx + radius * 0.55),
+        fmt(cy)
+    );
 }
 
 /// An image filling its rect, cropped and clipped to its mask. The crop

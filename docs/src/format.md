@@ -62,7 +62,9 @@ part fills the rect), and its `mask` the shape it is clipped to: `rectangle`, `e
 `rounded_rectangle` with a `radius` as a fraction of the shorter side. Both round-trip to
 PowerPoint's crop and "crop to shape".
 
-Element types are `text`, `image`, `shape` (`rectangle`, `ellipse`, `line`), `math` (Typst
+Element types are `text`, `image`, `media` (a video or animated GIF: `src`, optional
+`poster`, `play` = `on_appear` or `button`, `loop`, `sound`, `duration` in seconds for a
+GIF), `shape` (`rectangle`, `ellipse`, `line`), `math` (Typst
 math source), `outline` (the plan: sections with the slide's own highlighted) and `group`
 (`children` in slide coordinates, `rect` their bounding box; steps on the group animate all of
 them). A run may carry `"math": true` to be rendered as an inline formula.

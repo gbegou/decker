@@ -529,6 +529,7 @@ fn steps_mut(e: &mut Element) -> &mut Vec<Step> {
     match e {
         Element::Text(t) => &mut t.steps,
         Element::Image(i) => &mut i.steps,
+        Element::Media(m) => &mut m.steps,
         Element::Shape(s) => &mut s.steps,
         Element::Math(m) => &mut m.steps,
         Element::Outline(o) => &mut o.steps,
