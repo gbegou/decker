@@ -213,6 +213,35 @@ pub fn save_as(deck: &Deck, src_dir: &Path, dst_dir: &Path) -> Result<Deck, Nati
     Ok(copy)
 }
 
+/// Removes the files of `<dir>/assets/` that no element of `deck` (slides,
+/// layouts, groups included) references; returns their names.
+pub fn prune_assets(deck: &Deck, dir: &Path) -> Result<Vec<String>, NativeError> {
+    let mut used = std::collections::HashSet::new();
+    fn collect(e: &Element, used: &mut std::collections::HashSet<String>) {
+        match e {
+            Element::Image(i) => {
+                used.insert(i.src.clone());
+            }
+            Element::Group(g) => g.children.iter().for_each(|c| collect(c, used)),
+            _ => {}
+        }
+    }
+    deck.slides.iter().flat_map(|s| &s.elements).for_each(|e| collect(e, &mut used));
+    deck.layouts.iter().flat_map(|l| &l.elements).for_each(|e| collect(e, &mut used));
+    let assets = dir.join(ASSETS_DIR);
+    let Ok(entries) = std::fs::read_dir(&assets) else { return Ok(vec![]) };
+    let mut removed = vec![];
+    for entry in entries.flatten().filter(|e| e.path().is_file()) {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !used.contains(&format!("{ASSETS_DIR}/{name}")) {
+            std::fs::remove_file(entry.path()).map_err(|source| NativeError::Io { path: entry.path(), source })?;
+            removed.push(name);
+        }
+    }
+    removed.sort();
+    Ok(removed)
+}
+
 /// Adds `bytes` to the deck's assets as `name` (made unique) and returns
 /// the deck-relative path.
 pub fn add_image(dst_dir: &Path, name: &str, bytes: &[u8]) -> Result<String, NativeError> {
@@ -419,5 +448,32 @@ mod tests {
         assert!(matches!(&other[0], Element::Image(i) if i.src == "assets/pic.png"));
         assert!(b.join("assets/pic.png").is_file());
         std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn prunes_unreferenced_assets() {
+        let dir = std::env::temp_dir().join(format!("decker-prune-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let kept = add_image(&dir, "kept.png", b"a").unwrap();
+        let grouped = add_image(&dir, "grouped.png", b"b").unwrap();
+        add_image(&dir, "orphan.png", b"c").unwrap();
+        let mut deck = Deck::new("t");
+        deck.slides.push(Slide {
+            elements: vec![Element::Group(Group::of(vec![Element::Image(Image {
+                src: grouped,
+                ..Default::default()
+            })]))],
+            ..Default::default()
+        });
+        deck.layouts.push(Layout {
+            name: "L".into(),
+            elements: vec![Element::Image(Image { src: kept, ..Default::default() })],
+            ..Default::default()
+        });
+        assert_eq!(prune_assets(&deck, &dir).unwrap(), ["orphan.png"]);
+        assert!(dir.join("assets/kept.png").is_file() && dir.join("assets/grouped.png").is_file());
+        assert_eq!(prune_assets(&Deck::new("x"), Path::new("/nonexistent")).unwrap(), Vec::<String>::new());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

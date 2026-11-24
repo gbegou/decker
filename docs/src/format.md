@@ -5,7 +5,7 @@ A deck is a folder:
 ```text
 talk.deck/
   deck.json     # the model, with a "version" field for migrations
-  assets/       # images, referenced by deck-relative path
+  assets/       # images, referenced by deck-relative path (unused ones removed on save)
   typst/        # optional: .typ files formulas can import
   fonts/        # optional: .ttf/.otf files usable by name
 ```

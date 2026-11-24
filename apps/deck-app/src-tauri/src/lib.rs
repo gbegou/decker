@@ -103,6 +103,12 @@ fn save(state: Shared, path: Option<String>) -> Result<String, String> {
     let saved = deck_core::transfer::save_as(&deck, &s.dir, &dst);
     match saved {
         Ok(d) => {
+            // Files no element uses any more (deleted pictures) go with the save.
+            if let Ok(removed) = deck_core::transfer::prune_assets(&d, &dst) {
+                for name in &removed {
+                    s.assets.remove(&format!("assets/{name}"));
+                }
+            }
             s.deck = Some(d);
             s.dir = dst;
             Ok(s.dir.display().to_string())

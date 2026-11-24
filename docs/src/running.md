@@ -103,6 +103,7 @@ Two environment variables help scripts and tests:
   Within a deck the pasted image elements share the file in `assets/`; across decks the
   file is copied once. Resizing, cropping or masking never changes the file: those are
   properties of the element, so two copies of one picture can be cropped differently.
+  Saving removes from `assets/` the files no element uses any more.
 - **+ Text**, **+ Slide**, **Duplicate** and **− Slide** do what they say; a new slide starts
   from the current slide's [layout](layouts.md). **Insert from deck…** copies slides from
   another deck. Page Up and Page Down change slide.

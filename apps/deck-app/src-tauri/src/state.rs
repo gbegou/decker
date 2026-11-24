@@ -30,7 +30,7 @@ pub struct AppState {
     /// Rendered thumbnails, one per slide; `None` when stale.
     thumbs: Vec<Option<String>>,
     /// Images as data URIs, by deck-relative path.
-    assets: HashMap<String, String>,
+    pub assets: HashMap<String, String>,
 }
 
 /// Element-level style change (see [`AppState::style_element`]).
