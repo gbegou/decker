@@ -1,5 +1,7 @@
 # decker
 
+**D**ecker is an **E**fficient, **C**ross-platform **K**eynote **E**ditor and **R**enderer.
+
 A free, fast, modern alternative to PowerPoint, written in Rust, for Linux and Windows.
 
 - **Reads and writes PPTX** through a converter that imports what can be expressed and says
