@@ -2,7 +2,8 @@
 //! joined by `\n`, runs are concatenated, a formula run counts as its
 //! source characters. Edits keep the runs' styles.
 
-use crate::model::{Paragraph, Run};
+use crate::model::{Align, Color, Paragraph, Run};
+use serde::{Deserialize, Serialize};
 
 /// The flat text of paragraphs, `\n` between paragraphs.
 pub fn flat_text(paragraphs: &[Paragraph]) -> String {
@@ -129,6 +130,205 @@ pub fn delete(paragraphs: &mut Vec<Paragraph>, from: usize, to: usize) -> usize 
     from
 }
 
+/// A change of run style over a range. Unset fields keep the run's value;
+/// `size` 0, `color` "" and `font` "" reset to the default.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct StyleChange {
+    #[serde(default)]
+    pub bold: Option<bool>,
+    #[serde(default)]
+    pub italic: Option<bool>,
+    /// Toggle bold: on unless every run of the range is bold already.
+    #[serde(default)]
+    pub toggle_bold: bool,
+    #[serde(default)]
+    pub toggle_italic: bool,
+    #[serde(default)]
+    pub size: Option<f64>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub font: Option<String>,
+}
+
+/// A change of paragraph style over a range. `bullet` -1 removes the
+/// bullet, 0 and above sets the level.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ParagraphChange {
+    #[serde(default)]
+    pub align: Option<Align>,
+    #[serde(default)]
+    pub bullet: Option<i32>,
+}
+
+/// The style found over a range, for a toolbar: `bold` and `italic` are
+/// true when every run has them; the others come from the first run.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct StyleInfo {
+    pub bold: bool,
+    pub italic: bool,
+    pub size: Option<f64>,
+    pub color: Option<Color>,
+    pub font: Option<String>,
+    pub align: Align,
+    pub bullet: Option<u8>,
+}
+
+/// Makes a run boundary at flat index `at`, splitting the run it falls in.
+fn split_at(paragraphs: &mut [Paragraph], at: usize) {
+    let pos = locate(paragraphs, at);
+    let Some(p) = paragraphs.get_mut(pos.paragraph) else { return };
+    let Some(run) = p.runs.get_mut(pos.run) else { return };
+    let len = run.text.chars().count();
+    if pos.offset == 0 || pos.offset >= len {
+        return;
+    }
+    let b = byte_at(&run.text, pos.offset);
+    let tail = run.text.split_off(b);
+    let mut second = run.clone();
+    second.text = tail;
+    p.runs.insert(pos.run + 1, second);
+}
+
+/// The (paragraph, run) pairs whose text lies within `from..to`, after
+/// splitting at both ends. An empty range selects the run at `from`.
+fn runs_in(paragraphs: &mut [Paragraph], from: usize, to: usize) -> Vec<(usize, usize)> {
+    let (from, to) = (from.min(to), from.max(to));
+    split_at(paragraphs, from);
+    split_at(paragraphs, to);
+    let mut out = vec![];
+    let mut index = 0usize;
+    for (pi, p) in paragraphs.iter().enumerate() {
+        for (ri, r) in p.runs.iter().enumerate() {
+            let len = r.text.chars().count();
+            let (start, end) = (index, index + len);
+            let inside = if from == to {
+                start <= from && from <= end && (len > 0 || p.runs.len() == 1)
+            } else {
+                start < to && end > from
+            };
+            if inside && (from != to || out.is_empty()) {
+                out.push((pi, ri));
+            }
+            index = end;
+        }
+        index += 1;
+    }
+    out
+}
+
+/// Merges adjacent runs of equal style and drops empty runs (a paragraph
+/// keeps one run when it would have none left).
+pub fn normalize(paragraphs: &mut [Paragraph]) {
+    for p in paragraphs.iter_mut() {
+        let mut merged: Vec<Run> = vec![];
+        for r in p.runs.drain(..) {
+            match merged.last_mut() {
+                Some(last) if same_style(last, &r) => last.text.push_str(&r.text),
+                _ => merged.push(r),
+            }
+        }
+        let keep_one = merged.first().cloned();
+        merged.retain(|r| !r.text.is_empty());
+        if merged.is_empty() {
+            if let Some(mut r) = keep_one {
+                r.text.clear();
+                merged.push(r);
+            }
+        }
+        p.runs = merged;
+    }
+}
+
+fn same_style(a: &Run, b: &Run) -> bool {
+    a.bold == b.bold
+        && a.italic == b.italic
+        && a.size == b.size
+        && a.color == b.color
+        && a.font == b.font
+        && a.math == b.math
+}
+
+/// Applies `change` to the runs in `from..to` (the whole paragraph set
+/// when `from == to == usize::MAX`), creating run boundaries as needed.
+pub fn apply_style(paragraphs: &mut [Paragraph], from: usize, to: usize, change: &StyleChange) {
+    let targets = if from == usize::MAX {
+        paragraphs.iter().enumerate().flat_map(|(pi, p)| (0..p.runs.len()).map(move |ri| (pi, ri))).collect()
+    } else {
+        runs_in(paragraphs, from, to)
+    };
+    let all_bold = targets.iter().all(|&(pi, ri)| paragraphs[pi].runs[ri].bold);
+    let all_italic = targets.iter().all(|&(pi, ri)| paragraphs[pi].runs[ri].italic);
+    for (pi, ri) in targets {
+        let r = &mut paragraphs[pi].runs[ri];
+        if let Some(b) = change.bold {
+            r.bold = b;
+        }
+        if change.toggle_bold {
+            r.bold = !all_bold;
+        }
+        if let Some(i) = change.italic {
+            r.italic = i;
+        }
+        if change.toggle_italic {
+            r.italic = !all_italic;
+        }
+        if let Some(size) = change.size {
+            r.size = if size > 0.0 { Some(size) } else { None };
+        }
+        if let Some(c) = &change.color {
+            r.color = if c.is_empty() { None } else { Color::from_hex(c).ok() };
+        }
+        if let Some(f) = &change.font {
+            r.font = if f.is_empty() { None } else { Some(f.clone()) };
+        }
+    }
+    normalize(paragraphs);
+}
+
+/// Applies `change` to the paragraphs touched by `from..to` (all of them
+/// when `from == usize::MAX`).
+pub fn apply_paragraph(paragraphs: &mut [Paragraph], from: usize, to: usize, change: &ParagraphChange) {
+    let (from, to) = (from.min(to), from.max(to));
+    let mut index = 0usize;
+    for p in paragraphs.iter_mut() {
+        let len: usize = p.runs.iter().map(|r| r.text.chars().count()).sum();
+        let (start, end) = (index, index + len);
+        let touched = from == usize::MAX || (start <= to && end >= from);
+        if touched {
+            if let Some(a) = change.align {
+                p.align = a;
+            }
+            if let Some(b) = change.bullet {
+                p.bullet = if b < 0 { None } else { Some(b.min(8) as u8) };
+            }
+        }
+        index = end + 1;
+    }
+}
+
+/// The style over `from..to` (the first run's for the single values).
+pub fn style_info(paragraphs: &[Paragraph], from: usize, to: usize) -> StyleInfo {
+    let mut copy: Vec<Paragraph> = paragraphs.to_vec();
+    let targets = if from == usize::MAX {
+        copy.iter().enumerate().flat_map(|(pi, p)| (0..p.runs.len()).map(move |ri| (pi, ri))).collect::<Vec<_>>()
+    } else {
+        runs_in(&mut copy, from, to)
+    };
+    let first = targets.first().map(|&(pi, ri)| copy[pi].runs[ri].clone());
+    let pos = locate(&copy, if from == usize::MAX { 0 } else { from.min(to) });
+    let para = copy.get(pos.paragraph);
+    StyleInfo {
+        bold: !targets.is_empty() && targets.iter().all(|&(pi, ri)| copy[pi].runs[ri].bold),
+        italic: !targets.is_empty() && targets.iter().all(|&(pi, ri)| copy[pi].runs[ri].italic),
+        size: first.as_ref().and_then(|r| r.size),
+        color: first.as_ref().and_then(|r| r.color),
+        font: first.as_ref().and_then(|r| r.font.clone()),
+        align: para.map(|p| p.align).unwrap_or_default(),
+        bullet: para.and_then(|p| p.bullet),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,6 +371,54 @@ mod tests {
         let mut empty = vec![];
         insert(&mut empty, 0, "a\nb");
         assert_eq!(flat_text(&empty), "a\nb");
+    }
+
+    #[test]
+    fn styles_split_and_merge_runs() {
+        let mut p = sample(); // "Hello world\nsecond", "world" bold
+        apply_style(&mut p, 2, 4, &StyleChange { italic: Some(true), ..Default::default() });
+        let texts: Vec<(String, bool, bool)> = p[0].runs.iter().map(|r| (r.text.clone(), r.bold, r.italic)).collect();
+        assert_eq!(
+            texts,
+            [
+                ("He".into(), false, false),
+                ("ll".into(), false, true),
+                ("o ".into(), false, false),
+                ("world".into(), true, false)
+            ]
+        );
+        // Removing italic again merges the three plain runs back into one.
+        apply_style(&mut p, 2, 4, &StyleChange { italic: Some(false), ..Default::default() });
+        assert_eq!(p[0].runs.len(), 2);
+        // Toggle bold over a mixed range makes everything bold, then over an all-bold range removes it.
+        apply_style(&mut p, 0, 11, &StyleChange { toggle_bold: true, ..Default::default() });
+        assert!(p[0].runs.iter().all(|r| r.bold) && p[0].runs.len() == 1);
+        apply_style(&mut p, 0, 11, &StyleChange { toggle_bold: true, ..Default::default() });
+        assert!(p[0].runs.iter().all(|r| !r.bold));
+        // Whole element: size and color on every run, reset with 0 and "".
+        apply_style(
+            &mut p,
+            usize::MAX,
+            usize::MAX,
+            &StyleChange { size: Some(24.0), color: Some("#FF0000".into()), ..Default::default() },
+        );
+        assert!(p.iter().flat_map(|q| &q.runs).all(|r| r.size == Some(24.0) && r.color == Some(Color::rgb(255, 0, 0))));
+        apply_style(
+            &mut p,
+            usize::MAX,
+            usize::MAX,
+            &StyleChange { size: Some(0.0), color: Some(String::new()), ..Default::default() },
+        );
+        assert!(p.iter().flat_map(|q| &q.runs).all(|r| r.size.is_none() && r.color.is_none()));
+        // Paragraph changes touch the paragraphs of the range only.
+        apply_paragraph(&mut p, 13, 13, &ParagraphChange { align: Some(Align::Center), bullet: Some(2) });
+        assert_eq!((p[0].align, p[1].align, p[1].bullet), (Align::Left, Align::Center, Some(2)));
+        apply_paragraph(&mut p, usize::MAX, usize::MAX, &ParagraphChange { bullet: Some(-1), ..Default::default() });
+        assert!(p.iter().all(|q| q.bullet.is_none()));
+        let info = style_info(&sample(), 7, 9);
+        assert!(info.bold && !info.italic);
+        assert_eq!(style_info(&sample(), 0, 11).bold, false, "mixed range is not all bold");
+        assert_eq!(style_info(&sample(), 12, 12).bullet, Some(0));
     }
 
     #[test]

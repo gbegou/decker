@@ -7,8 +7,8 @@ use base64::Engine;
 use serde::Serialize;
 
 use deck_core::{
-    native, svg, text, transfer, Crop, Deck, Element, Layout, Mask, MathRenderer, Paragraph, Placeholder, Rect, Slide,
-    TextBox,
+    native, svg, text, transfer, Color, Crop, Deck, Element, Layout, Mask, MathRenderer, Paragraph, Placeholder, Rect,
+    Slide, Stroke, TextBox,
 };
 
 #[derive(Default)]
@@ -31,6 +31,23 @@ pub struct AppState {
     thumbs: Vec<Option<String>>,
     /// Images as data URIs, by deck-relative path.
     assets: HashMap<String, String>,
+}
+
+/// Element-level style change (see [`AppState::style_element`]).
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct ElementStyle {
+    #[serde(default)]
+    pub fill: Option<String>,
+    #[serde(default)]
+    pub stroke: Option<String>,
+    #[serde(default)]
+    pub stroke_width: Option<f64>,
+    #[serde(default)]
+    pub size: Option<f64>,
+    #[serde(default)]
+    pub highlight: Option<String>,
+    #[serde(default)]
+    pub subsections: Option<bool>,
 }
 
 /// The character boxes of a text element, in slide points.
@@ -161,6 +178,25 @@ pub struct ElementInfo {
     pub crop: Option<Crop>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mask: Option<Mask>,
+    /// Fill color of text boxes and shapes, text color of formulas, muted color of the plan.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fill: Option<Color>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stroke: Option<Stroke>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub highlight: Option<Color>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subsections: Option<bool>,
+}
+
+fn element_style_info(e: &Element) -> (Option<Color>, Option<Stroke>, Option<Color>, Option<bool>) {
+    match e {
+        Element::Text(t) => (t.fill, t.stroke, None, None),
+        Element::Shape(s) => (s.fill, s.stroke, None, None),
+        Element::Math(m) => (m.color, None, None, None),
+        Element::Outline(o) => (o.color, None, o.highlight, Some(o.subsections)),
+        Element::Image(_) => (None, None, None, None),
+    }
 }
 
 impl AppState {
@@ -323,6 +359,10 @@ impl AppState {
                     .unwrap_or(svg::DEFAULT_FONT_SIZE),
                     crop: if let Element::Image(i) = e { Some(i.crop) } else { None },
                     mask: if let Element::Image(i) = e { Some(i.mask) } else { None },
+                    fill: element_style_info(e).0,
+                    stroke: element_style_info(e).1,
+                    highlight: element_style_info(e).2,
+                    subsections: element_style_info(e).3,
                 })
                 .collect(),
             presenting: self.presenting,
@@ -372,6 +412,10 @@ impl AppState {
                 size: svg::DEFAULT_FONT_SIZE,
                 crop: if let Element::Image(i) = e { Some(i.crop) } else { None },
                 mask: if let Element::Image(i) = e { Some(i.mask) } else { None },
+                fill: element_style_info(e).0,
+                stroke: element_style_info(e).1,
+                highlight: element_style_info(e).2,
+                subsections: element_style_info(e).3,
             })
             .collect();
         for (k, ph) in layout.placeholders.iter().enumerate() {
@@ -384,6 +428,10 @@ impl AppState {
                 size: ph.size.unwrap_or(svg::DEFAULT_FONT_SIZE),
                 crop: None,
                 mask: None,
+                fill: None,
+                stroke: None,
+                highlight: None,
+                subsections: None,
             });
         }
         let starts = deck
@@ -890,6 +938,96 @@ impl AppState {
         let (w, h) = self.deck.as_ref().map(|d| (d.width, d.height)).ok_or("no deck")?;
         let rect = Rect::new(w * 0.1, h * 0.4, w * 0.8, h * 0.15);
         self.elements_mut()?.push(Element::Text(TextBox::plain(rect, "Text")));
+        Ok(())
+    }
+
+    /// Styles the runs of a text element over `from..to` (`usize::MAX`
+    /// for the whole element).
+    pub fn style_text(
+        &mut self,
+        element: usize,
+        from: usize,
+        to: usize,
+        change: &text::StyleChange,
+    ) -> Result<(), String> {
+        self.touch_target();
+        text::apply_style(self.paragraphs_mut(element)?, from, to, change);
+        Ok(())
+    }
+
+    /// Styles the paragraphs of a text element touched by `from..to`.
+    pub fn style_paragraphs(
+        &mut self,
+        element: usize,
+        from: usize,
+        to: usize,
+        change: &text::ParagraphChange,
+    ) -> Result<(), String> {
+        self.touch_target();
+        text::apply_paragraph(self.paragraphs_mut(element)?, from, to, change);
+        Ok(())
+    }
+
+    pub fn style_info(&mut self, element: usize, from: usize, to: usize) -> Result<text::StyleInfo, String> {
+        Ok(text::style_info(self.paragraphs_mut(element)?, from, to))
+    }
+
+    /// Element-level colors and sizes: fill and stroke of shapes and text
+    /// boxes, size and colors of formulas and of the plan. Empty strings
+    /// clear a color; a size of 0 resets it.
+    pub fn style_element(&mut self, element: usize, change: &ElementStyle) -> Result<(), String> {
+        self.touch_target();
+        let color = |s: &Option<String>| -> Option<Option<Color>> {
+            s.as_ref().map(|v| if v.is_empty() { None } else { Color::from_hex(v).ok() })
+        };
+        let (fill, stroke, highlight) = (color(&change.fill), color(&change.stroke), color(&change.highlight));
+        let stroke_width = change.stroke_width;
+        let e = self.elements_mut()?.get_mut(element).ok_or("no such element")?;
+        let apply_stroke = |current: &mut Option<Stroke>| {
+            if let Some(c) = stroke {
+                *current = c.map(|color| Stroke { color, width: current.map(|s| s.width).unwrap_or(1.0) });
+            }
+            if let (Some(w), Some(s)) = (stroke_width, current.as_mut()) {
+                s.width = w.max(0.25);
+            }
+        };
+        match e {
+            Element::Text(t) => {
+                if let Some(f) = fill {
+                    t.fill = f;
+                }
+                apply_stroke(&mut t.stroke);
+            }
+            Element::Shape(sh) => {
+                if let Some(f) = fill {
+                    sh.fill = f;
+                }
+                apply_stroke(&mut sh.stroke);
+            }
+            Element::Math(m) => {
+                if let Some(size) = change.size {
+                    m.size = if size > 0.0 { Some(size) } else { None };
+                }
+                if let Some(c) = fill {
+                    m.color = c;
+                }
+            }
+            Element::Outline(o) => {
+                if let Some(size) = change.size {
+                    o.size = if size > 0.0 { Some(size) } else { None };
+                }
+                if let Some(c) = fill {
+                    o.color = c;
+                }
+                if let Some(c) = highlight {
+                    o.highlight = c;
+                }
+                if let Some(sub) = change.subsections {
+                    o.subsections = sub;
+                }
+            }
+            Element::Image(_) => return Err("an image has no style".into()),
+        }
         Ok(())
     }
 

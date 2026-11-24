@@ -12,8 +12,9 @@ use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
+use deck_core::text::{ParagraphChange, StyleChange, StyleInfo};
 use deck_core::{Crop, Deck, Mask, Rect};
-use state::{AppState, TextLayout, View};
+use state::{AppState, ElementStyle, TextLayout, View};
 
 type Shared<'a> = State<'a, Mutex<AppState>>;
 
@@ -186,6 +187,59 @@ fn delete_layout(app: AppHandle, state: Shared) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
         s.delete_layout()?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+/// Styles runs of a text element over a range (`null` bounds: the whole element).
+#[tauri::command]
+fn style_text(
+    app: AppHandle,
+    state: Shared,
+    element: usize,
+    from: Option<usize>,
+    to: Option<usize>,
+    change: StyleChange,
+) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.style_text(element, from.unwrap_or(usize::MAX), to.unwrap_or(usize::MAX), &change)?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+#[tauri::command]
+fn style_paragraphs(
+    app: AppHandle,
+    state: Shared,
+    element: usize,
+    from: Option<usize>,
+    to: Option<usize>,
+    change: ParagraphChange,
+) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.style_paragraphs(element, from.unwrap_or(usize::MAX), to.unwrap_or(usize::MAX), &change)?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+#[tauri::command]
+fn style_info(state: Shared, element: usize, from: Option<usize>, to: Option<usize>) -> Result<StyleInfo, String> {
+    state.lock().map_err(err)?.style_info(element, from.unwrap_or(usize::MAX), to.unwrap_or(usize::MAX))
+}
+
+#[tauri::command]
+fn style_element(app: AppHandle, state: Shared, element: usize, change: ElementStyle) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.style_element(element, &change)?;
         s.view()
     };
     edited(&app);
@@ -586,6 +640,10 @@ pub fn run() {
             delete_layout,
             add_placeholder,
             add_outline,
+            style_text,
+            style_paragraphs,
+            style_info,
+            style_element,
             save_layout,
             load_layout,
             get_view,

@@ -3,6 +3,10 @@
   import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
   import { api, watchView, watchThumbnails, presentationKeys, type View, type Rect, type Crop, type Mask, type TextLayout } from "./api";
   import SlideView from "./SlideView.svelte";
+  import StyleBar from "./StyleBar.svelte";
+  import Help from "./Help.svelte";
+
+  let help = $state(false);
 
   let view = $state<View | null>(null);
   let thumbnails = $state<string[]>([]);
@@ -355,7 +359,20 @@
 
   function onKey(e: KeyboardEvent) {
     const tag = (e.target as HTMLElement).tagName;
+    if (e.key === "F1") { help = !help; e.preventDefault(); return; }
     if (tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return;
+    if (e.key === "?" ) { help = !help; return; }
+    if (e.key === "Escape" && help) { help = false; return; }
+    if ((e.key === "b" || e.key === "i") && (e.ctrlKey || e.metaKey) && selected !== null && view) {
+      const el = view.elements[selected];
+      if (el.kind === "text" || el.kind === "shape") {
+        const r = editing ? { from: Math.min(editing.caret, editing.anchor), to: Math.max(editing.caret, editing.anchor) } : null;
+        const change = e.key === "b" ? { toggle_bold: true } : { toggle_italic: true };
+        enqueue(() => api.styleText(el.index, r?.from ?? null, r?.to ?? null, change).then(() => refreshLayout()));
+        e.preventDefault();
+        return;
+      }
+    }
     if (editing) {
       if (editorKey(e)) e.preventDefault();
       return;
@@ -411,6 +428,7 @@
     <button onclick={exportPptx} disabled={!view?.slide_count}>Export PPTX…</button>
     <button onclick={exportPdf} disabled={!view?.slide_count}>Export PDF…</button>
     <span class="spacer"></span>
+    <button title="Commands and keys (F1)" onclick={() => (help = !help)}>?</button>
     {#if view?.editing_layout !== null && view?.editing_layout !== undefined}
       <span class="banner">Layout
         <input class="layout-name" value={view.editing_layout} onchange={(e) => run("Layout renamed", () => api.renameLayout(e.currentTarget.value))} />
@@ -469,11 +487,17 @@
     </aside>
 
     <main>
+      {#if sel && sel.kind !== "image" && sel.kind !== "placeholder"}
+        <StyleBar element={sel}
+                  range={editing && editing.index === sel.index ? { from: Math.min(editing.caret, editing.anchor), to: Math.max(editing.caret, editing.anchor) } : null}
+                  onrun={(label, f) => enqueue(() => run(label, f).then(() => refreshLayout()))} />
+      {/if}
       <div class="canvas-wrap">
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div class="canvas" bind:this={canvas} style="aspect-ratio: {view.width} / {view.height}"
-             onpointermove={moveDrag} onpointerup={endDrag} onclick={() => { selected = null; editing = null; }}>
+             onpointermove={moveDrag} onpointerup={endDrag}
+             onclick={(e) => { if ((e.target as Element).closest(".hit, .handle, .text-editing")) return; selected = null; editing = null; }}>
           <SlideView svg={view.svg} width={view.width} height={view.height} />
           <svg class="overlay" viewBox="0 0 {view.width} {view.height}" preserveAspectRatio="none">
             {#each view.elements as el (el.index)}
@@ -602,6 +626,7 @@
   {/if}
 
   <footer>{status}</footer>
+  {#if help}<Help onclose={() => (help = false)} />{/if}
 
   {#if picker}
     <div class="modal">

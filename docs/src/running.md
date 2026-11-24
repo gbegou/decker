@@ -81,8 +81,13 @@ Two environment variables help scripts and tests:
   any of those for a selection, Ctrl+A, Enter for a new paragraph, a click to place the caret,
   Escape or a click outside to finish. Typing continues the style of the character before the
   caret. Formulas inside a text are skipped by the caret; edit them in the side panel.
+- With an element selected, the style bar above the canvas sets bold, italic, size, color,
+  font, alignment and bullet level (the selection while editing text, else the whole box;
+  Ctrl+B and Ctrl+I too), the fill and outline of boxes and shapes, and the size and colors
+  of formulas and of the plan.
 - The right panel edits the selected element's position, size and text (one paragraph per
-  line), and the slide's speaker notes. For an image it offers the crop: a shape to clip to
+  line), and the slide's speaker notes.
+- **?** in the toolbar, or F1, lists every command and key. For an image it offers the crop: a shape to clip to
   (rectangle, ellipse, rounded rectangle with its corner radius) and the percentage cut off
   each edge; the kept part fills the box.
 - **+ Text**, **+ Slide**, **Duplicate** and **− Slide** do what they say; a new slide starts

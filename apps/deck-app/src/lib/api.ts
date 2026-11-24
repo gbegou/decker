@@ -16,6 +16,25 @@ export interface ElementInfo {
   size: number;
   crop?: Crop;
   mask?: Mask;
+  fill?: string;
+  stroke?: { color: string; width: number };
+  highlight?: string;
+  subsections?: boolean;
+}
+
+export type Align = "left" | "center" | "right" | "justify";
+
+/** A run style change; absent fields keep their value; size 0, color "" and font "" reset. */
+export interface StyleChange {
+  bold?: boolean; italic?: boolean; toggle_bold?: boolean; toggle_italic?: boolean;
+  size?: number; color?: string; font?: string;
+}
+export interface ParagraphChange { align?: Align; bullet?: number }
+export interface StyleInfo {
+  bold: boolean; italic: boolean; size: number | null; color: string | null; font: string | null; align: Align; bullet: number | null;
+}
+export interface ElementStyle {
+  fill?: string; stroke?: string; stroke_width?: number; size?: number; highlight?: string; subsections?: boolean;
 }
 
 export interface View {
@@ -82,6 +101,12 @@ export const api = {
   deleteLayout: () => invoke<View>("delete_layout"),
   addPlaceholder: () => invoke<View>("add_placeholder"),
   addOutline: () => invoke<View>("add_outline"),
+  styleText: (element: number, from: number | null, to: number | null, change: StyleChange) =>
+    invoke<View>("style_text", { element, from, to, change }),
+  styleParagraphs: (element: number, from: number | null, to: number | null, change: ParagraphChange) =>
+    invoke<View>("style_paragraphs", { element, from, to, change }),
+  styleInfo: (element: number, from: number | null, to: number | null) => invoke<StyleInfo>("style_info", { element, from, to }),
+  styleElement: (element: number, change: ElementStyle) => invoke<View>("style_element", { element, change }),
   saveLayout: (path: string) => invoke<string>("save_layout", { path }),
   loadLayout: (path: string) => invoke<View>("load_layout", { path }),
   setLayout: (name: string | null) => invoke<View>("set_layout", { name }),
