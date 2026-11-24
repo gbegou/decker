@@ -193,6 +193,45 @@ fn delete_layout(app: AppHandle, state: Shared) -> Result<View, String> {
 }
 
 #[tauri::command]
+fn add_outline(app: AppHandle, state: Shared) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.add_outline()?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+/// Saves a layout as a `.deck_layout` folder; returns the layout's name.
+#[tauri::command]
+fn save_layout(state: Shared, path: String) -> Result<String, String> {
+    state.lock().map_err(err)?.save_layout(&layout_dir(&path))
+}
+
+/// Loads a `.deck_layout` folder (or its `layout.json`) into the deck.
+#[tauri::command]
+fn load_layout(app: AppHandle, state: Shared, path: String) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.load_layout(&layout_dir(&path))?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+/// A `.deck_layout` folder, from the folder or its `layout.json`.
+fn layout_dir(path: &str) -> PathBuf {
+    let p = PathBuf::from(path);
+    if p.file_name().map(|f| f == "layout.json").unwrap_or(false) {
+        p.parent().map(Path::to_path_buf).unwrap_or(p)
+    } else {
+        p
+    }
+}
+
+#[tauri::command]
 fn add_placeholder(app: AppHandle, state: Shared) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
@@ -546,6 +585,9 @@ pub fn run() {
             rename_layout,
             delete_layout,
             add_placeholder,
+            add_outline,
+            save_layout,
+            load_layout,
             get_view,
             get_thumbnails,
             navigate,

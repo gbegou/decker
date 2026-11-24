@@ -7,6 +7,16 @@ the name to remove it. The slide panel has the same two fields, and `deck.json` 
 (`"section": "Method"`, `"subsection": "Model"`). The outline follows the slide order, so
 moving slides keeps it consistent.
 
+## The plan slide
+
+**+ Plan** adds an outline element to the current slide: the list of sections, numbered, the
+section the slide belongs to in bold and the others in gray, with the subsections of the
+current section under it (the current subsection in bold). The highlight follows the slide's
+position in the deck, so build the plan slide once, **Duplicate** it and drag a copy to the
+start of each section: every copy marks its own section, and reordering slides keeps them
+right. Its size and colors are in `deck.json` (`size`, `color`, `highlight`, `subsections`).
+In PPTX export each copy becomes a plain text box with the text it shows.
+
 Sections are used in three places:
 
 - **PDF bookmarks.** **Export PDF…** writes one page per slide at its final build step, and

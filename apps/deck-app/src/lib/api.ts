@@ -9,7 +9,7 @@ export type Mask = { kind: "rectangle" } | { kind: "ellipse" } | { kind: "rounde
 
 export interface ElementInfo {
   index: number;
-  kind: "text" | "image" | "shape" | "math" | "placeholder";
+  kind: "text" | "image" | "shape" | "math" | "placeholder" | "outline";
   rect: Rect;
   text: string;
   last_step: number;
@@ -81,6 +81,9 @@ export const api = {
   renameLayout: (name: string) => invoke<View>("rename_layout", { name }),
   deleteLayout: () => invoke<View>("delete_layout"),
   addPlaceholder: () => invoke<View>("add_placeholder"),
+  addOutline: () => invoke<View>("add_outline"),
+  saveLayout: (path: string) => invoke<string>("save_layout", { path }),
+  loadLayout: (path: string) => invoke<View>("load_layout", { path }),
   setLayout: (name: string | null) => invoke<View>("set_layout", { name }),
   peekDeck: (path: string) => invoke<string[]>("peek_deck", { path }),
   importSlides: (path: string, indices: number[]) => invoke<View>("import_slides", { path, indices }),

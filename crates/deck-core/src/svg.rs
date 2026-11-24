@@ -84,12 +84,13 @@ pub fn render_step_with(deck: &Deck, slide: &Slide, step: u32, math: &dyn MathRe
         for element in &layout.elements {
             let substituted = vars.as_ref().map(|v| v.element(element));
             let element = substituted.as_ref().unwrap_or(element);
-            element_body(&mut out, deck, element, element.last_step(), math, None);
+            element_body(&mut out, deck, element, element.last_step(), math, None, index);
         }
         out.push_str("</g>");
     }
+    let slide_index = deck.slides.iter().position(|s| std::ptr::eq(s, slide));
     for (index, element) in slide.elements.iter().enumerate() {
-        element_body(&mut out, deck, element, step, math, Some(index));
+        element_body(&mut out, deck, element, step, math, Some(index), slide_index);
     }
     out.push_str("</svg>\n");
     out
@@ -110,7 +111,7 @@ pub fn render_layout(deck: &Deck, layout: &Layout, math: &dyn MathRenderer) -> S
     let bg = layout.background.unwrap_or(Color::WHITE);
     let _ = write!(out, r#"<rect width="100%" height="100%" fill="{}"/>"#, bg.to_hex());
     for (index, element) in layout.elements.iter().enumerate() {
-        element_body(&mut out, deck, element, element.last_step(), math, Some(index));
+        element_body(&mut out, deck, element, element.last_step(), math, Some(index), None);
     }
     for (k, ph) in layout.placeholders.iter().enumerate() {
         let index = layout.elements.len() + k;
@@ -140,6 +141,7 @@ fn element_body(
     step: u32,
     math: &dyn MathRenderer,
     index: Option<usize>,
+    slide_index: Option<usize>,
 ) {
     {
         let st = element.state_at(step);
@@ -174,6 +176,23 @@ fn element_body(
                 text_body(out, r, &s.paragraphs, &deck.math_preamble, math);
             }
             Element::Math(m) => math_body(out, r, m, &deck.math_preamble, math),
+            Element::Outline(o) => {
+                let paragraphs = deck.outline_paragraphs(slide_index, o);
+                if paragraphs.is_empty() {
+                    let hint = Paragraph {
+                        runs: vec![Run {
+                            text: "Outline: no sections yet".into(),
+                            color: Some(Color::rgb(0x88, 0x88, 0x88)),
+                            size: o.size,
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    };
+                    text_body(out, r, &[hint], &deck.math_preamble, math);
+                } else {
+                    text_body(out, r, &paragraphs, &deck.math_preamble, math);
+                }
+            }
         }
         out.push_str("</g>");
     }

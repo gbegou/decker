@@ -513,6 +513,7 @@ fn steps_mut(e: &mut Element) -> &mut Vec<Step> {
         Element::Image(i) => &mut i.steps,
         Element::Shape(s) => &mut s.steps,
         Element::Math(m) => &mut m.steps,
+        Element::Outline(o) => &mut o.steps,
     }
 }
 

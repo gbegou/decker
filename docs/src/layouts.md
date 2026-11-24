@@ -60,6 +60,21 @@ new name). **+ Text** and **+ Placeholder** add elements, **Delete layout** remo
 (its slides keep their elements), the name field renames it, **Done** returns to the slides.
 **+ New layout** creates an empty one and opens it.
 
+## Reusing a layout: `.deck_layout`
+
+**Save layout…** in the layout editor writes the layout as a folder:
+
+```text
+Corp.deck_layout/
+  layout.json   # the layout: background, static elements, placeholders
+  assets/       # its images
+```
+
+**Load layout…** (under the layout selector) reads such a folder into the current deck,
+copying its images, under its name or a numbered one if the name is taken, and opens it for
+editing. A folder of `.deck_layout` folders is a layout library. The deck must have been
+saved once, so that images have a folder to be copied into.
+
 ## Variables
 
 In a layout's texts, these are replaced on each slide that uses the layout:

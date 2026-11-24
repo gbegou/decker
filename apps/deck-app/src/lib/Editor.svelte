@@ -90,6 +90,18 @@
     if (indices.length) await run(`Inserted ${indices.length} slide(s)`, () => api.importSlides(p.path, indices));
   }
 
+  async function saveLayoutAs() {
+    const picked = await saveDialog({ defaultPath: `${view?.layout ?? "layout"}.deck_layout`, title: "Save the layout as a .deck_layout folder" });
+    if (!picked) return;
+    await run(`Layout saved to ${picked}`, () => api.saveLayout(picked));
+  }
+
+  async function loadLayoutFrom() {
+    const picked = await openDialog({ multiple: false, filters: [{ name: "decker layout", extensions: ["json"] }], title: "Choose the layout.json of a .deck_layout folder" });
+    if (!picked) return;
+    await run(`Layout loaded from ${picked}`, () => api.loadLayout(picked));
+  }
+
   async function exportPdf() {
     const picked = await saveDialog({ defaultPath: "talk.pdf", filters: [{ name: "PDF", extensions: ["pdf"] }] });
     if (!picked) return;
@@ -173,7 +185,7 @@
   async function startEdit(index: number, at?: { x: number; y: number }) {
     if (!view) return;
     const el = view.elements[index];
-    if (el.kind === "image" || el.kind === "math" || el.kind === "placeholder") return;
+    if (el.kind === "image" || el.kind === "math" || el.kind === "placeholder" || el.kind === "outline") return;
     selected = index;
     const layout = await api.textLayout(index);
     if (!layout) { status = "Text editing in place needs the Typst feature"; return; }
@@ -405,10 +417,12 @@
       </span>
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
       <button onclick={() => run("Added placeholder", api.addPlaceholder)}>+ Placeholder</button>
+      <button onclick={saveLayoutAs} disabled={!view.dir}>Save layout…</button>
       <button onclick={() => run("Layout deleted", api.deleteLayout)}>Delete layout</button>
       <button class="primary" onclick={() => run("Back to slides", () => api.editLayout(null))}>Done</button>
     {:else if view?.slide_count}
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
+      <button onclick={() => run("Added outline", api.addOutline)} title="The sections, the current one highlighted: a plan slide">+ Plan</button>
       <button onclick={() => run("Added slide", api.addSlide)}>+ Slide</button>
       <button onclick={() => run("Duplicated slide", api.duplicateSlide)}>Duplicate</button>
       <button onclick={() => run("Deleted slide", api.deleteSlide)}>− Slide</button>
@@ -525,6 +539,8 @@
             <label>bottom <input type="number" min="0" max="95" value={Math.round(sel.crop.bottom * 100)} onchange={(e) => setCrop("bottom", +e.currentTarget.value)} /></label>
           </div>
           <p class="muted">The kept part of the image fills the box.</p>
+        {:else if sel.kind === "outline"}
+          <p class="muted">The plan: every section, the one this slide belongs to in bold, with its subsections. Duplicate this slide and drag a copy to the start of each section; each copy highlights its own.</p>
         {:else if sel.kind === "placeholder"}
           <label>placeholder name
             <input type="text" value={sel.text} onchange={(e) => run("Placeholder renamed", () => api.setText(sel!.index, e.currentTarget.value))} />
@@ -567,6 +583,7 @@
         <div class="row">
           {#if view.layout}<button onclick={() => run("Editing layout", () => api.editLayout(view!.layout))}>Edit layout</button>{/if}
           <button onclick={() => run("New layout", api.newLayout)}>+ New layout</button>
+          <button onclick={loadLayoutFrom} disabled={!view.dir}>Load layout…</button>
         </div>
       {/if}
       {#if view.editing_layout === null}

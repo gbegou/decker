@@ -302,6 +302,7 @@ impl AppState {
                         Element::Image(_) => "image",
                         Element::Shape(_) => "shape",
                         Element::Math(_) => "math",
+                        Element::Outline(_) => "outline",
                     },
                     rect: *e.rect(),
                     text: match e {
@@ -309,12 +310,14 @@ impl AppState {
                         Element::Shape(s) => s.paragraphs.iter().map(Paragraph::text).collect::<Vec<_>>().join("\n"),
                         Element::Math(m) => m.source.clone(),
                         Element::Image(i) => i.src.clone(),
+                        Element::Outline(_) => String::new(),
                     },
                     last_step: e.last_step(),
                     size: match e {
                         Element::Text(t) => t.paragraphs.first().and_then(|p| p.runs.first()).and_then(|r| r.size),
                         Element::Shape(s) => s.paragraphs.first().and_then(|p| p.runs.first()).and_then(|r| r.size),
                         Element::Math(m) => m.size,
+                        Element::Outline(o) => o.size,
                         Element::Image(_) => None,
                     }
                     .unwrap_or(svg::DEFAULT_FONT_SIZE),
@@ -355,6 +358,7 @@ impl AppState {
                     Element::Image(_) => "image",
                     Element::Shape(_) => "shape",
                     Element::Math(_) => "math",
+                    Element::Outline(_) => "outline",
                 },
                 rect: *e.rect(),
                 text: match e {
@@ -362,6 +366,7 @@ impl AppState {
                     Element::Shape(s) => s.paragraphs.iter().map(Paragraph::text).collect::<Vec<_>>().join("\n"),
                     Element::Math(m) => m.source.clone(),
                     Element::Image(i) => i.src.clone(),
+                    Element::Outline(_) => String::new(),
                 },
                 last_step: e.last_step(),
                 size: svg::DEFAULT_FONT_SIZE,
@@ -727,6 +732,7 @@ impl AppState {
             Element::Shape(s) => s.paragraphs = paragraphs(&s.paragraphs),
             Element::Math(m) => m.source = text.to_string(),
             Element::Image(_) => return Err("an image has no text".into()),
+            Element::Outline(_) => return Err("the outline is computed from the sections".into()),
         }
         Ok(())
     }
@@ -885,6 +891,47 @@ impl AppState {
         let rect = Rect::new(w * 0.1, h * 0.4, w * 0.8, h * 0.15);
         self.elements_mut()?.push(Element::Text(TextBox::plain(rect, "Text")));
         Ok(())
+    }
+
+    /// Adds an outline ("plan") element to the current slide.
+    pub fn add_outline(&mut self) -> Result<(), String> {
+        self.touch_target();
+        let (w, h) = self.deck.as_ref().map(|d| (d.width, d.height)).ok_or("no deck")?;
+        let rect = Rect::new(w * 0.15, h * 0.2, w * 0.7, h * 0.65);
+        self.elements_mut()?.push(Element::Outline(deck_core::OutlineBox {
+            rect,
+            size: Some(28.0),
+            subsections: true,
+            ..Default::default()
+        }));
+        Ok(())
+    }
+
+    /// Saves the layout under edit (or the current slide's) as a `.deck_layout` folder.
+    pub fn save_layout(&self, out_dir: &Path) -> Result<String, String> {
+        let deck = self.deck.as_ref().ok_or("no deck")?;
+        let name = self
+            .editing_layout
+            .clone()
+            .or_else(|| deck.slides.get(self.slide).and_then(|s| s.layout.clone()))
+            .ok_or("no layout to save: edit one or use a slide that has one")?;
+        if self.dir.as_os_str().is_empty() {
+            return Err("save the deck first, so that images have a folder".into());
+        }
+        transfer::save_layout(deck, &self.dir, &name, out_dir).map_err(|e| e.to_string())?;
+        Ok(name)
+    }
+
+    /// Loads a `.deck_layout` folder into the deck and opens it for editing.
+    pub fn load_layout(&mut self, src_dir: &Path) -> Result<String, String> {
+        if self.dir.as_os_str().is_empty() {
+            return Err("save the deck first, so that images have a folder".into());
+        }
+        let dir = self.dir.clone();
+        let deck = self.deck.as_mut().ok_or("no deck")?;
+        let name = transfer::load_layout(src_dir, deck, &dir).map_err(|e| e.to_string())?;
+        self.editing_layout = Some(name.clone());
+        Ok(name)
     }
 
     pub fn delete_element(&mut self, element: usize) -> Result<(), String> {

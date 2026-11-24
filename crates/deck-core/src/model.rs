@@ -241,6 +241,9 @@ pub enum Element {
     Image(Image),
     Shape(Shape),
     Math(MathBlock),
+    /// The deck's sections, with the slide's own section highlighted: a
+    /// "plan" slide that repeats at each section start.
+    Outline(OutlineBox),
 }
 
 impl Element {
@@ -250,6 +253,7 @@ impl Element {
             Element::Image(i) => &i.rect,
             Element::Shape(s) => &s.rect,
             Element::Math(m) => &m.rect,
+            Element::Outline(o) => &o.rect,
         }
     }
 
@@ -259,6 +263,7 @@ impl Element {
             Element::Image(i) => &mut i.rect,
             Element::Shape(s) => &mut s.rect,
             Element::Math(m) => &mut m.rect,
+            Element::Outline(o) => &mut o.rect,
         }
     }
 
@@ -269,6 +274,7 @@ impl Element {
             Element::Image(i) => &i.steps,
             Element::Shape(s) => &s.steps,
             Element::Math(m) => &m.steps,
+            Element::Outline(o) => &o.steps,
         }
     }
 
@@ -285,6 +291,79 @@ impl Element {
     /// The last step that changes this element (0 when static).
     pub fn last_step(&self) -> u32 {
         self.steps().iter().map(|s| s.at).max().unwrap_or(0)
+    }
+}
+
+/// The deck's outline as a list: every section, the one the slide belongs
+/// to highlighted, and the subsections of that section under it.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct OutlineBox {
+    pub rect: Rect,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<Step>,
+    /// Font size in points.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<f64>,
+    /// Color of the other sections (default gray).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<Color>,
+    /// Color of the current section (default black, bold).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub highlight: Option<Color>,
+    /// Show the subsections of the current section.
+    #[serde(default = "yes", skip_serializing_if = "Clone::clone")]
+    pub subsections: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Deck {
+    /// The paragraphs an outline box shows on slide `index`: one per
+    /// section, numbered, the current one highlighted; under it, its
+    /// subsections when asked. Without a slide index, nothing is current.
+    pub fn outline_paragraphs(&self, index: Option<usize>, o: &OutlineBox) -> Vec<Paragraph> {
+        let (current, current_sub) = index.map(|i| self.position(i)).unwrap_or((None, None));
+        let muted = o.color.unwrap_or(Color::rgb(0x88, 0x88, 0x88));
+        let strong = o.highlight.unwrap_or(Color::BLACK);
+        let mut out = vec![];
+        let mut number = 0;
+        for (i, s) in self.slides.iter().enumerate() {
+            let Some(name) = &s.section else { continue };
+            number += 1;
+            let is_current = current == Some(name.as_str());
+            out.push(Paragraph {
+                runs: vec![Run {
+                    text: format!("{number}. {name}"),
+                    bold: is_current,
+                    size: o.size,
+                    color: Some(if is_current { strong } else { muted }),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            });
+            if is_current && o.subsections {
+                // The subsections up to the next section.
+                for t in self.slides[i..].iter().take_while(|t| std::ptr::eq(*t, s) || t.section.is_none()) {
+                    if let Some(sub) = &t.subsection {
+                        let is_sub = current_sub == Some(sub.as_str());
+                        out.push(Paragraph {
+                            runs: vec![Run {
+                                text: sub.clone(),
+                                bold: is_sub,
+                                size: o.size.map(|v| v * 0.85),
+                                color: Some(if is_sub { strong } else { muted }),
+                                ..Default::default()
+                            }],
+                            bullet: Some(1),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+        }
+        out
     }
 }
 
@@ -773,6 +852,39 @@ mod tests {
         let json = serde_json::to_string(&deck).unwrap();
         assert!(json.contains("\"layouts\""));
         assert_eq!(serde_json::from_str::<Deck>(&json).unwrap(), deck);
+    }
+
+    #[test]
+    fn outline_box_highlights_the_current_section() {
+        let mut deck = Deck::new("t");
+        deck.slides.push(Slide { section: Some("Intro".into()), ..Default::default() });
+        deck.slides.push(Slide {
+            section: Some("Method".into()),
+            subsection: Some("Model".into()),
+            ..Default::default()
+        });
+        deck.slides.push(Slide { subsection: Some("Results".into()), ..Default::default() });
+        deck.slides.push(Slide { section: Some("End".into()), ..Default::default() });
+        let o = OutlineBox { subsections: true, ..Default::default() };
+        let ps = deck.outline_paragraphs(Some(2), &o);
+        let texts: Vec<(String, bool, Option<u8>)> = ps.iter().map(|p| (p.text(), p.runs[0].bold, p.bullet)).collect();
+        assert_eq!(
+            texts,
+            [
+                ("1. Intro".to_string(), false, None),
+                ("2. Method".to_string(), true, None),
+                ("Model".to_string(), false, Some(1)),
+                ("Results".to_string(), true, Some(1)),
+                ("3. End".to_string(), false, None),
+            ]
+        );
+        assert!(
+            deck.outline_paragraphs(None, &o).iter().all(|p| !p.runs[0].bold),
+            "no current section without a slide"
+        );
+        let json = serde_json::to_string(&Element::Outline(o.clone())).unwrap();
+        assert!(json.contains("\"type\":\"outline\"") && !json.contains("subsections"), "{json}");
+        assert_eq!(serde_json::from_str::<Element>(&json).unwrap(), Element::Outline(o));
     }
 
     #[test]

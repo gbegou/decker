@@ -60,8 +60,8 @@ part fills the rect), and its `mask` the shape it is clipped to: `rectangle`, `e
 `rounded_rectangle` with a `radius` as a fraction of the shorter side. Both round-trip to
 PowerPoint's crop and "crop to shape".
 
-Element types are `text`, `image`, `shape` (`rectangle`, `ellipse`, `line`) and `math`
-(Typst math source). A run may carry `"math": true` to be rendered as an inline formula.
+Element types are `text`, `image`, `shape` (`rectangle`, `ellipse`, `line`), `math` (Typst
+math source) and `outline` (the plan: sections with the slide's own highlighted). A run may carry `"math": true` to be rendered as an inline formula.
 Every element may carry `steps`; see [Build steps](steps.md). The deck may carry a
 `math_preamble` and a `typst/` folder of importable files; see [Math](math.md), and
 `layouts` that slides name; see [Layouts](layouts.md).

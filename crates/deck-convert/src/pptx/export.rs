@@ -123,6 +123,8 @@ pub fn export(deck: &Deck, deck_dir: &Path, pptx: &Path) -> Result<Vec<String>> 
                 &mut media_count,
                 &mut add,
                 deck_dir,
+                deck,
+                None,
                 element,
                 e + 2,
                 None,
@@ -182,6 +184,8 @@ pub fn export(deck: &Deck, deck_dir: &Path, pptx: &Path) -> Result<Vec<String>> 
                 &mut media_count,
                 &mut add,
                 deck_dir,
+                deck,
+                Some(i - 1),
                 element,
                 k + 2,
                 ph.as_deref(),
@@ -371,6 +375,8 @@ fn write_element(
     media_count: &mut u32,
     add: &mut dyn FnMut(&str, &[u8]) -> Result<()>,
     deck_dir: &Path,
+    deck: &Deck,
+    slide_index: Option<usize>,
     element: &Element,
     id: usize,
     ph: Option<&str>,
@@ -408,6 +414,16 @@ fn write_element(
                 fill(s.fill),
                 line(s.stroke),
                 tx_body(&s.paragraphs)
+            );
+        }
+        Element::Outline(o) => {
+            // The outline as it reads on this slide: a plain text box.
+            let paragraphs = deck.outline_paragraphs(slide_index, o);
+            let _ = write!(
+                xml,
+                r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Outline {id}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>{}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>{}</p:sp>"#,
+                xfrm(&o.rect),
+                tx_body(&paragraphs)
             );
         }
         Element::Math(m) => {
