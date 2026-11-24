@@ -131,6 +131,15 @@ pub struct View {
     /// The section and subsection the current slide belongs to.
     pub in_section: Option<String>,
     pub in_subsection: Option<String>,
+    /// Per slide: the section and subsection it starts, for the outline
+    /// shown in the slide stack.
+    pub starts: Vec<SlideStart>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SlideStart {
+    pub section: Option<String>,
+    pub subsection: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -252,6 +261,7 @@ impl AppState {
                 subsection: None,
                 in_section: None,
                 in_subsection: None,
+                starts: vec![],
             };
         };
         let render = |s: &Slide, step: u32| self.render(deck, s, step);
@@ -312,7 +322,26 @@ impl AppState {
             subsection: slide.subsection.clone(),
             in_section: deck.position(self.slide).0.map(str::to_string),
             in_subsection: deck.position(self.slide).1.map(str::to_string),
+            starts: deck
+                .slides
+                .iter()
+                .map(|s| SlideStart { section: s.section.clone(), subsection: s.subsection.clone() })
+                .collect(),
         }
+    }
+
+    /// Sets what a given slide starts (`None` for nothing).
+    pub fn set_section_of(
+        &mut self,
+        slide: usize,
+        section: Option<String>,
+        subsection: Option<String>,
+    ) -> Result<(), String> {
+        let deck = self.deck.as_mut().ok_or("no deck")?;
+        let s = deck.slides.get_mut(slide).ok_or("no such slide")?;
+        s.section = section.filter(|t| !t.trim().is_empty());
+        s.subsection = subsection.filter(|t| !t.trim().is_empty());
+        Ok(())
     }
 
     pub fn set_section(&mut self, section: Option<String>, subsection: Option<String>) -> Result<(), String> {

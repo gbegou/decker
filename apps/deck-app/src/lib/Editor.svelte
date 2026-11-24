@@ -95,6 +95,33 @@
     await run(`Exported ${picked}`, () => api.exportPdf(picked));
   }
 
+  // The outline in the slide stack: headers above the slides that start a
+  // section or subsection, renamed in place; a header being renamed.
+  let renaming = $state<{ slide: number; level: "section" | "subsection" } | null>(null);
+  let renameInput = $state<HTMLInputElement>();
+
+  function startHeading(slide: number, level: "section" | "subsection") {
+    if (!view) return;
+    const st = view.starts[slide];
+    const name = level === "section" ? "Section" : "Subsection";
+    const section = level === "section" ? name : st.section;
+    const subsection = level === "subsection" ? name : st.subsection;
+    run(`${name} added`, async () => {
+      await api.setSectionOf(slide, section, subsection);
+      renaming = { slide, level };
+      queueMicrotask(() => { renameInput?.focus(); renameInput?.select(); });
+    });
+  }
+
+  function renameHeading(slide: number, level: "section" | "subsection", value: string) {
+    if (!view) return;
+    const st = view.starts[slide];
+    const v = value.trim() || null;
+    renaming = null;
+    run(v ? "Renamed" : "Heading removed", () =>
+      api.setSectionOf(slide, level === "section" ? v : st.section, level === "subsection" ? v : st.subsection));
+  }
+
   // Dragging an element on the canvas. Canvas pixels map to slide points
   // through the rendered width.
   let drag: { index: number; startX: number; startY: number; rect: Rect; mode: "move" | "resize" } | null = null;
@@ -354,10 +381,31 @@
   {#if view && view.slide_count}
     <aside class="slides">
       {#each thumbnails as thumb, i}
-        <button class="thumb" class:current={i === view.slide} onclick={() => api.goto(i)}>
-          <span class="num">{i + 1}</span>
-          <SlideView svg={thumb} width={view.width} height={view.height} />
-        </button>
+        {@const st = view.starts[i] ?? { section: null, subsection: null }}
+        {#each ["section", "subsection"] as level}
+          {@const name = level === "section" ? st.section : st.subsection}
+          {#if name !== null}
+            <div class="heading {level}">
+              {#if renaming && renaming.slide === i && renaming.level === level}
+                <input bind:this={renameInput} value={name}
+                       onblur={(e) => renameHeading(i, level as "section" | "subsection", e.currentTarget.value)}
+                       onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { renaming = null; } e.stopPropagation(); }} />
+              {:else}
+                <button class="heading-name" title="Click to rename, clear to remove" onclick={() => { renaming = { slide: i, level: level as "section" | "subsection" }; queueMicrotask(() => { renameInput?.focus(); renameInput?.select(); }); }}>{name}</button>
+              {/if}
+            </div>
+          {/if}
+        {/each}
+        <div class="stack-item">
+          <button class="thumb" class:current={i === view.slide} onclick={() => api.goto(i)}>
+            <span class="num">{i + 1}</span>
+            <SlideView svg={thumb} width={view.width} height={view.height} />
+          </button>
+          <div class="adders">
+            {#if st.section === null}<button title="Start a section at this slide" onclick={() => startHeading(i, "section")}>+ section</button>{/if}
+            {#if st.subsection === null}<button title="Start a subsection at this slide" onclick={() => startHeading(i, "subsection")}>+ sub</button>{/if}
+          </div>
+        </div>
       {/each}
     </aside>
 
@@ -510,7 +558,17 @@
   header { grid-area: head; display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); align-items: center; }
   .spacer { flex: 1; }
   .slides { grid-area: slides; overflow-y: auto; padding: 8px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
-  .thumb { padding: 2px; position: relative; background: none; }
+  .stack-item { position: relative; }
+  .stack-item .adders { display: none; position: absolute; right: 4px; bottom: 4px; gap: 3px; }
+  .stack-item:hover .adders { display: flex; }
+  .adders button { font-size: 10px; padding: 1px 5px; background: var(--panel); }
+  .heading { display: flex; align-items: center; gap: 6px; padding: 6px 2px 0; }
+  .heading.section { border-top: 1px solid var(--border); margin-top: 4px; }
+  .heading.subsection { padding-left: 12px; }
+  .heading-name { background: none; border: none; padding: 0; color: var(--fg); font-weight: 600; font-size: 12px; text-align: left; cursor: text; }
+  .heading.subsection .heading-name { font-weight: 500; color: var(--muted); }
+  .heading input { font-size: 12px; padding: 2px 4px; }
+  .thumb { padding: 2px; position: relative; background: none; width: 100%; }
   .thumb.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .thumb .num { position: absolute; left: -2px; top: -2px; background: var(--panel); font-size: 11px; padding: 1px 4px; border-radius: 4px; z-index: 1; }
   main { grid-area: main; display: flex; flex-direction: column; min-width: 0; min-height: 0; }

@@ -41,6 +41,7 @@ export interface View {
   subsection: string | null;
   in_section: string | null;
   in_subsection: string | null;
+  starts: { section: string | null; subsection: string | null }[];
 }
 
 /** Character boxes of a text element, in slide points; the last is the caret after the end. */
@@ -56,6 +57,8 @@ export const api = {
   exportPptx: (path: string) => invoke<string[]>("export_pptx", { path }),
   exportPdf: (path: string) => invoke<void>("export_pdf", { path }),
   setSection: (section: string | null, subsection: string | null) => invoke<View>("set_section", { section, subsection }),
+  setSectionOf: (slide: number, section: string | null, subsection: string | null) =>
+    invoke<View>("set_section_of", { slide, section, subsection }),
   getView: () => invoke<View>("get_view"),
   getThumbnails: () => invoke<string[]>("get_thumbnails"),
   navigate: (action: "next" | "prev" | "first" | "last" | "next_slide" | "prev_slide" | "black" | "white") =>

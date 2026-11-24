@@ -118,6 +118,24 @@ fn set_section(
     Ok(view)
 }
 
+/// Sets the section and subsection a given slide starts.
+#[tauri::command]
+fn set_section_of(
+    app: AppHandle,
+    state: Shared,
+    slide: usize,
+    section: Option<String>,
+    subsection: Option<String>,
+) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.set_section_of(slide, section, subsection)?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
 #[tauri::command]
 fn get_view(state: Shared) -> Result<View, String> {
     Ok(state.lock().map_err(err)?.view())
@@ -454,6 +472,7 @@ pub fn run() {
             export_pptx,
             export_pdf,
             set_section,
+            set_section_of,
             get_view,
             get_thumbnails,
             navigate,

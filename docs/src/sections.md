@@ -1,8 +1,11 @@
 # Sections and PDF export
 
-A slide can start a **section** and a **subsection**: two names on the slide, set in the
-editor's slide panel or in `deck.json` (`"section": "Method"`, `"subsection": "Model"`).
-The outline follows the slide order, so moving slides keeps it consistent.
+A slide can start a **section** and a **subsection**: two names on the slide. The slide stack
+on the left shows them as headers above the slide that starts them: hover a thumbnail and
+click **+ section** or **+ subsection** to start one there, click a header to rename it, clear
+the name to remove it. The slide panel has the same two fields, and `deck.json` stores them
+(`"section": "Method"`, `"subsection": "Model"`). The outline follows the slide order, so
+moving slides keeps it consistent.
 
 Sections are used in three places:
 
