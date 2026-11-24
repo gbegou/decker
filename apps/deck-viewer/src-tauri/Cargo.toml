@@ -1,0 +1,21 @@
+[package]
+name = "deck-viewer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "decker viewer: present a PDF with an audience window and a presenter view"
+
+[lib]
+name = "deck_viewer_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+deck-present = { path = "../../../crates/deck-present" }
+tauri.workspace = true
+tauri-plugin-dialog = "2"
+serde.workspace = true
+serde_json.workspace = true

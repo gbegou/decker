@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "types": ["svelte", "vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "$shared/*": ["../shared/src/*"],
+      "$shared": ["../shared/src/index.ts"],
+      "@tauri-apps/api/*": ["node_modules/@tauri-apps/api/*"],
+      "svelte": ["node_modules/svelte"],
+      "svelte/*": ["node_modules/svelte/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte", "../shared/src/**/*.ts", "../shared/src/**/*.svelte"]
+}

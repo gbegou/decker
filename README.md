@@ -19,6 +19,7 @@ rustdoc, see `docs/src/development.md`).
 | `crates/deck-present` | Show navigation and the audience and presenter windows, shared by the editor and the viewer |
 | `apps/shared` | Front-end of the presentation windows, shared by both apps |
 | `apps/deck-app` | Tauri application (Rust + Svelte): editor, audience window, presenter view |
+| `apps/deck-viewer` | A small second application: the same audience and presenter windows for any PDF |
 
 ## Native format
 

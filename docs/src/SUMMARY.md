@@ -6,6 +6,7 @@
 
 - [Installing and running](running.md)
 - [Presenting](presenting.md)
+- [The viewer: presenting any PDF](viewer.md)
 - [Layouts](layouts.md)
 - [Sections and PDF export](sections.md)
 - [Copying slides between decks](copying.md)

@@ -22,7 +22,10 @@
   // The pointer: on, the mouse over the current page is mirrored on the audience window.
   let pointerOn = $state(false);
   let pointer = $state<Pointer | null>(null);
+  /** The dot's place in the stage, in pixels: the page box may be narrower than the stage. */
+  let dot = $state<{ left: number; top: number } | null>(null);
   let current = $state<HTMLDivElement>();
+  let stage = $state<HTMLDivElement>();
 
   onMount(() => {
     const stop = watchView((v) => (view = v));
@@ -37,11 +40,16 @@
   }
   function movePointer(e: PointerEvent) {
     if (!pointerOn) return;
-    pointer = pointerIn(e, current?.querySelector(".page, .slide-svg") ?? null);
+    const box = current?.querySelector(".page, .slide-svg") ?? null;
+    pointer = pointerIn(e, box);
+    if (pointer && box && stage) {
+      const r = box.getBoundingClientRect(), s = stage.getBoundingClientRect();
+      dot = { left: r.left - s.left + pointer.x * r.width, top: r.top - s.top + pointer.y * r.height };
+    } else dot = null;
     sendPointer(pointer);
   }
   function hidePointer() {
-    if (pointer) { pointer = null; sendPointer(null); }
+    if (pointer) { pointer = null; dot = null; sendPointer(null); }
   }
   function togglePointer() {
     pointerOn = !pointerOn;
@@ -60,9 +68,9 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="current" class:pointing={pointerOn} bind:this={current} onpointermove={movePointer} onpointerleave={hidePointer}>
       <div class="label">Current · {view.slide + 1} / {view.slide_count}{#if view.in_section} · {view.in_section}{#if view.in_subsection} › {view.in_subsection}{/if}{/if}{#if view.last_step}, step {view.step} / {view.last_step}{/if}{#if view.blank} · {view.blank.toUpperCase()} SCREEN{/if}</div>
-      <div class="stage">
+      <div class="stage" bind:this={stage}>
         {@render page(view)}
-        {#if pointer}<div class="dot" style="left: {pointer.x * 100}%; top: {pointer.y * 100}%"></div>{/if}
+        {#if dot}<div class="dot" style="left: {dot.left}px; top: {dot.top}px"></div>{/if}
       </div>
     </div>
     <div class="side">
@@ -109,7 +117,8 @@
   .presenter { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; padding: 16px; height: 100vh; }
   .current { display: flex; flex-direction: column; min-height: 0; }
   .current.pointing { cursor: crosshair; }
-  .stage { position: relative; display: inline-block; max-width: 100%; }
+  /* A flex column with a definite height, so that a page's max-height: 100% fits it. */
+  .stage { position: relative; width: 100%; flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: flex-start; }
   .dot { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: #e53935; box-shadow: 0 0 6px 2px rgba(229, 57, 53, 0.6); pointer-events: none; }
   button.on { border-color: var(--accent); color: var(--accent); }
   .side { display: flex; flex-direction: column; gap: 12px; min-height: 0; }

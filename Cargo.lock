@@ -1014,6 +1014,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "deck-viewer"
+version = "0.1.0"
+dependencies = [
+ "deck-present",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+]
+
+[[package]]
 name = "deranged"
 version = "0.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"

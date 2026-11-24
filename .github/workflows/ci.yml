@@ -27,6 +27,12 @@ jobs:
         working-directory: apps/deck-app
       - run: npm run build
         working-directory: apps/deck-app
+      - run: npm ci
+        working-directory: apps/deck-viewer
+      - run: npm run check
+        working-directory: apps/deck-viewer
+      - run: npm run build
+        working-directory: apps/deck-viewer
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test

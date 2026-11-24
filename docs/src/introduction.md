@@ -18,3 +18,4 @@ Status: first draft. The document model, the native format, an SVG renderer, the
 converter and the application with its three windows exist. See the [roadmap](roadmap.md).
 
 ![The stack](images/stack.svg)
+- **A viewer**: the audience and presenter windows alone, for any PDF; see [The viewer](viewer.md).
