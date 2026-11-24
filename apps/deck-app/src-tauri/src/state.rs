@@ -330,6 +330,35 @@ impl AppState {
         }
     }
 
+    /// Moves slide `from` so that it sits at index `to` afterwards; the
+    /// current slide follows it.
+    pub fn move_slide(&mut self, from: usize, to: usize) -> Result<(), String> {
+        let deck = self.deck.as_mut().ok_or("no deck")?;
+        let n = deck.slides.len();
+        if from >= n {
+            return Err("no such slide".into());
+        }
+        let to = to.min(n - 1);
+        if from == to {
+            return Ok(());
+        }
+        let slide = deck.slides.remove(from);
+        deck.slides.insert(to, slide);
+        let thumb = self.thumbs.remove(from);
+        self.thumbs.insert(to, thumb);
+        self.slide = if self.slide == from {
+            to
+        } else if from < self.slide && self.slide <= to {
+            self.slide - 1
+        } else if to <= self.slide && self.slide < from {
+            self.slide + 1
+        } else {
+            self.slide
+        };
+        self.step = 0;
+        Ok(())
+    }
+
     /// Sets what a given slide starts (`None` for nothing).
     pub fn set_section_of(
         &mut self,
@@ -730,6 +759,25 @@ mod tests {
         assert!(s.thumbs.iter().all(Option::is_some));
         s.touch(Some(1));
         assert!(s.thumbs[0].is_some() && s.thumbs[1].is_none(), "only the edited slide is stale");
+    }
+
+    #[test]
+    fn move_slide_keeps_the_current_one() {
+        let mut s = AppState { deck: Some(deck()), ..Default::default() };
+        let d = s.deck.as_mut().unwrap();
+        d.slides.push(Slide { name: "c".into(), ..Default::default() });
+        d.slides[0].name = "a".into();
+        d.slides[1].name = "b".into();
+        s.thumbs = vec![Some("A".into()), Some("B".into()), Some("C".into())];
+        s.slide = 2;
+        s.move_slide(0, 2).unwrap();
+        let names: Vec<&str> = s.deck.as_ref().unwrap().slides.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(names, ["b", "c", "a"]);
+        assert_eq!(s.thumbs, vec![Some("B".into()), Some("C".into()), Some("A".into())], "thumbnails move along");
+        assert_eq!(s.slide, 1, "the current slide c moved up by one");
+        s.move_slide(2, 0).unwrap();
+        assert_eq!(s.slide, 2);
+        assert!(s.move_slide(7, 0).is_err());
     }
 
     #[test]

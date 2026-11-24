@@ -95,6 +95,33 @@
     await run(`Exported ${picked}`, () => api.exportPdf(picked));
   }
 
+  // Reordering slides by dragging thumbnails: the drop target is the gap
+  // before or after a thumbnail, from the pointer's vertical position.
+  let dragging = $state<number | null>(null);
+  let dropAt = $state<number | null>(null);
+
+  function dragStart(e: DragEvent, i: number) {
+    dragging = i;
+    e.dataTransfer?.setData("text/plain", String(i));
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+  }
+  function dragOver(e: DragEvent, i: number) {
+    if (dragging === null) return;
+    e.preventDefault();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    dropAt = e.clientY < r.top + r.height / 2 ? i : i + 1;
+  }
+  function dragEnd() {
+    if (dragging !== null && dropAt !== null) {
+      const from = dragging;
+      // Dropping after the dragged slide: the index shifts once it is removed.
+      const to = dropAt > from ? dropAt - 1 : dropAt;
+      if (to !== from) run(`Moved slide ${from + 1} to ${to + 1}`, () => api.moveSlide(from, to));
+    }
+    dragging = null;
+    dropAt = null;
+  }
+
   // The outline in the slide stack: headers above the slides that start a
   // section or subsection, renamed in place; a header being renamed.
   let renaming = $state<{ slide: number; level: "section" | "subsection" } | null>(null);
@@ -325,6 +352,12 @@
       run("Deleted element", () => api.deleteElement(i));
       return;
     }
+    if ((e.key === "ArrowUp" || e.key === "ArrowDown") && e.ctrlKey && view) {
+      const to = view.slide + (e.key === "ArrowDown" ? 1 : -1);
+      if (to >= 0 && to < view.slide_count) run("Moved slide", () => api.moveSlide(view!.slide, to));
+      e.preventDefault();
+      return;
+    }
     if (e.key === "PageDown" || e.key === "PageUp") {
       api.navigate(e.key === "PageDown" ? "next_slide" : "prev_slide");
       e.preventDefault();
@@ -396,7 +429,9 @@
             </div>
           {/if}
         {/each}
-        <div class="stack-item">
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="stack-item" class:drop-before={dropAt === i} class:drop-after={dropAt === i + 1 && i === thumbnails.length - 1} class:dragging={dragging === i}
+             draggable="true" ondragstart={(e) => dragStart(e, i)} ondragover={(e) => dragOver(e, i)} ondragend={dragEnd} ondrop={(e) => { e.preventDefault(); dragEnd(); }}>
           <button class="thumb" class:current={i === view.slide} onclick={() => api.goto(i)}>
             <span class="num">{i + 1}</span>
             <SlideView svg={thumb} width={view.width} height={view.height} />
@@ -558,7 +593,10 @@
   header { grid-area: head; display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); align-items: center; }
   .spacer { flex: 1; }
   .slides { grid-area: slides; overflow-y: auto; padding: 8px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
-  .stack-item { position: relative; }
+  .stack-item { position: relative; border-top: 2px solid transparent; border-bottom: 2px solid transparent; cursor: grab; }
+  .stack-item.dragging { opacity: 0.4; }
+  .stack-item.drop-before { border-top-color: var(--accent); }
+  .stack-item.drop-after { border-bottom-color: var(--accent); }
   .stack-item .adders { display: none; position: absolute; right: 4px; bottom: 4px; gap: 3px; }
   .stack-item:hover .adders { display: flex; }
   .adders button { font-size: 10px; padding: 1px 5px; background: var(--panel); }

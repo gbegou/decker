@@ -72,7 +72,9 @@ Two environment variables help scripts and tests:
 
 ## The editor
 
-- The left column lists the slides; click one to edit it.
+- The left column lists the slides; click one to edit it, drag a thumbnail to reorder, or
+  press Ctrl+Up and Ctrl+Down to move the current slide. Sections move with the slide that
+  starts them.
 - On the canvas, click an element to select it, drag it to move it, drag the corner handle to
   resize it, press Delete to remove it. Double-click a text box to edit its text in place, with a
   caret inside the typeset text: type, Backspace and Delete, arrows, Home and End, Shift with

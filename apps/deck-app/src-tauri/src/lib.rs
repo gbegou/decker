@@ -136,6 +136,18 @@ fn set_section_of(
     Ok(view)
 }
 
+/// Moves a slide to another position in the deck.
+#[tauri::command]
+fn move_slide(app: AppHandle, state: Shared, from: usize, to: usize) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.move_slide(from, to)?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
 #[tauri::command]
 fn get_view(state: Shared) -> Result<View, String> {
     Ok(state.lock().map_err(err)?.view())
@@ -473,6 +485,7 @@ pub fn run() {
             export_pdf,
             set_section,
             set_section_of,
+            move_slide,
             get_view,
             get_thumbnails,
             navigate,

@@ -73,6 +73,7 @@ export const api = {
   addSlide: () => invoke<View>("add_slide"),
   deleteSlide: () => invoke<View>("delete_slide"),
   duplicateSlide: () => invoke<View>("duplicate_slide"),
+  moveSlide: (from: number, to: number) => invoke<View>("move_slide", { from, to }),
   setLayout: (name: string | null) => invoke<View>("set_layout", { name }),
   peekDeck: (path: string) => invoke<string[]>("peek_deck", { path }),
   importSlides: (path: string, indices: number[]) => invoke<View>("import_slides", { path, indices }),
