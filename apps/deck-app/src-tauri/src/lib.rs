@@ -14,7 +14,7 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder
 
 use deck_core::text::{ParagraphChange, StyleChange, StyleInfo};
 use deck_core::{Crop, Deck, Mask, Rect};
-use state::{AppState, ElementStyle, TextLayout, View};
+use state::{AppState, ElementStyle, TextLayout, ThemeChange, View};
 
 type Shared<'a> = State<'a, Mutex<AppState>>;
 
@@ -240,6 +240,17 @@ fn style_element(app: AppHandle, state: Shared, element: usize, change: ElementS
     let view = {
         let mut s = state.lock().map_err(err)?;
         s.style_element(element, &change)?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+#[tauri::command]
+fn set_theme(app: AppHandle, state: Shared, change: ThemeChange) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.set_theme(&change)?;
         s.view()
     };
     edited(&app);
@@ -667,6 +678,7 @@ pub fn run() {
             add_outline,
             group_elements,
             set_steps,
+            set_theme,
             ungroup_element,
             style_text,
             style_paragraphs,

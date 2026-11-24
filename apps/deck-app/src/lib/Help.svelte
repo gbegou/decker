@@ -30,6 +30,7 @@
       ["Layout selector · Edit layout · + New layout", "The slide's layout; open the layout editor; create one"],
       ["+ Placeholder · Save layout… · Load layout…", "Slots new slides start from; save as .deck_layout; load one"],
       ["{{section}} {{subsection}} {{slide}} {{slides}} {{title}} {{deck}} {{date}}", "Variables in layout texts, filled per slide"],
+      ["Theme (panel)", "Default font, size, text color, accent and palette of the deck, or of the layout under edit; fonts/ in the deck adds fonts"],
     ]],
     ["Presenting", [
       ["Present · Esc", "Fullscreen on the projector, presenter view on the laptop · end"],

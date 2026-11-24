@@ -33,5 +33,8 @@ textarea, input {
   width: 100%;
 }
 .slide-svg svg { width: 100%; height: 100%; display: block; }
+/* A slide is light content: the OS dark theme must not recolor it. */
+.slide-svg { color-scheme: light; forced-color-adjust: none; }
+.slide-svg svg { color: black; }
 /* Build steps: opacity and rotation animate in place between steps. */
 .animated svg g { transition: opacity 0.4s ease-in-out, transform 0.4s ease-in-out; }

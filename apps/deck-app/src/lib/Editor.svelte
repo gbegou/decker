@@ -530,7 +530,7 @@
 
     <main>
       {#if sel && sel.kind !== "image" && sel.kind !== "placeholder"}
-        <StyleBar element={sel}
+        <StyleBar element={sel} theme={view.theme}
                   range={editing && editing.index === sel.index ? { from: Math.min(editing.caret, editing.anchor), to: Math.max(editing.caret, editing.anchor) } : null}
                   onrun={(label, f) => enqueue(() => run(label, f).then(() => refreshLayout()))} />
       {/if}
@@ -658,6 +658,48 @@
           <button onclick={loadLayoutFrom} disabled={!view.dir}>Load layout…</button>
         </div>
       {/if}
+      <h3>Theme{view.editing_layout !== null ? " of this layout" : " of the deck"}</h3>
+      <p class="muted">
+        {#if view.editing_layout !== null}
+          Default font, size and colors of the slides using this layout; blank fields take the deck's.
+        {:else}
+          Default font, size and colors of text that sets none; a layout's theme overrides them.
+          Fonts in the deck's <code>fonts/</code> folder are listed here.
+        {/if}
+      </p>
+      <div class="theme">
+        <label>font
+          <select value={view.theme.own.font ?? ""} onchange={(e) => run("Theme font", () => api.setTheme({ font: e.currentTarget.value }))}>
+            <option value="">{view.editing_layout !== null && view.theme.effective.font ? `deck (${view.theme.effective.font})` : "DejaVu Sans"}</option>
+            {#each view.theme.fonts as f}<option value={f}>{f}</option>{/each}
+          </select>
+        </label>
+        <label>size
+          <input type="number" min="0" max="200" step="1" value={view.theme.own.size ?? ""} placeholder={String(view.theme.effective.size ?? 18)}
+                 onchange={(e) => run("Theme size", () => api.setTheme({ size: +e.currentTarget.value || 0 }))} />
+        </label>
+        <label>text
+          <input type="color" value={view.theme.effective.color ?? "#000000"} onchange={(e) => run("Theme text color", () => api.setTheme({ color: e.currentTarget.value }))} />
+          <button title="Inherit" onclick={() => run("Theme text color reset", () => api.setTheme({ color: "" }))}>⌀</button>
+        </label>
+        <label>accent
+          <input type="color" value={view.theme.effective.accent ?? "#000000"} onchange={(e) => run("Theme accent", () => api.setTheme({ accent: e.currentTarget.value }))} />
+          <button title="Inherit" onclick={() => run("Theme accent reset", () => api.setTheme({ accent: "" }))}>⌀</button>
+        </label>
+        <div class="palette">palette
+          {#each view.theme.own.palette ?? [] as c, i}
+            <span class="swatch-edit">
+              <input type="color" value={c} title="Swatch {i + 1}; click to change"
+                     onchange={(e) => run("Palette", () => api.setTheme({ palette: (view!.theme.own.palette ?? []).map((x, j) => (j === i ? e.currentTarget.value : x)) }))} />
+              <button title="Remove swatch" onclick={() => run("Palette", () => api.setTheme({ palette: (view!.theme.own.palette ?? []).filter((_, j) => j !== i) }))}>×</button>
+            </span>
+          {/each}
+          <button title="Add a swatch" onclick={() => run("Palette", () => api.setTheme({ palette: [...(view!.theme.own.palette ?? []), view!.theme.effective.accent ?? "#4472C4"] }))}>+</button>
+          {#if view.editing_layout !== null && !(view.theme.own.palette ?? []).length && (view.theme.effective.palette ?? []).length}
+            <span class="muted">(deck's)</span>
+          {/if}
+        </div>
+      </div>
       {#if view.editing_layout === null}
       <h3>Notes</h3>
       <textarea rows="8" value={view.notes} onchange={(e) => api.setNotes(e.currentTarget.value)}></textarea>
@@ -713,6 +755,13 @@
   .banner { color: var(--muted); display: flex; align-items: center; gap: 6px; }
   .layout-name { width: 160px; padding: 3px 6px; }
   .row { display: flex; gap: 6px; margin-top: 6px; }
+  .theme { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 12px; color: var(--muted); }
+  .theme label { display: flex; align-items: center; gap: 4px; }
+  .theme input[type="number"] { width: 58px; padding: 2px 4px; }
+  .theme input[type="color"] { width: 28px; height: 22px; padding: 0; border: 1px solid var(--border); background: none; }
+  .theme button { padding: 1px 6px; min-width: 22px; }
+  .palette { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; width: 100%; }
+  .swatch-edit { display: inline-flex; align-items: center; }
   code { background: var(--bg); padding: 0 3px; border-radius: 3px; font-size: 11px; }
   .slides { grid-area: slides; overflow-y: auto; padding: 8px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
   .stack-item { position: relative; border-top: 2px solid transparent; border-bottom: 2px solid transparent; cursor: grab; }

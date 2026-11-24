@@ -33,10 +33,17 @@ pub trait MathRenderer {
     /// Renders Typst math `source` with the deck's `preamble` in scope.
     fn render_math(&self, preamble: &str, source: &str, size: f64, color: Color) -> Option<MathImage>;
 
-    /// Typesets paragraphs in a column `width` points wide. The result's
+    /// Typesets paragraphs in a column `width` points wide, `defaults`
+    /// giving the font, size and color of runs that set none. The result's
     /// height is the text's natural height; `None` falls back to the
     /// estimate.
-    fn render_text(&self, _preamble: &str, _paragraphs: &[Paragraph], _width: f64) -> Option<MathImage> {
+    fn render_text(
+        &self,
+        _preamble: &str,
+        _paragraphs: &[Paragraph],
+        _width: f64,
+        _defaults: &TextDefaults,
+    ) -> Option<MathImage> {
         None
     }
 }
@@ -64,6 +71,8 @@ pub fn render_step(deck: &Deck, slide: &Slide, step: u32) -> String {
 /// `<g id="e{index}">` carrying its opacity and rotation, so that a
 /// presentation window can transition each element in place between steps.
 pub fn render_step_with(deck: &Deck, slide: &Slide, step: u32, math: &dyn MathRenderer) -> String {
+    let slide_index = deck.slides.iter().position(|s| std::ptr::eq(s, slide));
+    let ctx = Ctx { deck, math, slide_index, defaults: deck.theme_of(slide).defaults() };
     let mut out = String::new();
     let _ = write!(
         out,
@@ -78,19 +87,17 @@ pub fn render_step_with(deck: &Deck, slide: &Slide, step: u32, math: &dyn MathRe
     if let Some(layout) = layout {
         // The layout's static elements, under the slide, at their final
         // step, with the variables of this slide substituted.
-        let index = deck.slides.iter().position(|s| std::ptr::eq(s, slide));
-        let vars = index.map(|i| crate::vars::Vars::for_slide(deck, i));
+        let vars = slide_index.map(|i| crate::vars::Vars::for_slide(deck, i));
         out.push_str(r#"<g id="layout">"#);
         for element in &layout.elements {
             let substituted = vars.as_ref().map(|v| v.element(element));
             let element = substituted.as_ref().unwrap_or(element);
-            element_body(&mut out, deck, element, element.last_step(), math, None, index);
+            element_body(&mut out, &ctx, element, element.last_step(), None);
         }
         out.push_str("</g>");
     }
-    let slide_index = deck.slides.iter().position(|s| std::ptr::eq(s, slide));
     for (index, element) in slide.elements.iter().enumerate() {
-        element_body(&mut out, deck, element, step, math, Some(index), slide_index);
+        element_body(&mut out, &ctx, element, step, Some(index));
     }
     out.push_str("</svg>\n");
     out
@@ -100,6 +107,8 @@ pub fn render_step_with(deck: &Deck, slide: &Slide, step: u32, math: &dyn MathRe
 /// `id="e{index}"` like slide elements), then its placeholders as dashed
 /// boxes showing their names, with ids continuing the numbering.
 pub fn render_layout(deck: &Deck, layout: &Layout, math: &dyn MathRenderer) -> String {
+    let ctx = Ctx { deck, math, slide_index: None, defaults: deck.theme_of_layout(layout).defaults() };
+    let defaults = &ctx.defaults;
     let mut out = String::new();
     let _ = write!(
         out,
@@ -111,7 +120,7 @@ pub fn render_layout(deck: &Deck, layout: &Layout, math: &dyn MathRenderer) -> S
     let bg = layout.background.unwrap_or(Color::WHITE);
     let _ = write!(out, r#"<rect width="100%" height="100%" fill="{}"/>"#, bg.to_hex());
     for (index, element) in layout.elements.iter().enumerate() {
-        element_body(&mut out, deck, element, element.last_step(), math, Some(index), None);
+        element_body(&mut out, &ctx, element, element.last_step(), Some(index));
     }
     for (k, ph) in layout.placeholders.iter().enumerate() {
         let index = layout.elements.len() + k;
@@ -125,24 +134,26 @@ pub fn render_layout(deck: &Deck, layout: &Layout, math: &dyn MathRenderer) -> S
             fmt(r.h)
         );
         let sample = ph.text_box();
-        text_body(&mut out, r, &sample.paragraphs, &deck.math_preamble, math);
+        text_body(&mut out, r, &sample.paragraphs, &deck.math_preamble, math, defaults);
         out.push_str("</g>");
     }
     out.push_str("</svg>\n");
     out
 }
 
+/// What every element of one render shares.
+struct Ctx<'a> {
+    deck: &'a Deck,
+    math: &'a dyn MathRenderer,
+    /// The slide's index in the deck, for the outline's highlight.
+    slide_index: Option<usize>,
+    defaults: TextDefaults,
+}
+
 /// One element at a step: a `<g>` (with `id="e{index}"` for slide
 /// elements) carrying its opacity and rotation.
-fn element_body(
-    out: &mut String,
-    deck: &Deck,
-    element: &Element,
-    step: u32,
-    math: &dyn MathRenderer,
-    index: Option<usize>,
-    slide_index: Option<usize>,
-) {
+fn element_body(out: &mut String, ctx: &Ctx, element: &Element, step: u32, index: Option<usize>) {
+    let (deck, math, slide_index, defaults) = (ctx.deck, ctx.math, ctx.slide_index, &ctx.defaults);
     {
         let st = element.state_at(step);
         let r = &st.rect;
@@ -168,14 +179,14 @@ fn element_body(
         match element {
             Element::Text(t) => {
                 shape_body(out, r, ShapeKind::Rectangle, st.fill.or(t.fill), t.stroke);
-                text_body(out, r, &t.paragraphs, &deck.math_preamble, math);
+                text_body(out, r, &t.paragraphs, &deck.math_preamble, math, defaults);
             }
             Element::Image(i) => image_body(out, r, i, index),
             Element::Shape(s) => {
                 shape_body(out, r, s.kind, st.fill.or(s.fill), s.stroke);
-                text_body(out, r, &s.paragraphs, &deck.math_preamble, math);
+                text_body(out, r, &s.paragraphs, &deck.math_preamble, math, defaults);
             }
-            Element::Math(m) => math_body(out, r, m, &deck.math_preamble, math),
+            Element::Math(m) => math_body(out, r, m, &deck.math_preamble, math, defaults),
             Element::Group(g) => {
                 // The group's movement and scaling at this step, as a transform
                 // of the children drawn at their base positions.
@@ -200,7 +211,7 @@ fn element_body(
                     );
                 }
                 for child in &g.children {
-                    element_body(out, deck, child, step, math, None, slide_index);
+                    element_body(out, ctx, child, step, None);
                 }
                 if moved {
                     out.push_str("</g>");
@@ -218,9 +229,9 @@ fn element_body(
                         }],
                         ..Default::default()
                     };
-                    text_body(out, r, &[hint], &deck.math_preamble, math);
+                    text_body(out, r, &[hint], &deck.math_preamble, math, defaults);
                 } else {
-                    text_body(out, r, &paragraphs, &deck.math_preamble, math);
+                    text_body(out, r, &paragraphs, &deck.math_preamble, math, defaults);
                 }
             }
         }
@@ -282,9 +293,16 @@ fn image_body(out: &mut String, r: &Rect, i: &Image, index: Option<usize>) {
 /// A formula, centered in its box: rendered glyphs when a math renderer
 /// succeeds, scaled down to fit when larger than the box; otherwise its
 /// source in a monospace font, tagged with `data-math`.
-fn math_body(out: &mut String, r: &Rect, m: &MathBlock, preamble: &str, math: &dyn MathRenderer) {
-    let size = m.size.unwrap_or(DEFAULT_FONT_SIZE);
-    let color_value = m.color.unwrap_or(Color::BLACK);
+fn math_body(
+    out: &mut String,
+    r: &Rect,
+    m: &MathBlock,
+    preamble: &str,
+    math: &dyn MathRenderer,
+    defaults: &TextDefaults,
+) {
+    let size = m.size.or(defaults.size).unwrap_or(DEFAULT_FONT_SIZE);
+    let color_value = m.color.or(defaults.color).unwrap_or(Color::BLACK);
     if let Some(img) = math.render_math(preamble, &m.source, size, color_value) {
         if img.width > 0.0 && img.height > 0.0 {
             let scale = (r.w / img.width).min(r.h / img.height).min(1.0);
@@ -351,12 +369,19 @@ fn shape_body(out: &mut String, r: &Rect, kind: ShapeKind, fill: Option<Color>, 
 
 /// Text in a box: typeset by the renderer when it can, nested as an inner
 /// `<svg>` at the box's top-left inset; else the estimate below.
-fn text_body(out: &mut String, r: &Rect, paragraphs: &[Paragraph], preamble: &str, math: &dyn MathRenderer) {
+fn text_body(
+    out: &mut String,
+    r: &Rect,
+    paragraphs: &[Paragraph],
+    preamble: &str,
+    math: &dyn MathRenderer,
+    defaults: &TextDefaults,
+) {
     if paragraphs.iter().all(|p| p.text().is_empty()) {
         return;
     }
     let width = (r.w - 2.0 * PADDING).max(1.0);
-    if let Some(img) = math.render_text(preamble, paragraphs, width) {
+    if let Some(img) = math.render_text(preamble, paragraphs, width, defaults) {
         if img.width > 0.0 && img.height > 0.0 {
             let _ = write!(
                 out,
@@ -372,16 +397,16 @@ fn text_body(out: &mut String, r: &Rect, paragraphs: &[Paragraph], preamble: &st
             return;
         }
     }
-    text_estimate(out, r, paragraphs);
+    text_estimate(out, r, paragraphs, defaults);
 }
 
 /// One `<text>` per line, wrapped on an estimated glyph width.
-fn text_estimate(out: &mut String, r: &Rect, paragraphs: &[Paragraph]) {
+fn text_estimate(out: &mut String, r: &Rect, paragraphs: &[Paragraph], defaults: &TextDefaults) {
     let mut y = r.y + PADDING;
     let width = (r.w - 2.0 * PADDING).max(1.0);
     for p in paragraphs {
         let size = p.runs.iter().filter_map(|r| r.size).fold(0.0, f64::max);
-        let size = if size > 0.0 { size } else { DEFAULT_FONT_SIZE };
+        let size = if size > 0.0 { size } else { defaults.size.unwrap_or(DEFAULT_FONT_SIZE) };
         let indent = p.bullet.map(|level| (level as f64 + 1.0) * size).unwrap_or(0.0);
         let (anchor, x) = match p.align {
             Align::Left | Align::Justify => ("start", r.x + PADDING + indent),
@@ -414,10 +439,10 @@ fn text_estimate(out: &mut String, r: &Rect, paragraphs: &[Paragraph]) {
                 if let Some(s) = run.size {
                     let _ = write!(attrs, r#" font-size="{}""#, fmt(s));
                 }
-                if let Some(c) = run.color {
+                if let Some(c) = run.color.or(defaults.color) {
                     let _ = write!(attrs, r#" fill="{}""#, c.to_hex());
                 }
-                if let Some(f) = &run.font {
+                if let Some(f) = run.font.as_ref().or(defaults.font.as_ref()) {
                     let _ = write!(attrs, r#" font-family="{}""#, escape(f));
                 }
                 if run.math {
@@ -626,7 +651,7 @@ mod tests {
         fn render_math(&self, preamble: &str, source: &str, size: f64, _: Color) -> Option<MathImage> {
             Some(MathImage { content: format!("<path d=\"{preamble}{source}\"/>"), width: size * 10.0, height: size })
         }
-        fn render_text(&self, _: &str, paragraphs: &[Paragraph], width: f64) -> Option<MathImage> {
+        fn render_text(&self, _: &str, paragraphs: &[Paragraph], width: f64, _: &TextDefaults) -> Option<MathImage> {
             Some(MathImage { content: format!("<path d=\"{}\"/>", paragraphs[0].text()), width, height: 30.0 })
         }
     }

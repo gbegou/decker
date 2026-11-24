@@ -19,7 +19,7 @@ use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
 use typst::{Library, LibraryExt, World};
 
-use deck_core::{Align, Color, Deck, MathImage, MathRenderer, Paragraph, Run};
+use deck_core::{Align, Color, Deck, MathImage, MathRenderer, Paragraph, Run, TextDefaults};
 use typst::layout::{Frame, FrameItem, Point, Transform};
 
 /// The font text boxes default to (bundled, see [`DEJAVU_SANS`]).
@@ -29,6 +29,8 @@ pub const DEFAULT_SIZE: f64 = 18.0;
 
 /// The folder of a deck whose `.typ` files are importable by formulas.
 pub const TYPST_DIR: &str = "typst";
+/// The folder of a deck whose `.ttf`/`.otf` files are loaded as fonts.
+pub const FONTS_DIR: &str = "fonts";
 
 /// DejaVu Sans (Bitstream Vera license, see `fonts/LICENSE-DejaVu`): the
 /// sans-serif family slides default to, absent from Typst's bundle.
@@ -80,13 +82,20 @@ impl Engine {
     /// An engine serving `files` as `(path, text)` pairs, importable from
     /// formulas by that path (`#import "notation.typ": *`).
     pub fn with_files(files: Vec<(String, String)>) -> Self {
+        Self::with_files_and_fonts(files, Vec::new())
+    }
+
+    /// [`Self::with_files`] plus the font files `extra` (TrueType or
+    /// OpenType data), usable by name like the bundled ones.
+    pub fn with_files_and_fonts(files: Vec<(String, String)>, extra: Vec<Vec<u8>>) -> Self {
         let mut fonts = vec![];
         let mut book = FontBook::new();
         // Typst's bundled fonts (serif, math, mono) plus a sans-serif
-        // family, since slides default to one.
+        // family, since slides default to one, plus the deck's own.
         let bundled = typst_assets::fonts().map(Bytes::new);
         let sans = DEJAVU_SANS.iter().map(|d| Bytes::new(*d));
-        for data in bundled.chain(sans) {
+        let extra = extra.into_iter().map(Bytes::new);
+        for data in bundled.chain(sans).chain(extra) {
             for font in Font::iter(data) {
                 book.push(font.info().clone());
                 fonts.push(font);
@@ -110,9 +119,18 @@ impl Engine {
         }
     }
 
-    /// An engine serving the `.typ` files of `<deck_dir>/typst/`.
+    /// An engine serving the `.typ` files of `<deck_dir>/typst/` and the
+    /// fonts of `<deck_dir>/fonts/`.
     pub fn for_deck(deck_dir: &Path) -> Self {
-        Self::with_files(deck_files(deck_dir))
+        Self::with_files_and_fonts(deck_files(deck_dir), deck_fonts(deck_dir))
+    }
+
+    /// The font families available, sorted: bundled ones and the deck's.
+    pub fn font_families(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.inner.book.families().map(|(name, _)| name.to_string()).collect();
+        names.sort();
+        names.dedup();
+        names
     }
 
     /// Renders a display formula at `size` points in `color`, with
@@ -130,8 +148,14 @@ impl Engine {
     /// Typesets paragraphs in a column `width` points wide: runs with their
     /// style, alignment, bullets by level, inline math runs as formulas.
     /// The result's height is the text's natural height.
-    pub fn render_text(&self, preamble: &str, paragraphs: &[Paragraph], width: f64) -> Result<MathImage, Error> {
-        self.render_cached(&text_source(preamble, paragraphs, width))
+    pub fn render_text(
+        &self,
+        preamble: &str,
+        paragraphs: &[Paragraph],
+        width: f64,
+        defaults: &TextDefaults,
+    ) -> Result<MathImage, Error> {
+        self.render_cached(&text_source(preamble, paragraphs, width, defaults))
     }
 
     /// The box of every character of `paragraphs` as typeset in a column
@@ -139,8 +163,14 @@ impl Engine {
     /// of a text caret and selection. Characters the layout does not show
     /// as such (paragraph breaks, spaces eaten by a line break, formula
     /// source) get the position where they end.
-    pub fn layout_text(&self, preamble: &str, paragraphs: &[Paragraph], width: f64) -> Result<Vec<CharBox>, Error> {
-        let text = text_source(preamble, paragraphs, width);
+    pub fn layout_text(
+        &self,
+        preamble: &str,
+        paragraphs: &[Paragraph],
+        width: f64,
+        defaults: &TextDefaults,
+    ) -> Result<Vec<CharBox>, Error> {
+        let text = text_source(preamble, paragraphs, width, defaults);
         let main_id = FileId::new(None, VirtualPath::new("/main.typ"));
         let binaries = Binaries::new();
         let world = Sandbox { shared: &self.inner, main: Source::new(main_id, text), binaries: &binaries };
@@ -153,15 +183,18 @@ impl Engine {
     }
 
     #[doc(hidden)]
-    pub fn text_source_for(preamble: &str, paragraphs: &[Paragraph], width: f64) -> String {
-        text_source(preamble, paragraphs, width)
+    pub fn text_source_for(preamble: &str, paragraphs: &[Paragraph], width: f64, defaults: &TextDefaults) -> String {
+        text_source(preamble, paragraphs, width, defaults)
     }
 }
 
-/// The Typst source of a text box.
-fn text_source(preamble: &str, paragraphs: &[Paragraph], width: f64) -> String {
+/// The Typst source of a text box; `defaults` style what runs leave unset.
+fn text_source(preamble: &str, paragraphs: &[Paragraph], width: f64, defaults: &TextDefaults) -> String {
+    let size = defaults.size.unwrap_or(DEFAULT_SIZE);
+    let font = font_list(defaults.font.as_deref());
+    let fill = defaults.color.unwrap_or(Color::BLACK).to_hex();
     let mut text = format!(
-            "#set page(width: {width}pt, height: auto, margin: 0pt, fill: none)\n#set text(size: {DEFAULT_SIZE}pt, font: \"{DEFAULT_FONT}\", fill: black, top-edge: \"ascender\", bottom-edge: \"descender\")\n#set par(leading: 0.4em)\n#set block(spacing: 0.6em)\n#set list(marker: [•], indent: 0pt, body-indent: 0.5em)\n{preamble}\n"
+            "#set page(width: {width}pt, height: auto, margin: 0pt, fill: none)\n#set text(size: {size}pt, font: {font}, fill: rgb(\"{fill}\"), top-edge: \"ascender\", bottom-edge: \"descender\")\n#set par(leading: 0.4em)\n#set block(spacing: 0.6em)\n#set list(marker: [•], indent: 0pt, body-indent: 0.5em)\n{preamble}\n"
         );
     for p in paragraphs {
         let body: String = p.runs.iter().map(run_markup).collect();
@@ -176,10 +209,7 @@ fn text_source(preamble: &str, paragraphs: &[Paragraph], width: f64) -> String {
             Some(level) => {
                 let _ = std::fmt::Write::write_fmt(
                     &mut text,
-                    format_args!(
-                        "#block(inset: (left: {}pt))[#list([{aligned}])]\n",
-                        f64::from(level) * 1.5 * DEFAULT_SIZE
-                    ),
+                    format_args!("#block(inset: (left: {}pt))[#list([{aligned}])]\n", f64::from(level) * 1.5 * size),
                 );
             }
             None => {
@@ -403,8 +433,22 @@ impl MathRenderer for Engine {
         Engine::render_math(self, preamble, source, size, color).ok()
     }
 
-    fn render_text(&self, preamble: &str, paragraphs: &[Paragraph], width: f64) -> Option<MathImage> {
-        Engine::render_text(self, preamble, paragraphs, width).ok()
+    fn render_text(
+        &self,
+        preamble: &str,
+        paragraphs: &[Paragraph],
+        width: f64,
+        defaults: &TextDefaults,
+    ) -> Option<MathImage> {
+        Engine::render_text(self, preamble, paragraphs, width, defaults).ok()
+    }
+}
+
+/// A Typst font list: the family asked for, then the bundled fallback.
+fn font_list(family: Option<&str>) -> String {
+    match family {
+        Some(f) if f != DEFAULT_FONT => format!("(\"{}\", \"{DEFAULT_FONT}\")", f.replace('"', "")),
+        _ => format!("\"{DEFAULT_FONT}\""),
     }
 }
 
@@ -427,7 +471,7 @@ fn run_markup(run: &Run) -> String {
         args.push(format!("fill: rgb(\"{}\")", c.to_hex()));
     }
     if let Some(f) = &run.font {
-        args.push(format!("font: (\"{}\", \"{DEFAULT_FONT}\")", f.replace('"', "")));
+        args.push(format!("font: {}", font_list(Some(f))));
     }
     let body = if run.math { format!("${}$", run.text) } else { typst_markup(&run.text) };
     if args.is_empty() {
@@ -435,6 +479,23 @@ fn run_markup(run: &Run) -> String {
     } else {
         format!("#text({})[{body}]", args.join(", "))
     }
+}
+
+/// The font files (`.ttf`, `.otf`) of `<deck_dir>/fonts/`.
+pub fn deck_fonts(deck_dir: &Path) -> Vec<Vec<u8>> {
+    let Ok(entries) = std::fs::read_dir(deck_dir.join(FONTS_DIR)) else { return vec![] };
+    let mut paths: Vec<_> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension()
+                .and_then(|x| x.to_str())
+                .map(|x| matches!(x.to_ascii_lowercase().as_str(), "ttf" | "otf"))
+                .unwrap_or(false)
+        })
+        .collect();
+    paths.sort();
+    paths.into_iter().filter_map(|p| std::fs::read(p).ok()).collect()
 }
 
 /// The `.typ` files of `<deck_dir>/typst/`, by file name.
@@ -555,13 +616,13 @@ mod tests {
     fn typesets_paragraphs() {
         use deck_core::*;
         let e = Engine::new();
-        let plain = e.render_text("", &[Paragraph::plain("Hello world")], 400.0).unwrap();
+        let plain = e.render_text("", &[Paragraph::plain("Hello world")], 400.0, &TextDefaults::default()).unwrap();
         assert!((plain.width - 400.0).abs() < 0.01, "the column width is the page width");
         assert!(plain.height >= 18.0 && plain.height < 30.0, "one full line box: {}", plain.height);
         assert!(plain.content.contains("<symbol"), "glyph outlines");
 
         let long = Paragraph::plain("word ".repeat(60));
-        let wrapped = e.render_text("", &[long], 300.0).unwrap();
+        let wrapped = e.render_text("", &[long], 300.0, &TextDefaults::default()).unwrap();
         assert!(wrapped.height > 3.0 * plain.height, "many lines: {}", wrapped.height);
 
         let styled = Paragraph {
@@ -579,11 +640,13 @@ mod tests {
             align: Align::Center,
             bullet: Some(1),
         };
-        let img = e.render_text("", &[styled, Paragraph::plain("plain [brackets] #hash")], 500.0).unwrap();
+        let img = e
+            .render_text("", &[styled, Paragraph::plain("plain [brackets] #hash")], 500.0, &TextDefaults::default())
+            .unwrap();
         assert!(img.content.to_lowercase().contains("#cc0000"));
         assert!(img.height > plain.height * 1.5);
 
-        let again = e.render_text("", &[Paragraph::plain("Hello world")], 400.0).unwrap();
+        let again = e.render_text("", &[Paragraph::plain("Hello world")], 400.0, &TextDefaults::default()).unwrap();
         assert_eq!(again, plain, "cached");
     }
 
@@ -598,7 +661,7 @@ mod tests {
             },
             Paragraph { runs: vec![Run::plain("second line here")], bullet: Some(0), ..Default::default() },
         ];
-        let boxes = e.layout_text("", &paragraphs, 400.0).unwrap();
+        let boxes = e.layout_text("", &paragraphs, 400.0, &TextDefaults::default()).unwrap();
         let flat = deck_core::text::flat_text(&paragraphs);
         assert_eq!(boxes.len(), flat.chars().count() + 1);
         let h = &boxes[0];
@@ -618,7 +681,7 @@ mod tests {
 
         // A wrapped line: the space at the break takes the line end, the next word starts a new line.
         let long = vec![Paragraph::plain("aaaa bbbb cccc dddd eeee ffff gggg hhhh")];
-        let boxes = e.layout_text("", &long, 120.0).unwrap();
+        let boxes = e.layout_text("", &long, 120.0, &TextDefaults::default()).unwrap();
         let lines: std::collections::BTreeSet<i64> = boxes.iter().map(|b| (b.top * 10.0) as i64).collect();
         assert!(lines.len() >= 2, "wrapped onto several lines");
         // Formula source characters all collapse to one position, outside the formula.
@@ -630,7 +693,7 @@ mod tests {
             ],
             ..Default::default()
         }];
-        let boxes = e.layout_text("", &math, 300.0).unwrap();
+        let boxes = e.layout_text("", &math, 300.0, &TextDefaults::default()).unwrap();
         assert_eq!(boxes[2].x, boxes[3].x);
         assert_eq!(boxes[3].x, boxes[4].x);
         assert!(boxes[6].x > boxes[4].x, "text after the formula continues to the right");
@@ -667,5 +730,33 @@ mod tests {
         let a = e.render_math("", "x", 20.0, Color::BLACK).unwrap();
         let b = e.render_math("", "x", 40.0, Color::BLACK).unwrap();
         assert!((b.height / a.height - 2.0).abs() < 0.05);
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+
+    #[test]
+    fn defaults_style_unset_runs_and_deck_fonts_load() {
+        let e = Engine::new();
+        let d = TextDefaults {
+            font: Some("Libertinus Serif".into()),
+            size: Some(30.0),
+            color: Some(Color::rgb(0, 0x80, 0)),
+        };
+        let img = e.render_text("", &[Paragraph::plain("Hello")], 400.0, &d).unwrap();
+        assert!(img.content.to_lowercase().contains("#008000"), "the theme color fills the text");
+        let small = e.render_text("", &[Paragraph::plain("Hello")], 400.0, &TextDefaults::default()).unwrap();
+        assert!(img.height > small.height * 1.4, "30pt over 18pt: {} vs {}", img.height, small.height);
+        assert!(e.font_families().iter().any(|f| f == "DejaVu Sans"));
+
+        let dir = std::env::temp_dir().join(format!("decker-fonts-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(FONTS_DIR)).unwrap();
+        std::fs::write(dir.join(FONTS_DIR).join("x.ttf"), DEJAVU_SANS[0]).unwrap();
+        std::fs::write(dir.join(FONTS_DIR).join("note.txt"), "ignored").unwrap();
+        assert_eq!(deck_fonts(&dir).len(), 1);
+        let _ = Engine::for_deck(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -2,18 +2,23 @@
   // The style bar above the canvas: run and paragraph styles of a text
   // element (the selection while editing, else the whole element), and
   // the colors and sizes of shapes, formulas and the plan.
-  import { api, type ElementInfo, type StyleInfo, type StyleChange, type ParagraphChange, type Align } from "./api";
+  import { api, type ElementInfo, type StyleInfo, type StyleChange, type ParagraphChange, type Align, type ThemeInfo } from "./api";
 
-  let { element, range, onrun }: {
+  let { element, range, theme, onrun }: {
     element: ElementInfo;
     /** The caret selection while editing, else null for the whole element. */
     range: { from: number; to: number } | null;
+    /** The theme in force: its palette becomes swatches, its fonts the font list. */
+    theme: ThemeInfo;
     onrun: (label: string, f: () => Promise<unknown>) => void;
   } = $props();
 
   let info = $state<StyleInfo | null>(null);
   const textual = $derived(element.kind === "text" || element.kind === "shape");
-  const FONTS = ["DejaVu Sans", "Libertinus Serif", "DejaVu Sans Mono", "New Computer Modern"];
+  const FALLBACK_FONTS = ["DejaVu Sans", "Libertinus Serif", "DejaVu Sans Mono", "New Computer Modern"];
+  const fonts = $derived(theme.fonts.length ? theme.fonts : FALLBACK_FONTS);
+  /** The accent then the palette, without repeats. */
+  const swatches = $derived([...new Set([theme.effective.accent, ...(theme.effective.palette ?? [])].filter((c): c is string => !!c))]);
 
   $effect(() => {
     // Re-read the style whenever the element or the selection changes.
@@ -50,9 +55,12 @@
       <input type="color" value={hex(info.color, "#000000")} onchange={(e) => runStyle({ color: e.currentTarget.value }, "Color")} />
     </label>
     <button title="Default color" onclick={() => runStyle({ color: "" }, "Color reset")}>⌀</button>
+    {#each swatches as c}
+      <button class="swatch" style="background:{c}" title="Theme color {c}" aria-label="Theme color {c}" onclick={() => runStyle({ color: c }, "Color")}></button>
+    {/each}
     <select title="Font" value={info.font ?? ""} onchange={(e) => runStyle({ font: e.currentTarget.value }, "Font")}>
-      <option value="">default font</option>
-      {#each FONTS as f}<option value={f}>{f}</option>{/each}
+      <option value="">theme font{theme.effective.font ? ` (${theme.effective.font})` : ""}</option>
+      {#each fonts as f}<option value={f}>{f}</option>{/each}
     </select>
     <span class="sep"></span>
     {#each [["left", "⯇"], ["center", "☰"], ["right", "⯈"], ["justify", "≡"]] as [a, glyph]}
@@ -93,6 +101,7 @@
   .stylebar input[type="number"] { width: 58px; padding: 2px 4px; }
   .stylebar input.narrow { width: 52px; }
   .stylebar input[type="color"] { width: 28px; height: 22px; padding: 0; border: 1px solid var(--border); background: none; }
+  .stylebar button.swatch { width: 18px; min-width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid var(--border); }
   .stylebar select { padding: 2px 4px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; }
   .stylebar label { display: inline-flex; align-items: center; gap: 3px; }
   .scope { padding-right: 4px; }

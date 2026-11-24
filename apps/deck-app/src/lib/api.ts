@@ -47,6 +47,15 @@ export interface ElementStyle {
   fill?: string; stroke?: string; stroke_width?: number; size?: number; highlight?: string; subsections?: boolean;
 }
 
+export interface Theme {
+  font?: string; size?: number; color?: string; accent?: string; palette?: string[];
+}
+export interface ThemeChange {
+  font?: string; size?: number; color?: string; accent?: string; palette?: string[];
+}
+/** `own`: what the edited deck or layout sets; `effective`: with the deck's fallback. */
+export interface ThemeInfo { own: Theme; effective: Theme; fonts: string[] }
+
 export interface View {
   title: string;
   dir: string;
@@ -73,6 +82,7 @@ export interface View {
   starts: { section: string | null; subsection: string | null }[];
   /** The layout shown on the canvas instead of a slide, when editing one. */
   editing_layout: string | null;
+  theme: ThemeInfo;
 }
 
 /** Character boxes of a text element, in slide points; the last is the caret after the end. */
@@ -113,6 +123,7 @@ export const api = {
   addOutline: () => invoke<View>("add_outline"),
   groupElements: (indices: number[]) => invoke<number>("group_elements", { indices }),
   setSteps: (element: number, steps: Step[]) => invoke<View>("set_steps", { element, steps }),
+  setTheme: (change: ThemeChange) => invoke<View>("set_theme", { change }),
   ungroupElement: (index: number) => invoke<number>("ungroup_element", { index }),
   styleText: (element: number, from: number | null, to: number | null, change: StyleChange) =>
     invoke<View>("style_text", { element, from, to, change }),

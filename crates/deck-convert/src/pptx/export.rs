@@ -151,7 +151,7 @@ pub fn export(deck: &Deck, deck_dir: &Path, pptx: &Path) -> Result<Vec<String>> 
     }
     add(&format!("ppt/slideLayouts/slideLayout{n_layouts}.xml"), blank_layout_xml().as_bytes())?;
     add(&format!("ppt/slideLayouts/_rels/slideLayout{n_layouts}.xml.rels"), format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{NS_REL}"><Relationship Id="rId1" Type="{REL_MASTER}" Target="../slideMasters/slideMaster1.xml"/></Relationships>"#).as_bytes())?;
-    add("ppt/theme/theme1.xml", theme_xml().as_bytes())?;
+    add("ppt/theme/theme1.xml", theme_xml(&deck.theme).as_bytes())?;
     if has_notes {
         add("ppt/notesMasters/notesMaster1.xml", notes_master_xml().as_bytes())?;
         add("ppt/notesMasters/_rels/notesMaster1.xml.rels", format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{NS_REL}"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>"#).as_bytes())?;
@@ -720,12 +720,26 @@ fn notes_master_xml() -> String {
     )
 }
 
-fn theme_xml() -> String {
+/// The theme part: the deck theme's font as both theme fonts, its text
+/// color as `dk1` and its accent and palette as `accent1`..`accent6`.
+fn theme_xml(theme: &deck_core::Theme) -> String {
+    let family = theme.font.as_deref().unwrap_or("Calibri");
     let font = |tag: &str| {
-        format!(r#"<a:{tag}><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:{tag}>"#)
+        format!(r#"<a:{tag}><a:latin typeface="{}"/><a:ea typeface=""/><a:cs typeface=""/></a:{tag}>"#, esc(family))
     };
+    let hex = |c: Color| c.to_hex().trim_start_matches('#').to_string();
+    let defaults = ["4472C4", "ED7D31", "A5A5A5", "FFC000", "5B9BD5", "70AD47"];
+    let mut swatches: Vec<String> = theme.accent.into_iter().chain(theme.palette.iter().copied()).map(hex).collect();
+    swatches.dedup();
+    let accents: String = (0..6)
+        .map(|i| {
+            let v = swatches.get(i).cloned().unwrap_or_else(|| defaults[i].to_string());
+            format!(r#"<a:accent{n}><a:srgbClr val="{v}"/></a:accent{n}>"#, n = i + 1)
+        })
+        .collect();
+    let dk1 = theme.color.map(hex).unwrap_or_else(|| "000000".into());
     format!(
-        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="{NS_A}" name="Decker"><a:themeElements><a:clrScheme name="Decker"><a:dk1><a:srgbClr val="000000"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="44546A"/></a:dk2><a:lt2><a:srgbClr val="E7E6E6"/></a:lt2><a:accent1><a:srgbClr val="4472C4"/></a:accent1><a:accent2><a:srgbClr val="ED7D31"/></a:accent2><a:accent3><a:srgbClr val="A5A5A5"/></a:accent3><a:accent4><a:srgbClr val="FFC000"/></a:accent4><a:accent5><a:srgbClr val="5B9BD5"/></a:accent5><a:accent6><a:srgbClr val="70AD47"/></a:accent6><a:hlink><a:srgbClr val="0563C1"/></a:hlink><a:folHlink><a:srgbClr val="954F72"/></a:folHlink></a:clrScheme><a:fontScheme name="Decker">{}{}</a:fontScheme><a:fmtScheme name="Decker"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="6350"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="12700"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="19050"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>"#,
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="{NS_A}" name="Decker"><a:themeElements><a:clrScheme name="Decker"><a:dk1><a:srgbClr val="{dk1}"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="44546A"/></a:dk2><a:lt2><a:srgbClr val="E7E6E6"/></a:lt2>{accents}<a:hlink><a:srgbClr val="0563C1"/></a:hlink><a:folHlink><a:srgbClr val="954F72"/></a:folHlink></a:clrScheme><a:fontScheme name="Decker">{}{}</a:fontScheme><a:fmtScheme name="Decker"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="6350"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="12700"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="19050"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>"#,
         font("majorFont"),
         font("minorFont")
     )
@@ -791,9 +805,17 @@ mod tests {
             ],
             ..Default::default()
         });
+        deck.theme = deck_core::Theme {
+            font: Some("Libertinus Serif".into()),
+            color: Some(Color::rgb(0x11, 0x22, 0x33)),
+            accent: Some(Color::rgb(0xAA, 0, 0)),
+            palette: vec![Color::rgb(0xAA, 0, 0), Color::rgb(0, 0xAA, 0)],
+            ..Default::default()
+        };
         deck.layouts.push(Layout {
             name: "Corp".into(),
             background: Some(Color::rgb(0xEE, 0xEE, 0xEE)),
+            theme: Default::default(),
             elements: vec![Element::Shape(Shape {
                 rect: Rect::new(0.0, 500.0, 960.0, 40.0),
                 fill: Some(Color::rgb(0x10, 0x20, 0x30)),
@@ -834,6 +856,11 @@ mod tests {
         let corp = &back.layouts[0];
         assert_eq!(corp.name, "Corp");
         assert_eq!(corp.background, Some(Color::rgb(0xEE, 0xEE, 0xEE)));
+        assert_eq!(corp.theme.font.as_deref(), Some("Libertinus Serif"), "the theme font comes back on the layout");
+        assert_eq!(corp.theme.color, Some(Color::rgb(0x11, 0x22, 0x33)));
+        assert_eq!(corp.theme.accent, Some(Color::rgb(0xAA, 0, 0)));
+        assert_eq!(corp.theme.palette.len(), 6, "{:?}", corp.theme.palette);
+        assert_eq!(corp.theme.palette[1], Color::rgb(0, 0xAA, 0));
         assert_eq!(corp.elements.len(), 1);
         assert_eq!(corp.placeholders.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["title", "body1"]);
         let title = corp.placeholder("title").unwrap();

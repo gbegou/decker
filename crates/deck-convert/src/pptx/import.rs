@@ -153,6 +153,13 @@ fn import_layout(pkg: &Package, part: &str, images: &mut ImageStore, report: &mu
     };
     layout.background =
         background(doc.root_element()).or_else(|| master.as_ref().and_then(|m| background(m.root_element())));
+    if let Some(mp) = master_part.as_deref() {
+        if let Ok(Some(theme_part)) = pkg.rel_by_type(mp, REL_THEME) {
+            if let Ok(xml) = pkg.xml(&theme_part) {
+                layout.theme = import_theme(&xml);
+            }
+        }
+    }
 
     let no_inherit = |_: Node| -> Option<Rect> { None };
     let mut ids = vec![];
@@ -688,6 +695,23 @@ fn xfrm(node: Node) -> Option<Rect> {
     let off = child(x, NS_A, "off")?;
     let ext = child(x, NS_A, "ext")?;
     Some(Rect { x: emu_attr(off, "x")?, y: emu_attr(off, "y")?, w: emu_attr(ext, "cx")?, h: emu_attr(ext, "cy")? })
+}
+
+/// The theme part as a deck theme: minor font, `dk1` as text color,
+/// `accent1` as accent, `accent1`..`accent6` as palette.
+fn import_theme(xml: &str) -> deck_core::Theme {
+    let Ok(doc) = Document::parse(xml) else { return Default::default() };
+    let Some(elements) = child(doc.root_element(), NS_A, "themeElements") else { return Default::default() };
+    let scheme = child(elements, NS_A, "clrScheme");
+    let color = |tag: &str| scheme.and_then(|s| child(s, NS_A, tag)).and_then(srgb);
+    let palette: Vec<Color> = (1..=6).filter_map(|i| color(&format!("accent{i}"))).collect();
+    let font = child(elements, NS_A, "fontScheme")
+        .and_then(|f| child(f, NS_A, "minorFont"))
+        .and_then(|m| child(m, NS_A, "latin"))
+        .and_then(|l| l.attribute("typeface"))
+        .filter(|t| !t.is_empty() && !t.starts_with('+'))
+        .map(str::to_string);
+    deck_core::Theme { font, size: None, color: color("dk1"), accent: palette.first().copied(), palette }
 }
 
 fn solid_fill(node: Node) -> Option<Color> {

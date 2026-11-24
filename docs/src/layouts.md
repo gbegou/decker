@@ -58,6 +58,37 @@ double-click to type), and its placeholders as dashed boxes with their name, whi
 resize the same way and are renamed in the panel (slides that fill the placeholder follow the
 new name). **+ Text** and **+ Placeholder** add elements, **Delete layout** removes the layout
 (its slides keep their elements), the name field renames it, **Done** returns to the slides.
+
+## Theme: color scheme and default fonts
+
+A theme is the default font, text size, text color, an accent and a palette of swatches.
+The deck has one, and every layout may have one: a layout's theme overrides the deck's field
+by field for the slides that use the layout, so blank fields inherit.
+
+```json
+{
+  "theme": { "font": "Libertinus Serif", "size": 20, "color": "#223344",
+             "accent": "#AA0000", "palette": ["#AA0000", "#00AA00", "#0000AA"] },
+  "layouts": [
+    { "name": "Dark", "background": "#202020",
+      "theme": { "color": "#FFFFFF", "accent": "#FFCC00" } }
+  ]
+}
+```
+
+- Text, formulas and placeholders that set no font, size or color of their own take the
+  theme's. Changing a layout's font restyles every slide using it. Runs keep an explicit
+  style wherever one was set; the style bar's ⌀ buttons return to the theme.
+- The accent is the default highlight of the plan slide and the first swatch; the swatches
+  appear as round buttons in the style bar.
+- The **Theme** section of the right panel edits the deck's theme on a slide and the
+  layout's theme in the layout editor, where blank fields show the deck's value.
+- Fonts: the bundled families are DejaVu Sans (default), Libertinus Serif, New Computer
+  Modern and DejaVu Sans Mono. Any `.ttf` or `.otf` file in the deck's `fonts/` folder is
+  loaded with the deck and listed by its family name, so a corporate font travels with the
+  deck and the PDF export embeds it. A missing family falls back to DejaVu Sans.
+- PPTX: the deck theme is written to the PowerPoint theme (minor and major font, `dk1` text
+  color, `accent1`–`accent6`); importing a PPTX gives each layout the theme of its master.
 **+ New layout** creates an empty one and opens it.
 
 ## Reusing a layout: `.deck_layout`

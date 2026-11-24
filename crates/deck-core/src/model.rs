@@ -29,7 +29,57 @@ pub struct Deck {
     /// The layouts (PowerPoint's masters and layouts) slides can use.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layouts: Vec<Layout>,
+    /// Default font, size and colors; a layout's theme overrides it field
+    /// by field for the slides that use the layout.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub theme: Theme,
     pub slides: Vec<Slide>,
+}
+
+/// Default text font, size and colors, and a palette of swatches.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Theme {
+    /// Font family of text that sets none (bundled, or in the deck's `fonts/`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<String>,
+    /// Size in points of text that sets none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<f64>,
+    /// Color of text that sets none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<Color>,
+    /// The accent: default highlight of the plan, first swatch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accent: Option<Color>,
+    /// Swatches offered by the color pickers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub palette: Vec<Color>,
+}
+
+impl Theme {
+    /// `self` with every unset field taken from `fallback`.
+    pub fn over(&self, fallback: &Theme) -> Theme {
+        Theme {
+            font: self.font.clone().or_else(|| fallback.font.clone()),
+            size: self.size.or(fallback.size),
+            color: self.color.or(fallback.color),
+            accent: self.accent.or(fallback.accent),
+            palette: if self.palette.is_empty() { fallback.palette.clone() } else { self.palette.clone() },
+        }
+    }
+
+    /// The text defaults the renderer uses.
+    pub fn defaults(&self) -> TextDefaults {
+        TextDefaults { font: self.font.clone(), size: self.size, color: self.color }
+    }
+}
+
+/// What text without a font, size or color of its own gets.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TextDefaults {
+    pub font: Option<String>,
+    pub size: Option<f64>,
+    pub color: Option<Color>,
 }
 
 impl Default for Deck {
@@ -41,6 +91,7 @@ impl Default for Deck {
             height: DEFAULT_HEIGHT,
             math_preamble: String::new(),
             layouts: Vec::new(),
+            theme: Theme::default(),
             slides: Vec::new(),
         }
     }
@@ -58,6 +109,19 @@ impl Deck {
     /// The layout of a slide, when it names one that exists.
     pub fn layout_of(&self, slide: &Slide) -> Option<&Layout> {
         slide.layout.as_deref().and_then(|n| self.layout(n))
+    }
+
+    /// The theme in force on a slide: its layout's over the deck's.
+    pub fn theme_of(&self, slide: &Slide) -> Theme {
+        match self.layout_of(slide) {
+            Some(l) => l.theme.over(&self.theme),
+            None => self.theme.clone(),
+        }
+    }
+
+    /// The theme in force on a layout (its own over the deck's).
+    pub fn theme_of_layout(&self, layout: &Layout) -> Theme {
+        layout.theme.over(&self.theme)
     }
 
     /// Sections and subsections in slide order, each with the index of
@@ -108,6 +172,9 @@ pub struct Layout {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<Color>,
+    /// Default font, size and colors for the slides using this layout.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub theme: Theme,
     /// Drawn under the slide's own elements, not editable from a slide.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub elements: Vec<Element>,
@@ -433,8 +500,9 @@ impl Deck {
     /// subsections when asked. Without a slide index, nothing is current.
     pub fn outline_paragraphs(&self, index: Option<usize>, o: &OutlineBox) -> Vec<Paragraph> {
         let (current, current_sub) = index.map(|i| self.position(i)).unwrap_or((None, None));
+        let theme = index.and_then(|i| self.slides.get(i)).map(|s| self.theme_of(s)).unwrap_or_default();
         let muted = o.color.unwrap_or(Color::rgb(0x88, 0x88, 0x88));
-        let strong = o.highlight.unwrap_or(Color::BLACK);
+        let strong = o.highlight.or(theme.accent).or(theme.color).unwrap_or(Color::BLACK);
         let mut out = vec![];
         let mut number = 0;
         for (i, s) in self.slides.iter().enumerate() {
@@ -923,6 +991,7 @@ mod tests {
         deck.layouts.push(Layout {
             name: "Title".into(),
             background: Some(Color::WHITE),
+            theme: Theme::default(),
             elements: vec![Element::Shape(Shape {
                 rect: Rect::new(0.0, 500.0, 960.0, 40.0),
                 fill: Some(Color::BLACK),
@@ -960,6 +1029,34 @@ mod tests {
         let json = serde_json::to_string(&deck).unwrap();
         assert!(json.contains("\"layouts\""));
         assert_eq!(serde_json::from_str::<Deck>(&json).unwrap(), deck);
+    }
+
+    #[test]
+    fn themes_fall_back_from_layout_to_deck() {
+        let mut deck = Deck::new("t");
+        deck.theme = Theme {
+            font: Some("Libertinus Serif".into()),
+            size: Some(20.0),
+            color: Some(Color::BLACK),
+            ..Default::default()
+        };
+        deck.layouts.push(Layout {
+            name: "L".into(),
+            theme: Theme { color: Some(Color::rgb(1, 2, 3)), accent: Some(Color::WHITE), ..Default::default() },
+            ..Default::default()
+        });
+        deck.slides.push(Slide { layout: Some("L".into()), ..Default::default() });
+        deck.slides.push(Slide::default());
+        let t = deck.theme_of(&deck.slides[0]);
+        assert_eq!(
+            (t.font.as_deref(), t.size, t.color, t.accent),
+            (Some("Libertinus Serif"), Some(20.0), Some(Color::rgb(1, 2, 3)), Some(Color::WHITE))
+        );
+        assert_eq!(deck.theme_of(&deck.slides[1]).color, Some(Color::BLACK));
+        let json = serde_json::to_string(&deck).unwrap();
+        assert!(json.contains("\"theme\""));
+        assert_eq!(serde_json::from_str::<Deck>(&json).unwrap(), deck);
+        assert!(!serde_json::to_string(&Deck::new("x")).unwrap().contains("theme"), "the default theme is omitted");
     }
 
     #[test]

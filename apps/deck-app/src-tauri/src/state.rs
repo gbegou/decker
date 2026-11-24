@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use deck_core::{
     native, svg, text, transfer, Color, Crop, Deck, Element, Layout, Mask, MathRenderer, Paragraph, Placeholder, Rect,
-    Slide, Step, Stroke, TextBox,
+    Slide, Step, Stroke, TextBox, TextDefaults, Theme,
 };
 
 #[derive(Default)]
@@ -48,6 +48,31 @@ pub struct ElementStyle {
     pub highlight: Option<String>,
     #[serde(default)]
     pub subsections: Option<bool>,
+}
+
+/// A theme edit (see [`AppState::set_theme`]): `Some("")` clears a field.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct ThemeChange {
+    #[serde(default)]
+    pub font: Option<String>,
+    #[serde(default)]
+    pub size: Option<f64>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub accent: Option<String>,
+    #[serde(default)]
+    pub palette: Option<Vec<String>>,
+}
+
+/// The theme shown in the UI: `own` is what the edited target (deck or
+/// layout) sets itself, `effective` what the slide actually gets.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ThemeInfo {
+    pub own: Theme,
+    pub effective: Theme,
+    /// Font families the typesetter knows, bundled and from `fonts/`.
+    pub fonts: Vec<String>,
 }
 
 /// The character boxes of a text element, in slide points.
@@ -101,13 +126,29 @@ impl Math {
 
     /// Character boxes in box coordinates, when the typesetter is Typst.
     #[cfg(feature = "typst")]
-    fn layout(&self, preamble: &str, paragraphs: &[Paragraph], width: f64) -> Option<Vec<deck_typst::CharBox>> {
-        self.1.as_ref().and_then(|e| e.layout_text(preamble, paragraphs, width).ok())
+    fn layout(
+        &self,
+        preamble: &str,
+        paragraphs: &[Paragraph],
+        width: f64,
+        defaults: &TextDefaults,
+    ) -> Option<Vec<deck_typst::CharBox>> {
+        self.1.as_ref().and_then(|e| e.layout_text(preamble, paragraphs, width, defaults).ok())
     }
 
     #[cfg(not(feature = "typst"))]
-    fn layout(&self, _: &str, _: &[Paragraph], _: f64) -> Option<Vec<NoBox>> {
+    fn layout(&self, _: &str, _: &[Paragraph], _: f64, _: &TextDefaults) -> Option<Vec<NoBox>> {
         None
+    }
+
+    #[cfg(feature = "typst")]
+    fn fonts(&self) -> Vec<String> {
+        self.1.as_ref().map(|e| e.font_families()).unwrap_or_default()
+    }
+
+    #[cfg(not(feature = "typst"))]
+    fn fonts(&self) -> Vec<String> {
+        vec![]
     }
 }
 
@@ -156,6 +197,8 @@ pub struct View {
     pub starts: Vec<SlideStart>,
     /// The layout being edited, when the canvas shows a layout.
     pub editing_layout: Option<String>,
+    /// The theme of the layout under edit, else of the current slide.
+    pub theme: ThemeInfo,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -310,6 +353,7 @@ impl AppState {
                 in_subsection: None,
                 starts: vec![],
                 editing_layout: None,
+                theme: ThemeInfo::default(),
             };
         };
         if let Some(layout) = self.editing_layout.as_deref().and_then(|n| deck.layout(n)) {
@@ -390,6 +434,7 @@ impl AppState {
                 .map(|s| SlideStart { section: s.section.clone(), subsection: s.subsection.clone() })
                 .collect(),
             editing_layout: None,
+            theme: ThemeInfo { own: deck.theme.clone(), effective: deck.theme_of(slide), fonts: self.math.fonts() },
         }
     }
 
@@ -477,7 +522,51 @@ impl AppState {
             in_subsection: None,
             starts,
             editing_layout: Some(layout.name.clone()),
+            theme: ThemeInfo {
+                own: layout.theme.clone(),
+                effective: deck.theme_of_layout(layout),
+                fonts: self.math.fonts(),
+            },
         }
+    }
+
+    /// Edits the theme of the layout under edit, else the deck's.
+    pub fn set_theme(&mut self, change: &ThemeChange) -> Result<(), String> {
+        let color = |s: &Option<String>| -> Result<Option<Option<Color>>, String> {
+            match s {
+                None => Ok(None),
+                Some(v) if v.is_empty() => Ok(Some(None)),
+                Some(v) => Color::from_hex(v).map(|c| Some(Some(c))).map_err(|e| e.to_string()),
+            }
+        };
+        let (c, a) = (color(&change.color)?, color(&change.accent)?);
+        let palette = change
+            .palette
+            .as_ref()
+            .map(|p| p.iter().map(|v| Color::from_hex(v).map_err(|e| e.to_string())).collect::<Result<Vec<_>, _>>())
+            .transpose()?;
+        let theme = if self.editing_layout.is_some() {
+            &mut self.layout_mut()?.theme
+        } else {
+            &mut self.deck.as_mut().ok_or("no deck")?.theme
+        };
+        if let Some(f) = &change.font {
+            theme.font = if f.is_empty() { None } else { Some(f.clone()) };
+        }
+        if let Some(sz) = change.size {
+            theme.size = if sz > 0.0 { Some(sz) } else { None };
+        }
+        if let Some(c) = c {
+            theme.color = c;
+        }
+        if let Some(a) = a {
+            theme.accent = a;
+        }
+        if let Some(p) = palette {
+            theme.palette = p;
+        }
+        self.touch(None);
+        Ok(())
     }
 
     // ----- layouts -----
@@ -847,8 +936,12 @@ impl AppState {
             Some(_) => return Err("not a text element".into()),
             None => return Err("no such element".into()),
         };
-        let Some(boxes) = self.math.layout(&deck.math_preamble, paragraphs, (rect.w - 2.0 * svg::PADDING).max(1.0))
-        else {
+        let defaults = match self.editing_layout.as_deref().and_then(|n| deck.layout(n)) {
+            Some(layout) => deck.theme_of_layout(layout).defaults(),
+            None => deck.theme_of(slide).defaults(),
+        };
+        let width = (rect.w - 2.0 * svg::PADDING).max(1.0);
+        let Some(boxes) = self.math.layout(&deck.math_preamble, paragraphs, width, &defaults) else {
             return Ok(None);
         };
         let (ox, oy) = (rect.x + svg::PADDING, rect.y + svg::PADDING);
