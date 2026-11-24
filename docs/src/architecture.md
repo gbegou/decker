@@ -28,8 +28,8 @@ no browser chrome: WebView2 (Edge's engine) on Windows, WebKitGTK on Linux.
 ![One source of truth](images/source-of-truth.svg)
 
 Every window subscribes to `view-changed` and re-fetches the view. Windows never talk to each
-other, and no window keeps state of its own beyond what it is drawing. The future Python API
-calls the same state functions as the commands, so a macro and the editor cannot disagree.
+other, and no window keeps state of its own beyond what it is drawing. A Python macro gets the
+same deck as JSON and hands it back; the app applies it through the state like any command.
 
 ## Text editing
 
@@ -57,7 +57,7 @@ lines to the terminal with the monitors found and each window's page load events
 ## Why these choices
 
 - **Rust for the engine**: one fast binary on Linux and Windows, no runtime to install, and
-  PyO3 lets Python be embedded for macros later.
+  Python macros run in the Python found on the machine (nothing is linked, see [Python](python.md)).
 - **Tauri rather than a native toolkit**: slides are text, images and shapes on a rectangle,
   which HTML and SVG render better than any widget toolkit, with fonts and GPU acceleration
   for free. Tauri uses the webview the OS already ships, so the installer stays small.

@@ -412,6 +412,20 @@ impl AppState {
         current
     }
 
+    /// Swaps in a deck a script produced, keeping the folder and history.
+    pub fn replace_deck(&mut self, deck: Deck, slide: Option<usize>) {
+        self.slide = slide.unwrap_or(self.slide).min(deck.slides.len().saturating_sub(1));
+        self.step = 0;
+        if let Some(n) = &self.editing_layout {
+            if deck.layout(n).is_none() {
+                self.editing_layout = None;
+            }
+        }
+        self.deck = Some(deck);
+        self.touch(None);
+        self.assets.clear();
+    }
+
     pub fn load(&mut self, deck: Deck, dir: PathBuf) {
         self.undo.clear();
         self.redo.clear();

@@ -111,7 +111,7 @@ and round-trip a deck through export and import.
 
 1. Typst as the text and math engine behind the renderer (LaTeX math through mitex); until
    then formulas are drawn as their source.
-2. Embedded Python (PyO3) exposing the document model as a macro API.
+2. ~~Python macros~~: done as `python/decker`, run by the Python found on the machine (no interpreter linked); see the manual.
 3. Editor: styles (font, size, color, alignment), shapes and images, undo, step editing.
 4. PDF export from the SVG renderer; single-file `.deck` zip.
 5. Master text styles, theme colors and tables in the PPTX import; motion paths as steps.

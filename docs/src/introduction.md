@@ -12,7 +12,7 @@ A free, fast, modern alternative to PowerPoint, written in Rust, for Linux and W
 - **Build steps** reveal, move, grow or recolor elements click by click, with one mechanism.
 - **Text and formulas** typeset by Typst embedded: exact line breaking, inline math, the
   deck's own notations, identical on screen and in PDF.
-- **Python macros** (planned) see the same document model as the editor.
+- **Python macros** run from the editor against the open deck, and a Python API builds decks from data; see [Python](python.md).
 
 Status: first draft. The document model, the native format, an SVG renderer, the PPTX
 converter and the application with its three windows exist. See the [roadmap](roadmap.md).

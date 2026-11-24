@@ -108,6 +108,11 @@ export const api = {
     invoke<View>("set_section_of", { slide, section, subsection }),
   getView: () => invoke<View>("get_view"),
   undo: () => invoke<View>("undo"),
+  /** The deck's macros (scripts/*.py) and the Python found, if any. */
+  listScripts: () => invoke<{ scripts: string[]; python: string | null }>("list_scripts"),
+  /** Runs a macro (a name in scripts/ or an absolute path) against the open deck. */
+  runScript: (name: string, selection: number[]) =>
+    invoke<{ ok: boolean; changed: boolean; stdout: string; stderr: string; python: string }>("run_script", { name, selection }),
   redo: () => invoke<View>("redo"),
   getThumbnails: () => invoke<string[]>("get_thumbnails"),
   navigate: (action: "next" | "prev" | "first" | "last" | "next_slide" | "prev_slide" | "black" | "white") =>

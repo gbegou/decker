@@ -5,8 +5,10 @@
 //! current slide and build step, renders SVG, and emits `view-changed`
 //! after every change. Every window then calls `get_view`.
 
+mod scripts;
 mod state;
 
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -255,6 +257,57 @@ fn set_section(
     };
     edited(&app);
     Ok(view)
+}
+
+/// The deck's macros (`scripts/*.py`) and whether a Python was found.
+#[derive(Debug, Serialize)]
+struct Scripts {
+    scripts: Vec<String>,
+    python: Option<String>,
+}
+
+#[tauri::command]
+fn list_scripts(state: Shared) -> Result<Scripts, String> {
+    let dir = state.lock().map_err(err)?.dir.clone();
+    Ok(Scripts {
+        scripts: scripts::deck_scripts(&dir),
+        python: scripts::find_python().map(|p| p.display().to_string()),
+    })
+}
+
+/// Runs a Python script against the open deck: `name` is a file of the
+/// deck's `scripts/` folder or an absolute path. The deck the script
+/// hands back replaces the open one as one undo step.
+#[tauri::command]
+fn run_script(
+    app: AppHandle,
+    state: Shared,
+    name: String,
+    selection: Vec<usize>,
+) -> Result<scripts::ScriptOutput, String> {
+    let python = scripts::find_python().ok_or("no Python found: install one (or set DECKER_PYTHON to it)")?;
+    let package = scripts::package_dir(app.path().resource_dir().ok()).ok_or("the decker Python package is missing")?;
+    let (script, deck_json, dir, slide) = {
+        let s = state.lock().map_err(err)?;
+        let deck = s.deck.as_ref().ok_or("no deck open")?;
+        let p = PathBuf::from(&name);
+        let script = if p.is_absolute() { p } else { s.dir.join("scripts").join(&name) };
+        (script, serde_json::to_string(deck).map_err(err)?, s.dir.clone(), s.slide)
+    };
+    let (mut out, returned) = scripts::run(&python, &package, &script, &deck_json, &dir, slide, &selection)?;
+    if let Some(json) = returned {
+        let value: serde_json::Value =
+            serde_json::from_str(&json).map_err(|e| format!("the script returned bad JSON: {e}"))?;
+        let deck: Deck = serde_json::from_value(value["deck"].clone())
+            .map_err(|e| format!("the script returned a bad deck: {e}"))?;
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint(&format!("script:{name}"), false);
+        s.replace_deck(deck, value["slide"].as_u64().map(|n| n as usize));
+        out.changed = true;
+        drop(s);
+        edited(&app);
+    }
+    Ok(out)
 }
 
 /// Sets the section and subsection a given slide starts.
@@ -886,6 +939,8 @@ pub fn run() {
             get_thumbnails,
             undo,
             redo,
+            list_scripts,
+            run_script,
             navigate,
             goto,
             set_rect,

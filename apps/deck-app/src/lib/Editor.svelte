@@ -92,6 +92,33 @@
     );
   }
 
+  // ----- Python macros
+  let scripts = $state<{ scripts: string[]; python: string | null } | null>(null);
+  let scriptOutput = $state<string>("");
+  let scriptDir = $state<string>("");
+  $effect(() => {
+    // Reload the list when the deck folder changes (open, save as).
+    const d = view?.dir ?? "";
+    if (d !== scriptDir) { scriptDir = d; api.listScripts().then((s) => (scripts = s)).catch(() => (scripts = null)); }
+  });
+  function runMacro(name: string) {
+    const sel = selected === null ? [] : [selected, ...also];
+    enqueue(() =>
+      run(`Ran ${name.split(/[\\/]/).pop()}`, () => api.runScript(name, sel)).then((r) => {
+        if (!r) return;
+        scriptOutput = (r.stdout + (r.stderr ? "\n" + r.stderr : "")).trim() || (r.ok ? "(no output)" : "failed");
+        if (!r.ok) status = `${name}: failed, see the output`;
+        else if (!r.changed) status = `${name}: ran, deck unchanged`;
+        if (r.changed) { selected = null; also = []; editing = null; }
+        api.listScripts().then((s) => (scripts = s)).catch(() => {});
+      }),
+    );
+  }
+  async function runScriptFile() {
+    const picked = await openDialog({ multiple: false, filters: [{ name: "Python script", extensions: ["py"] }] });
+    if (typeof picked === "string") runMacro(picked);
+  }
+
   /** Ctrl+Z / Ctrl+Y: the whole deck steps back or forward; the selection is dropped. */
   function undoRedo(redo: boolean) {
     enqueue(() =>
@@ -812,6 +839,22 @@
           {/if}
         </div>
       </div>
+      <h3>Macros</h3>
+      {#if scripts?.python}
+        {#if scripts.scripts.length}
+          <div class="macros">
+            {#each scripts.scripts as name}
+              <button onclick={() => runMacro(name)} title="scripts/{name} of this deck">▶ {name.replace(/\.py$/, "")}</button>
+            {/each}
+          </div>
+        {:else}
+          <p class="muted">Python scripts in the deck's <code>scripts/</code> folder are listed here.</p>
+        {/if}
+        <div class="row"><button onclick={runScriptFile}>Run script…</button></div>
+        {#if scriptOutput}<pre class="output">{scriptOutput}</pre>{/if}
+      {:else}
+        <p class="muted">No Python found on this machine. Install one (python.org, conda) or point <code>DECKER_PYTHON</code> at it to run macros.</p>
+      {/if}
       {#if view.editing_layout === null}
       <h3>Notes</h3>
       <textarea rows="8" value={view.notes} onchange={(e) => api.setNotes(e.currentTarget.value)}></textarea>
@@ -867,6 +910,8 @@
   .banner { color: var(--muted); display: flex; align-items: center; gap: 6px; }
   .layout-name { width: 160px; padding: 3px 6px; }
   .row { display: flex; gap: 6px; margin-top: 6px; }
+  .macros { display: flex; flex-wrap: wrap; gap: 6px; }
+  .output { font-size: 11px; max-height: 160px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px; white-space: pre-wrap; margin: 6px 0 0; }
   .theme { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 12px; color: var(--muted); }
   .theme label { display: flex; align-items: center; gap: 4px; }
   .theme input[type="number"] { width: 58px; padding: 2px 4px; }

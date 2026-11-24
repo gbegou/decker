@@ -11,6 +11,7 @@
 - [Copying slides between decks](copying.md)
 - [The converter](converter.md)
 - [The native format](format.md)
+- [Python macros and API](python.md)
 
 # Developer guide
 

@@ -36,6 +36,9 @@
       ["{{section}} {{subsection}} {{slide}} {{slides}} {{title}} {{deck}} {{date}}", "Variables in layout texts, filled per slide"],
       ["Theme (panel)", "Default font, size, text color, accent and palette of the deck, or of the layout under edit; fonts/ in the deck adds fonts"],
     ]],
+    ["Macros", [
+      ["Macros (panel) · Run script…", "Python scripts in the deck's scripts/ folder, or any .py file, run against the open deck with the decker package; the result is one undo step"],
+    ]],
     ["Presenting", [
       ["Present · Esc", "Fullscreen on the projector, presenter view on the laptop · end"],
       ["Right / Down / Space / Enter / click · Left / Up / Backspace", "Next · previous step or slide"],
