@@ -311,7 +311,15 @@ fn start_presentation(app: AppHandle, state: Shared, with_presenter: Option<bool
     let mut audience = WebviewWindowBuilder::new(&app, "audience", WebviewUrl::App("index.html".into()))
         .title("decker — presentation")
         .decorations(windowed)
-        .focused(true);
+        .focused(true)
+        .on_page_load(|w, payload| {
+            eprintln!("[decker] window {}: page load {:?} {}", w.label(), payload.event(), payload.url());
+        });
+    eprintln!(
+        "[decker] presenting: {} monitor(s), windowed={windowed}, audience on {:?}",
+        monitors.len(),
+        audience_monitor.as_ref().and_then(|m| m.name().cloned())
+    );
     if windowed {
         audience = audience.inner_size(960.0, 540.0);
     } else if let Some(m) = &audience_monitor {
@@ -329,7 +337,10 @@ fn start_presentation(app: AppHandle, state: Shared, with_presenter: Option<bool
 
     if secondary.is_some() || with_presenter == Some(true) {
         let mut presenter = WebviewWindowBuilder::new(&app, "presenter", WebviewUrl::App("index.html".into()))
-            .title("decker — presenter");
+            .title("decker — presenter")
+            .on_page_load(|w, payload| {
+                eprintln!("[decker] window {}: page load {:?} {}", w.label(), payload.event(), payload.url());
+            });
         if let Some(m) = &primary {
             let p = m.position();
             let sz = m.size();
