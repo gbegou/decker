@@ -972,63 +972,27 @@ impl AppState {
         Err("PDF export needs the typst feature".into())
     }
 
+    /// The steps of every slide, for the show's navigation.
+    fn pages(&self) -> Vec<u32> {
+        self.deck.as_ref().map(|d| d.slides.iter().map(Slide::last_step).collect()).unwrap_or_default()
+    }
+
+    /// Moves the show (see [`deck_present::Show::navigate`]); leaves the layout editor.
     pub fn navigate(&mut self, action: &str) {
         self.editing_layout = None;
-        let Some((deck, slide)) = self.current() else { return };
-        let count = deck.slides.len();
-        let last_step = slide.last_step();
-        let last_steps: Vec<u32> = deck.slides.iter().map(Slide::last_step).collect();
-        match action {
-            "next" => {
-                if self.step < last_step {
-                    self.step += 1;
-                } else if self.slide + 1 < count {
-                    self.slide += 1;
-                    self.step = 0;
-                }
-            }
-            "prev" => {
-                if self.step > 0 {
-                    self.step -= 1;
-                } else if self.slide > 0 {
-                    self.slide -= 1;
-                    self.step = last_steps[self.slide];
-                }
-            }
-            "next_slide" => {
-                if self.slide + 1 < count {
-                    self.slide += 1;
-                    self.step = 0;
-                }
-            }
-            "prev_slide" => {
-                if self.slide > 0 {
-                    self.slide -= 1;
-                    self.step = 0;
-                }
-            }
-            "first" => {
-                self.slide = 0;
-                self.step = 0;
-            }
-            "last" => {
-                self.slide = count.saturating_sub(1);
-                self.step = 0;
-            }
-            "black" | "blackout" => self.blank = if self.blank == "black" { String::new() } else { "black".into() },
-            "white" => self.blank = if self.blank == "white" { String::new() } else { "white".into() },
-            _ => {}
-        }
+        let pages = self.pages();
+        let mut show =
+            deck_present::Show { page: self.slide, step: self.step, blank: self.blank.clone(), ..Default::default() };
+        show.navigate(action, &pages);
+        (self.slide, self.step, self.blank) = (show.page, show.step, show.blank);
     }
 
     pub fn goto(&mut self, slide: usize, step: u32) {
         self.editing_layout = None;
-        if let Some(deck) = &self.deck {
-            if slide < deck.slides.len() {
-                self.slide = slide;
-                self.step = step.min(deck.slides[slide].last_step());
-            }
-        }
+        let pages = self.pages();
+        let mut show = deck_present::Show { page: self.slide, step: self.step, ..Default::default() };
+        show.goto(slide, step, &pages);
+        (self.slide, self.step) = (show.page, show.step);
     }
 
     fn slide_mut(&mut self) -> Result<&mut Slide, String> {

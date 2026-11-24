@@ -31,6 +31,21 @@ Every window subscribes to `view-changed` and re-fetches the view. Windows never
 other, and no window keeps state of its own beyond what it is drawing. A Python macro gets the
 same deck as JSON and hands it back; the app applies it through the state like any command.
 
+## The presentation side, shared with the viewer
+
+Presenting does not need the editor: it needs pages, a position in them, two windows and
+keys. That part lives apart so that `decker-viewer` can present PDFs with the same windows:
+
+- `crates/deck-present`: the show state (page, build step, blank screen) with its
+  navigation over anything that reports a page count and steps per page, and the audience
+  and presenter windows (created hidden at startup, placed on the monitors when the show
+  starts). The editor's state delegates to it; the viewer uses it directly.
+- `apps/shared`: the front-end of the two windows (`Audience.svelte`, `Presenter.svelte`),
+  the slide view with media playback, the pointer, and the show protocol (`get_view`,
+  `navigate`, `goto`, `start_presentation`, `stop_presentation`, `monitors`, the
+  `view-changed` event) that both apps implement under the same names. The components take
+  Svelte snippets to draw a page, so the editor draws SVG and the viewer draws PDF pages.
+
 ## Text editing
 
 Text is edited where it is drawn. Double-clicking a text box asks Rust for the layout of every

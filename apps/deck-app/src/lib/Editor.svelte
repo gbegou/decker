@@ -3,7 +3,7 @@
   import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { api, watchView, watchThumbnails, presentationKeys, type View, type Rect, type Crop, type Mask, type TextLayout } from "./api";
-  import SlideView from "./SlideView.svelte";
+  import { SlideView } from "$shared";
   import StyleBar from "./StyleBar.svelte";
   import Help from "./Help.svelte";
   import Steps from "./Steps.svelte";

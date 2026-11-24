@@ -12,7 +12,7 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use deck_core::text::{ParagraphChange, StyleChange, StyleInfo};
 use deck_core::{Crop, Deck, Mask, Rect};
@@ -797,49 +797,7 @@ fn start_presentation(app: AppHandle, state: Shared, with_presenter: Option<bool
         s.presenting = true;
         s.step = 0;
     }
-    let editor = app.get_webview_window("editor").ok_or("no editor window")?;
-    let monitors = editor.available_monitors().map_err(err)?;
-    let primary = editor.primary_monitor().map_err(err)?.or_else(|| monitors.first().cloned());
-    let secondary = monitors.iter().find(|m| Some(m.position()) != primary.as_ref().map(|p| p.position())).cloned();
-
-    // `DECKER_WINDOWED=1`: a normal, decorated, non-fullscreen audience
-    // window, to tell a page problem from a fullscreen painting problem.
-    let windowed = std::env::var("DECKER_WINDOWED").map(|v| v == "1").unwrap_or(false);
-    let audience_monitor = secondary.clone().or(primary.clone());
-    let open_presenter = secondary.is_some() || with_presenter == Some(true);
-    eprintln!(
-        "[decker] presenting: {} monitor(s), windowed={windowed}, audience on {:?}",
-        monitors.len(),
-        audience_monitor.as_ref().and_then(|m| m.name().cloned())
-    );
-    let monitor_rect = |m: &tauri::Monitor| {
-        let (p, sz, scale) = (m.position(), m.size(), m.scale_factor());
-        (p.x as f64 / scale, p.y as f64 / scale, sz.width as f64 / scale, sz.height as f64 / scale)
-    };
-
-    // The windows exist since startup, hidden (see `run`): showing them is
-    // all that is left, which also makes presenting instant.
-    let audience = app.get_webview_window("audience").ok_or("no audience window")?;
-    let _ = audience.set_decorations(windowed);
-    if windowed {
-        let _ = audience.set_size(tauri::LogicalSize::new(960.0, 540.0));
-    } else if let Some((x, y, w, h)) = audience_monitor.as_ref().map(monitor_rect) {
-        let _ = audience.set_position(tauri::LogicalPosition::new(x, y));
-        let _ = audience.set_size(tauri::LogicalSize::new(w, h));
-    }
-    audience.show().map_err(err)?;
-    if !windowed {
-        let _ = audience.set_fullscreen(true);
-    }
-    let _ = audience.set_focus();
-    if open_presenter {
-        let presenter = app.get_webview_window("presenter").ok_or("no presenter window")?;
-        if let Some((x, y, w, h)) = primary.as_ref().map(monitor_rect) {
-            let _ = presenter.set_position(tauri::LogicalPosition::new(x + 40.0, y + 40.0));
-            let _ = presenter.set_size(tauri::LogicalSize::new((w - 80.0).max(600.0), (h - 120.0).max(400.0)));
-        }
-        presenter.show().map_err(err)?;
-    }
+    deck_present::start(&app, "editor", with_presenter)?;
     changed(&app);
     Ok(())
 }
@@ -851,25 +809,14 @@ fn stop_presentation(app: AppHandle, state: Shared) -> Result<(), String> {
         s.presenting = false;
         s.blank.clear();
     }
-    for label in ["audience", "presenter"] {
-        if let Some(w) = app.get_webview_window(label) {
-            let _ = w.set_fullscreen(false);
-            let _ = w.hide();
-        }
-    }
+    deck_present::stop(&app);
     changed(&app);
     Ok(())
 }
 
 #[tauri::command]
 fn monitors(app: AppHandle) -> Result<Vec<String>, String> {
-    let editor = app.get_webview_window("editor").ok_or("no editor window")?;
-    Ok(editor
-        .available_monitors()
-        .map_err(err)?
-        .iter()
-        .map(|m| format!("{} {}x{}", m.name().cloned().unwrap_or_default(), m.size().width, m.size().height))
-        .collect())
+    deck_present::monitors(&app, "editor")
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -891,28 +838,14 @@ pub fn run() {
     }
     // `DECKER_PRESENT=1` starts the show at once (`=both` also opens the
     // presenter window on a single monitor).
-    let present = std::env::var("DECKER_PRESENT").ok();
+    let present = deck_present::present_at_launch();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(initial))
         .manage(SystemClipboard(Mutex::new(None)))
         .setup(move |app| {
-            // The presentation windows, hidden until "Present". Created here,
-            // at startup, like the editor window: on Windows a webview created
-            // later never loaded its page.
-            for (label, title) in [("audience", "decker — presentation"), ("presenter", "decker — presenter")] {
-                let built = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
-                    .title(title)
-                    .visible(false)
-                    .inner_size(960.0, 540.0)
-                    .on_page_load(|w, payload| {
-                        eprintln!("[decker] window {}: page load {:?} {}", w.label(), payload.event(), payload.url());
-                    })
-                    .build();
-                if let Err(e) = built {
-                    eprintln!("[decker] cannot create the {label} window: {e}");
-                }
-            }
+            // The presentation windows, hidden until "Present".
+            deck_present::create_windows(app.handle(), "decker");
             if let Some(mode) = present {
                 let handle = app.handle().clone();
                 let state = handle.state::<Mutex<AppState>>();

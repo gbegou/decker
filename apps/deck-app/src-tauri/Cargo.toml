@@ -21,6 +21,7 @@ typst = ["dep:deck-typst"]
 [dependencies]
 deck-core = { path = "../../../crates/deck-core" }
 deck-convert = { path = "../../../crates/deck-convert" }
+deck-present = { path = "../../../crates/deck-present" }
 deck-typst = { path = "../../../crates/deck-typst", optional = true }
 tauri.workspace = true
 tauri-plugin-dialog = "2"

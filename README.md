@@ -16,6 +16,8 @@ rustdoc, see `docs/src/development.md`).
 | --- | --- |
 | `crates/deck-core` | Document model (`Deck` → `Slide` → text, image, shape), native format, SVG renderer |
 | `crates/deck-convert` | Command-line converter: PPTX import, PPTX export, SVG render |
+| `crates/deck-present` | Show navigation and the audience and presenter windows, shared by the editor and the viewer |
+| `apps/shared` | Front-end of the presentation windows, shared by both apps |
 | `apps/deck-app` | Tauri application (Rust + Svelte): editor, audience window, presenter view |
 
 ## Native format

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/deck-core", "crates/deck-convert", "crates/deck-typst", "apps/deck-app/src-tauri"]
+members = ["crates/deck-core", "crates/deck-convert", "crates/deck-typst", "crates/deck-present", "apps/deck-app/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

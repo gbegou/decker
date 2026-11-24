@@ -958,6 +958,7 @@ dependencies = [
  "base64 0.22.1",
  "deck-convert",
  "deck-core",
+ "deck-present",
  "deck-typst",
  "gif 0.14.2",
  "png 0.18.1",
@@ -989,6 +990,14 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "deck-present"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tauri",
 ]
 
 [[package]]

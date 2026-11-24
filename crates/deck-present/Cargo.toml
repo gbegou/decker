@@ -1,0 +1,11 @@
+[package]
+name = "deck-present"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The presentation side of decker: show navigation and the audience and presenter windows, shared by the editor and the viewer"
+
+[dependencies]
+tauri.workspace = true
+serde.workspace = true

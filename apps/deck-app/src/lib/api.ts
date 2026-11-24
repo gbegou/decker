@@ -2,6 +2,7 @@
 // returns the new View, and Rust also emits "view-changed" to every window.
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { watchView as watchShowView, presentationKeys } from "$shared";
 
 export interface Rect { x: number; y: number; w: number; h: number }
 export interface Crop { left: number; top: number; right: number; bottom: number }
@@ -166,20 +167,11 @@ export const api = {
 };
 
 /** Calls `cb` with the view now and after every change, until unsubscribed. */
+/** The view now and after every change (see the shared `watchView`), typed as the editor's View. */
 export function watchView(cb: (v: View) => void): () => void {
-  let alive = true;
-  api.getView().then((v) => alive && cb(v));
-  const un = listen("view-changed", async () => {
-    const v = await api.getView();
-    if (alive) cb(v);
-  });
-  return () => {
-    alive = false;
-    un.then((f) => f());
-  };
+  return watchShowView<View>(cb);
 }
 
-/** Calls `cb` with the thumbnails now and after every content change. */
 export function watchThumbnails(cb: (t: string[]) => void): () => void {
   let alive = true;
   api.getThumbnails().then((t) => alive && cb(t));
@@ -193,18 +185,4 @@ export function watchThumbnails(cb: (t: string[]) => void): () => void {
   };
 }
 
-/** Keyboard handling shared by the presentation windows and the editor. */
-export function presentationKeys(e: KeyboardEvent): boolean {
-  switch (e.key) {
-    case "ArrowRight": case "ArrowDown": case "PageDown": case " ": case "Enter":
-      api.navigate("next"); return true;
-    case "ArrowLeft": case "ArrowUp": case "PageUp": case "Backspace":
-      api.navigate("prev"); return true;
-    case "Home": api.navigate("first"); return true;
-    case "End": api.navigate("last"); return true;
-    case "b": case "B": case ".": api.navigate("black"); return true;
-    case "w": case "W": case ",": api.navigate("white"); return true;
-    case "Escape": api.stopPresentation(); return true;
-  }
-  return false;
-}
+export { presentationKeys };
