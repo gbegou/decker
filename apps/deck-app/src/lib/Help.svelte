@@ -40,6 +40,7 @@
       ["Macros (panel) · Run script…", "Python scripts in the deck's scripts/ folder, or any .py file, run against the open deck with the decker package; the result is one undo step"],
     ]],
     ["Presenting", [
+      ["P (presenter window) · Pointer button", "Mirror the mouse over the current slide as a red dot on the audience window"],
       ["Present · Esc", "Fullscreen on the projector, presenter view on the laptop · end"],
       ["Right / Down / Space / Enter / click · Left / Up / Backspace", "Next · previous step or slide"],
       ["Home · End", "First · last slide"],

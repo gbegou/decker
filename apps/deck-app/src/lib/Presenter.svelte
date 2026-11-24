@@ -3,8 +3,25 @@
   import { onMount } from "svelte";
   import { api, watchView, watchThumbnails, presentationKeys, type View } from "./api";
   import SlideView from "./SlideView.svelte";
+  import { sendPointer, pointerIn, type Pointer } from "./pointer";
 
   let view = $state<View | null>(null);
+  // The pointer: on, the mouse over the current slide is mirrored on the audience window.
+  let pointerOn = $state(false);
+  let pointer = $state<Pointer | null>(null);
+  let current = $state<HTMLDivElement>();
+  function movePointer(e: PointerEvent) {
+    if (!pointerOn) return;
+    pointer = pointerIn(e, current?.querySelector(".slide-svg") ?? null);
+    sendPointer(pointer);
+  }
+  function hidePointer() {
+    if (pointer) { pointer = null; sendPointer(null); }
+  }
+  function togglePointer() {
+    pointerOn = !pointerOn;
+    if (!pointerOn) hidePointer();
+  }
   let thumbnails = $state<string[]>([]);
   let started = Date.now();
   let now = $state(Date.now());
@@ -24,6 +41,7 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    if (e.key === "p" || e.key === "P") { togglePointer(); e.preventDefault(); return; }
     if (presentationKeys(e)) e.preventDefault();
   }
 </script>
@@ -32,9 +50,13 @@
 
 <div class="presenter">
   {#if view}
-    <div class="current">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="current" class:pointing={pointerOn} bind:this={current} onpointermove={movePointer} onpointerleave={hidePointer}>
       <div class="label">Current · slide {view.slide + 1} / {view.slide_count}{#if view.in_section} · {view.in_section}{#if view.in_subsection} › {view.in_subsection}{/if}{/if}{#if view.last_step}, step {view.step} / {view.last_step}{/if}{#if view.blank} · {view.blank.toUpperCase()} SCREEN{/if}</div>
-      <SlideView svg={view.svg} width={view.width} height={view.height} dir={view.dir} animated />
+      <div class="stage">
+        <SlideView svg={view.svg} width={view.width} height={view.height} dir={view.dir} animated />
+        {#if pointer}<div class="dot" style="left: {pointer.x * 100}%; top: {pointer.y * 100}%"></div>{/if}
+      </div>
     </div>
     <div class="side">
       <div class="clock">
@@ -62,6 +84,7 @@
         <button class="primary" onclick={() => api.navigate("next")}>Next ▶</button>
         <button onclick={() => api.navigate("black")}>Black (B)</button>
         <button onclick={() => api.navigate("white")}>White (W)</button>
+        <button class:on={pointerOn} onclick={togglePointer} title="Mirror the mouse over the current slide on the audience window (P)">Pointer (P)</button>
         <button onclick={() => api.stopPresentation()}>End (Esc)</button>
       </div>
       <div class="strip">
@@ -78,6 +101,10 @@
 <style>
   .presenter { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; padding: 16px; height: 100vh; }
   .current { display: flex; flex-direction: column; min-height: 0; }
+  .current.pointing { cursor: crosshair; }
+  .stage { position: relative; display: inline-block; max-width: 100%; }
+  .dot { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: #e53935; box-shadow: 0 0 6px 2px rgba(229, 57, 53, 0.6); pointer-events: none; }
+  button.on { border-color: var(--accent); color: var(--accent); }
   .side { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
   .label { color: var(--muted); font-size: 12px; text-transform: uppercase; margin-bottom: 6px; display: flex; gap: 6px; align-items: center; }
   .clock { display: flex; align-items: baseline; gap: 16px; }
