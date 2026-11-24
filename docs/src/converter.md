@@ -34,7 +34,8 @@ target/release/deck-convert pdf talk.deck             # with --features typst
 - Placeholders without an explicit position inherit it from the slide layout, then the
   master. Body placeholders are bulleted, titles get 44 pt and subtitles 24 pt when the run
   sets no size (the master's text styles are not read yet).
-- Pictures (png, jpeg, gif, bmp, svg, webp), copied into `assets/`.
+- Pictures (png, jpeg, gif, bmp, svg, webp), copied into `assets/`, with their crop and
+  their crop-to-shape (ellipse, rounded rectangle).
 - Shapes: rectangles and rounded variants, ellipses, lines and connectors, with solid fill,
   outline and text. Other preset geometries are drawn as rectangles.
 - Groups, with their child-to-slide transform.

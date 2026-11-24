@@ -4,6 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 export interface Rect { x: number; y: number; w: number; h: number }
+export interface Crop { left: number; top: number; right: number; bottom: number }
+export type Mask = { kind: "rectangle" } | { kind: "ellipse" } | { kind: "rounded_rectangle"; radius: number };
 
 export interface ElementInfo {
   index: number;
@@ -12,6 +14,8 @@ export interface ElementInfo {
   text: string;
   last_step: number;
   size: number;
+  crop?: Crop;
+  mask?: Mask;
 }
 
 export interface View {
@@ -54,6 +58,7 @@ export const api = {
   setRect: (element: number, rect: Rect) => invoke<View>("set_rect", { element, rect }),
   setText: (element: number, text: string) => invoke<View>("set_text", { element, text }),
   setNotes: (notes: string) => invoke<View>("set_notes", { notes }),
+  setImage: (element: number, crop: Crop, mask: Mask) => invoke<View>("set_image", { element, crop, mask }),
   addSlide: () => invoke<View>("add_slide"),
   deleteSlide: () => invoke<View>("delete_slide"),
   duplicateSlide: () => invoke<View>("duplicate_slide"),

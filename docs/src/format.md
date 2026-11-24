@@ -33,7 +33,9 @@ A minimal deck:
         {
           "type": "image",
           "rect": { "x": 600, "y": 300, "w": 200, "h": 150 },
-          "src": "assets/image1.png"
+          "src": "assets/image1.png",
+          "crop": { "left": 0.1, "bottom": 0.25 },
+          "mask": { "kind": "ellipse" }
         },
         {
           "type": "shape",
@@ -52,6 +54,11 @@ A minimal deck:
   ]
 }
 ```
+
+An image's optional `crop` gives the fraction of the source removed from each edge (the kept
+part fills the rect), and its `mask` the shape it is clipped to: `rectangle`, `ellipse` or
+`rounded_rectangle` with a `radius` as a fraction of the shorter side. Both round-trip to
+PowerPoint's crop and "crop to shape".
 
 Element types are `text`, `image`, `shape` (`rectangle`, `ellipse`, `line`) and `math`
 (Typst math source). A run may carry `"math": true` to be rendered as an inline formula.

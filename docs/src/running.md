@@ -76,7 +76,9 @@ Two environment variables help scripts and tests:
   resize it, press Delete to remove it. Double-click a text box to edit its text in place:
   Enter starts a paragraph, Ctrl+Enter or a click elsewhere applies, Escape cancels.
 - The right panel edits the selected element's position, size and text (one paragraph per
-  line), and the slide's speaker notes.
+  line), and the slide's speaker notes. For an image it offers the crop: a shape to clip to
+  (rectangle, ellipse, rounded rectangle with its corner radius) and the percentage cut off
+  each edge; the kept part fills the box.
 - **+ Text**, **+ Slide**, **Duplicate** and **− Slide** do what they say; a new slide starts
   from the current slide's [layout](layouts.md). **Insert from deck…** copies slides from
   another deck. Page Up and Page Down change slide.

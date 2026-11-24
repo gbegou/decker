@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use base64::Engine;
 use serde::Serialize;
 
-use deck_core::{native, svg, transfer, Deck, Element, MathRenderer, Paragraph, Rect, Slide, TextBox};
+use deck_core::{native, svg, transfer, Crop, Deck, Element, Mask, MathRenderer, Paragraph, Rect, Slide, TextBox};
 
 #[derive(Default)]
 pub struct AppState {
@@ -92,6 +92,11 @@ pub struct ElementInfo {
     pub last_step: u32,
     /// Size of the first run in points, for the in-place editor.
     pub size: f64,
+    /// Images: the crop and mask.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crop: Option<Crop>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mask: Option<Mask>,
 }
 
 impl AppState {
@@ -244,6 +249,8 @@ impl AppState {
                         Element::Image(_) => None,
                     }
                     .unwrap_or(svg::DEFAULT_FONT_SIZE),
+                    crop: if let Element::Image(i) = e { Some(i.crop) } else { None },
+                    mask: if let Element::Image(i) = e { Some(i.mask) } else { None },
                 })
                 .collect(),
             presenting: self.presenting,
@@ -383,6 +390,21 @@ impl AppState {
             Element::Image(_) => return Err("an image has no text".into()),
         }
         Ok(())
+    }
+
+    /// Sets an image's crop and mask.
+    pub fn set_image(&mut self, element: usize, crop: Crop, mask: Mask) -> Result<(), String> {
+        self.touch(Some(self.slide));
+        let slide = self.slide_mut()?;
+        match slide.elements.get_mut(element) {
+            Some(Element::Image(img)) => {
+                img.crop = crop.clamped();
+                img.mask = mask;
+                Ok(())
+            }
+            Some(_) => Err("not an image".into()),
+            None => Err("no such element".into()),
+        }
     }
 
     pub fn set_notes(&mut self, notes: String) -> Result<(), String> {

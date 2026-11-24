@@ -345,7 +345,46 @@ fn import_tree(
                             || media.ends_with(".bmp")
                             || media.ends_with(".webp") =>
                     {
-                        elements.push(Element::Image(Image { rect, src: images.copy(&media)?, steps: vec![] }));
+                        // Crop: a:srcRect in thousandths of a percent; mask: the picture's preset geometry.
+                        let src_rect = node.descendants().find(|n| n.has_tag_name((NS_A, "srcRect")));
+                        let pct = |a: &str| {
+                            src_rect
+                                .and_then(|n| n.attribute(a))
+                                .and_then(|v| v.parse::<f64>().ok())
+                                .map(|v| v / 100_000.0)
+                                .unwrap_or(0.0)
+                        };
+                        let crop = Crop { left: pct("l"), top: pct("t"), right: pct("r"), bottom: pct("b") };
+                        let prst = child(node, NS_P, "spPr").and_then(|p| child(p, NS_A, "prstGeom"));
+                        let geom = prst.and_then(|g| g.attribute("prst")).unwrap_or("rect");
+                        let mask = match geom {
+                            "ellipse" => Mask::Ellipse,
+                            "roundRect" => {
+                                let adj = prst
+                                    .and_then(|g| child(g, NS_A, "avLst"))
+                                    .and_then(|l| l.children().find(|n| n.has_tag_name((NS_A, "gd"))))
+                                    .and_then(|gd| gd.attribute("fmla"))
+                                    .and_then(|f| f.strip_prefix("val "))
+                                    .and_then(|v| v.parse::<f64>().ok())
+                                    .map(|v| v / 100_000.0)
+                                    .unwrap_or(0.16667);
+                                Mask::RoundedRectangle { radius: adj.clamp(0.0, 0.5) }
+                            }
+                            "rect" => Mask::Rectangle,
+                            other => {
+                                report
+                                    .warnings
+                                    .push(format!("{part}: picture cropped to {other}, drawn as a rectangle"));
+                                Mask::Rectangle
+                            }
+                        };
+                        elements.push(Element::Image(Image {
+                            rect,
+                            src: images.copy(&media)?,
+                            crop,
+                            mask,
+                            ..Default::default()
+                        }));
                     }
                     Some(media) => report.warnings.push(format!("{part}: unsupported media {media} skipped")),
                     None => report.warnings.push(format!("{part}: picture without image skipped")),

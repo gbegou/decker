@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-  import { api, watchView, watchThumbnails, presentationKeys, type View, type Rect } from "./api";
+  import { api, watchView, watchThumbnails, presentationKeys, type View, type Rect, type Crop, type Mask } from "./api";
   import SlideView from "./SlideView.svelte";
 
   let view = $state<View | null>(null);
@@ -174,6 +174,22 @@
   }
 
   let sel = $derived(view && selected !== null ? view.elements[selected] : null);
+
+  // Image crop and mask edits, from percentages in the panel.
+  function setCrop(edge: keyof Crop, percent: number) {
+    if (!sel || !sel.crop || !sel.mask) return;
+    const crop = { ...sel.crop, [edge]: Math.max(0, Math.min(95, percent)) / 100 };
+    run("Crop set", () => api.setImage(sel!.index, crop, sel!.mask!));
+  }
+  function setMask(kind: string) {
+    if (!sel || !sel.crop) return;
+    const mask: Mask = kind === "ellipse" ? { kind: "ellipse" } : kind === "rounded_rectangle" ? { kind: "rounded_rectangle", radius: 0.15 } : { kind: "rectangle" };
+    run("Mask set", () => api.setImage(sel!.index, sel!.crop!, mask));
+  }
+  function setRadius(percent: number) {
+    if (!sel || !sel.crop) return;
+    run("Radius set", () => api.setImage(sel!.index, sel!.crop!, { kind: "rounded_rectangle", radius: Math.max(0, Math.min(50, percent)) / 100 }));
+  }
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -260,7 +276,25 @@
         <label>y <input type="number" value={Math.round(sel.rect.y)} onchange={(e) => api.setRect(sel!.index, { ...sel!.rect, y: +e.currentTarget.value })} /></label>
         <label>w <input type="number" value={Math.round(sel.rect.w)} onchange={(e) => api.setRect(sel!.index, { ...sel!.rect, w: +e.currentTarget.value })} /></label>
         <label>h <input type="number" value={Math.round(sel.rect.h)} onchange={(e) => api.setRect(sel!.index, { ...sel!.rect, h: +e.currentTarget.value })} /></label>
-        {#if sel.kind !== "image"}
+        {#if sel.kind === "image" && sel.crop && sel.mask}
+          <h3>Crop to shape</h3>
+          <select value={sel.mask.kind} onchange={(e) => setMask(e.currentTarget.value)}>
+            <option value="rectangle">rectangle</option>
+            <option value="ellipse">ellipse</option>
+            <option value="rounded_rectangle">rounded rectangle</option>
+          </select>
+          {#if sel.mask.kind === "rounded_rectangle"}
+            <label>corner radius % <input type="number" min="0" max="50" value={Math.round(sel.mask.radius * 100)} onchange={(e) => setRadius(+e.currentTarget.value)} /></label>
+          {/if}
+          <h3>Crop edges %</h3>
+          <div class="crop-grid">
+            <label>left <input type="number" min="0" max="95" value={Math.round(sel.crop.left * 100)} onchange={(e) => setCrop("left", +e.currentTarget.value)} /></label>
+            <label>top <input type="number" min="0" max="95" value={Math.round(sel.crop.top * 100)} onchange={(e) => setCrop("top", +e.currentTarget.value)} /></label>
+            <label>right <input type="number" min="0" max="95" value={Math.round(sel.crop.right * 100)} onchange={(e) => setCrop("right", +e.currentTarget.value)} /></label>
+            <label>bottom <input type="number" min="0" max="95" value={Math.round(sel.crop.bottom * 100)} onchange={(e) => setCrop("bottom", +e.currentTarget.value)} /></label>
+          </div>
+          <p class="muted">The kept part of the image fills the box.</p>
+        {:else if sel.kind !== "image"}
           <label>{sel.kind === "math" ? "formula" : "text"}
             <textarea rows="6" value={sel.text} onchange={(e) => api.setText(sel!.index, e.currentTarget.value)}></textarea>
           </label>
@@ -359,6 +393,7 @@
   .props h3 { margin: 12px 0 6px; font-size: 13px; color: var(--muted); text-transform: uppercase; }
   .props label { display: block; margin-bottom: 6px; color: var(--muted); }
   .muted { color: var(--muted); }
+  .crop-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; }
   .empty { grid-area: main; display: flex; align-items: center; justify-content: center; color: var(--muted); grid-column: 1 / -1; }
   select { width: 100%; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 6px; }
   .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }

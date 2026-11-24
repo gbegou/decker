@@ -126,17 +126,7 @@ fn element_body(
                 shape_body(out, r, ShapeKind::Rectangle, st.fill.or(t.fill), t.stroke);
                 text_body(out, r, &t.paragraphs, &deck.math_preamble, math);
             }
-            Element::Image(i) => {
-                let _ = write!(
-                    out,
-                    r#"<image x="{}" y="{}" width="{}" height="{}" preserveAspectRatio="none" xlink:href="{}"/>"#,
-                    fmt(r.x),
-                    fmt(r.y),
-                    fmt(r.w),
-                    fmt(r.h),
-                    escape(&i.src)
-                );
-            }
+            Element::Image(i) => image_body(out, r, i, index),
             Element::Shape(s) => {
                 shape_body(out, r, s.kind, st.fill.or(s.fill), s.stroke);
                 text_body(out, r, &s.paragraphs, &deck.math_preamble, math);
@@ -145,6 +135,57 @@ fn element_body(
         }
         out.push_str("</g>");
     }
+}
+
+/// An image filling its rect, cropped and clipped to its mask. The crop
+/// scales the full image up so that the kept part fills the rect; the
+/// mask is a `<clipPath>` with a unique id per element.
+fn image_body(out: &mut String, r: &Rect, i: &Image, index: Option<usize>) {
+    let c = i.crop.clamped();
+    let (kw, kh) = ((1.0 - c.left - c.right).max(0.05), (1.0 - c.top - c.bottom).max(0.05));
+    let full_w = r.w / kw;
+    let full_h = r.h / kh;
+    let x = r.x - c.left * full_w;
+    let y = r.y - c.top * full_h;
+    let clip_id =
+        format!("clip-{}-{}", index.map(|i| i.to_string()).unwrap_or_else(|| "l".into()), (r.x * 7.0 + r.y) as i64);
+    let clip = match i.mask {
+        Mask::Rectangle if c.is_none() => None,
+        Mask::Rectangle => {
+            Some(format!(r#"<rect x="{}" y="{}" width="{}" height="{}"/>"#, fmt(r.x), fmt(r.y), fmt(r.w), fmt(r.h)))
+        }
+        Mask::Ellipse => Some(format!(
+            r#"<ellipse cx="{}" cy="{}" rx="{}" ry="{}"/>"#,
+            fmt(r.x + r.w / 2.0),
+            fmt(r.y + r.h / 2.0),
+            fmt(r.w / 2.0),
+            fmt(r.h / 2.0)
+        )),
+        Mask::RoundedRectangle { radius } => {
+            let rad = radius.clamp(0.0, 0.5) * r.w.min(r.h);
+            Some(format!(
+                r#"<rect x="{}" y="{}" width="{}" height="{}" rx="{}"/>"#,
+                fmt(r.x),
+                fmt(r.y),
+                fmt(r.w),
+                fmt(r.h),
+                fmt(rad)
+            ))
+        }
+    };
+    if let Some(shape) = &clip {
+        let _ = write!(out, r#"<clipPath id="{clip_id}">{shape}</clipPath>"#);
+    }
+    let _ = write!(
+        out,
+        r#"<image x="{}" y="{}" width="{}" height="{}" preserveAspectRatio="none" xlink:href="{}"{}/>"#,
+        fmt(x),
+        fmt(y),
+        fmt(full_w),
+        fmt(full_h),
+        escape(&i.src),
+        if clip.is_some() { format!(r#" clip-path="url(#{clip_id})""#) } else { String::new() }
+    );
 }
 
 /// A formula, centered in its box: rendered glyphs when a math renderer
@@ -370,7 +411,7 @@ mod tests {
         slide.elements.push(Element::Image(Image {
             rect: Rect::new(0.0, 0.0, 1.0, 1.0),
             src: "assets/a.png".into(),
-            steps: vec![],
+            ..Default::default()
         }));
         slide.elements.push(Element::Shape(Shape {
             rect: Rect::new(1.0, 2.0, 3.0, 4.0),
@@ -476,6 +517,32 @@ mod tests {
         let svg = render_step_with(&deck, &deck.slides[0], 0, &FakeMath);
         // natural 200 x 20 scaled by 0.5 to fit the 100 wide box, centered vertically
         assert!(svg.contains(r#"<svg x="100" y="120" width="100" height="10" viewBox="0 0 200 20" data-math="rendered"><path d="M"/></svg>"#), "{svg}");
+    }
+
+    #[test]
+    fn cropped_and_masked_images() {
+        let mut deck = Deck::new("t");
+        let cropped = Image {
+            rect: Rect::new(100.0, 100.0, 200.0, 100.0),
+            src: "assets/a.png".into(),
+            crop: Crop { left: 0.25, top: 0.0, right: 0.25, bottom: 0.5 },
+            ..Default::default()
+        };
+        let oval = Image {
+            rect: Rect::new(0.0, 0.0, 40.0, 20.0),
+            src: "assets/b.png".into(),
+            mask: Mask::Ellipse,
+            ..Default::default()
+        };
+        deck.slides.push(Slide { elements: vec![Element::Image(cropped), Element::Image(oval)], ..Default::default() });
+        let svg = render_slide(&deck, &deck.slides[0]);
+        // Keeping the middle half horizontally and the top half vertically: the full image is 400 x 200 at (0, 100).
+        assert!(svg.contains(r#"<image x="0" y="100" width="400" height="200" preserveAspectRatio="none" xlink:href="assets/a.png" clip-path="url(#clip-0-"#), "{svg}");
+        assert!(
+            svg.contains(r#"<clipPath id="clip-0-"#)
+                && svg.contains(r#"<rect x="100" y="100" width="200" height="100"/></clipPath>"#)
+        );
+        assert!(svg.contains(r#"<ellipse cx="20" cy="10" rx="20" ry="10"/></clipPath>"#), "{svg}");
     }
 
     #[test]

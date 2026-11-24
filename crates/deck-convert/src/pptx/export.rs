@@ -446,9 +446,24 @@ fn write_element(
                 part.rels,
                 r#"<Relationship Id="rId{rel}" Type="{REL_IMAGE}" Target="../media/image{media_count}.{ext}"/>"#
             );
+            let c = img.crop.clamped();
+            let src_rect = if c.is_none() {
+                String::new()
+            } else {
+                let k = |v: f64| (v * 100_000.0).round() as i64;
+                format!(r#"<a:srcRect l="{}" t="{}" r="{}" b="{}"/>"#, k(c.left), k(c.top), k(c.right), k(c.bottom))
+            };
+            let geom = match img.mask {
+                Mask::Rectangle => r#"<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>"#.to_string(),
+                Mask::Ellipse => r#"<a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom>"#.to_string(),
+                Mask::RoundedRectangle { radius } => format!(
+                    r#"<a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="val {}"/></a:avLst></a:prstGeom>"#,
+                    (radius.clamp(0.0, 0.5) * 100_000.0).round() as i64
+                ),
+            };
             let _ = write!(
                 part.xml,
-                r#"<p:pic><p:nvPicPr><p:cNvPr id="{id}" name="Picture {id}"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rId{rel}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>{}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>"#,
+                r#"<p:pic><p:nvPicPr><p:cNvPr id="{id}" name="Picture {id}"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rId{rel}"/>{src_rect}<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>{}{geom}</p:spPr></p:pic>"#,
                 xfrm(&img.rect)
             );
         }
@@ -655,7 +670,13 @@ mod tests {
             notes: "note line".into(),
             elements: vec![
                 Element::Text(tb),
-                Element::Image(Image { rect: Rect::new(600.0, 300.0, 100.0, 80.0), src, steps: vec![] }),
+                Element::Image(Image {
+                    rect: Rect::new(600.0, 300.0, 100.0, 80.0),
+                    src,
+                    crop: Crop { left: 0.1, top: 0.2, right: 0.0, bottom: 0.05 },
+                    mask: Mask::RoundedRectangle { radius: 0.25 },
+                    ..Default::default()
+                }),
                 Element::Shape(Shape {
                     rect: Rect::new(10.0, 400.0, 100.0, 50.0),
                     kind: ShapeKind::Ellipse,
@@ -748,6 +769,8 @@ mod tests {
         assert_eq!((t.steps[1].at, t.steps[1].set.opacity), (1, Some(1.0)));
         let Element::Image(i) = &s.elements[1] else { panic!("image") };
         assert_eq!(i.rect.w, 100.0);
+        assert_eq!(i.crop, Crop { left: 0.1, top: 0.2, right: 0.0, bottom: 0.05 });
+        assert_eq!(i.mask, Mask::RoundedRectangle { radius: 0.25 });
         assert_eq!(std::fs::read(back_dir.join(&i.src)).unwrap(), include_bytes!("../../../../tests/fixtures/red.png"));
         let Element::Shape(sh) = &s.elements[2] else { panic!("shape") };
         assert_eq!(sh.kind, ShapeKind::Ellipse);

@@ -572,6 +572,67 @@ pub struct Image {
     pub steps: Vec<Step>,
     /// Path relative to the deck folder, e.g. `assets/image1.png`.
     pub src: String,
+    /// Fractions of the source cut off each edge before it fills `rect`.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub crop: Crop,
+    /// The shape the image is clipped to, within `rect`.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub mask: Mask,
+}
+
+/// A rectangular crop, as fractions (0 to 1) of the source image removed
+/// from each edge, like PowerPoint's `srcRect`.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+pub struct Crop {
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub left: f64,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub top: f64,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub right: f64,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub bottom: f64,
+}
+
+impl Crop {
+    pub fn is_none(&self) -> bool {
+        *self == Crop::default()
+    }
+
+    /// Clamps each edge to 0..0.95 and keeps at least 5 % of each axis.
+    pub fn clamped(self) -> Self {
+        let c = |v: f64| v.clamp(0.0, 0.95);
+        let (mut l, mut r, mut t, mut b) = (c(self.left), c(self.right), c(self.top), c(self.bottom));
+        if l + r > 0.95 {
+            let f = 0.95 / (l + r);
+            l *= f;
+            r *= f;
+        }
+        if t + b > 0.95 {
+            let f = 0.95 / (t + b);
+            t *= f;
+            b *= f;
+        }
+        Crop { left: l, top: t, right: r, bottom: b }
+    }
+}
+
+/// The shape an image is clipped to.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Mask {
+    #[default]
+    Rectangle,
+    Ellipse,
+    /// Corner radius as a fraction (0 to 0.5) of the shorter side.
+    RoundedRectangle {
+        #[serde(default = "default_radius")]
+        radius: f64,
+    },
+}
+
+fn default_radius() -> f64 {
+    0.15
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -647,6 +708,26 @@ mod tests {
         assert_eq!(back, deck);
         assert!(json.contains("\"version\": 1"));
         assert!(json.contains("\"type\": \"text\""));
+    }
+
+    #[test]
+    fn crop_and_mask_round_trip() {
+        let img = Image {
+            rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+            src: "assets/a.png".into(),
+            crop: Crop { left: 0.1, top: 0.0, right: 0.2, bottom: 0.05 },
+            mask: Mask::RoundedRectangle { radius: 0.2 },
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&Element::Image(img.clone())).unwrap();
+        assert!(json.contains("\"crop\":{\"left\":0.1,\"right\":0.2,\"bottom\":0.05}"), "{json}");
+        assert!(json.contains("\"mask\":{\"kind\":\"rounded_rectangle\",\"radius\":0.2}"), "{json}");
+        assert_eq!(serde_json::from_str::<Element>(&json).unwrap(), Element::Image(img));
+        let plain = Image { rect: Rect::default(), src: "x".into(), ..Default::default() };
+        let json = serde_json::to_string(&plain).unwrap();
+        assert!(!json.contains("crop") && !json.contains("mask"), "defaults are omitted: {json}");
+        let c = Crop { left: 0.8, top: 2.0, right: 0.8, bottom: -1.0 }.clamped();
+        assert!((c.left + c.right - 0.95).abs() < 1e-9 && c.top <= 0.95 && c.bottom == 0.0);
     }
 
     #[test]

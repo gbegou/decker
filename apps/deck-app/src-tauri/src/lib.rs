@@ -12,7 +12,7 @@ use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
-use deck_core::{Deck, Rect};
+use deck_core::{Crop, Deck, Mask, Rect};
 use state::{AppState, View};
 
 type Shared<'a> = State<'a, Mutex<AppState>>;
@@ -164,6 +164,17 @@ fn set_text(app: AppHandle, state: Shared, element: usize, text: String) -> Resu
     let view = {
         let mut s = state.lock().map_err(err)?;
         s.set_text(element, &text)?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+#[tauri::command]
+fn set_image(app: AppHandle, state: Shared, element: usize, crop: Crop, mask: Mask) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.set_image(element, crop, mask)?;
         s.view()
     };
     edited(&app);
@@ -407,6 +418,7 @@ pub fn run() {
             set_rect,
             set_text,
             set_notes,
+            set_image,
             add_slide,
             delete_slide,
             duplicate_slide,

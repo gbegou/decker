@@ -108,14 +108,14 @@ mod tests {
         let pic = native::add_asset(&src_dir, "image2.png", b"pic").unwrap();
         src.layouts.push(Layout {
             name: "Corp".into(),
-            elements: vec![Element::Image(Image { rect: Rect::default(), src: logo, steps: vec![] })],
+            elements: vec![Element::Image(Image { rect: Rect::default(), src: logo, ..Default::default() })],
             ..Default::default()
         });
         src.slides.push(Slide { name: "a".into(), ..Default::default() });
         src.slides.push(Slide {
             name: "b".into(),
             layout: Some("Corp".into()),
-            elements: vec![Element::Image(Image { rect: Rect::default(), src: pic, steps: vec![] })],
+            elements: vec![Element::Image(Image { rect: Rect::default(), src: pic, ..Default::default() })],
             ..Default::default()
         });
         src.slides.push(Slide { name: "c".into(), layout: Some("Corp".into()), ..Default::default() });
