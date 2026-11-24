@@ -98,6 +98,9 @@ Two environment variables help scripts and tests:
   at their pixel size, scaled down to fit half the slide (tiny icons are scaled up). The file is copied into the
   deck's `assets/` folder. An unsaved deck keeps it in a temporary folder until **Save as**
   moves everything to the chosen one. Pasting text while editing a box inserts it.
+- Ctrl+Z undoes any edit of the deck and Ctrl+Y (or Ctrl+Shift+Z) redoes it, also from the
+  ↶ ↷ toolbar buttons; a run of typing in one box counts as one step. Opening a deck
+  clears the history; saving does not.
 - Ctrl+C and Ctrl+X copy or cut the selected elements, Ctrl+V pastes them, slightly
   offset, on the current slide or layout, in this deck or in another running copy of decker.
   Within a deck the pasted image elements share the file in `assets/`; across decks the

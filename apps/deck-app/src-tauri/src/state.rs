@@ -31,6 +31,12 @@ pub struct AppState {
     thumbs: Vec<Option<String>>,
     /// Images as data URIs, by deck-relative path.
     pub assets: HashMap<String, String>,
+    /// Snapshots before each edit, oldest first, and the ones undone.
+    undo: Vec<Snapshot>,
+    redo: Vec<Snapshot>,
+    /// What the last snapshot was taken for: consecutive typing in one
+    /// box merges into a single undo step.
+    last_edit: Option<String>,
 }
 
 /// Element-level style change (see [`AppState::style_element`]).
@@ -199,6 +205,8 @@ pub struct View {
     pub editing_layout: Option<String>,
     /// The theme of the layout under edit, else of the current slide.
     pub theme: ThemeInfo,
+    pub can_undo: bool,
+    pub can_redo: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -244,6 +252,16 @@ fn element_style_info(e: &Element) -> (Option<Color>, Option<Stroke>, Option<Col
     }
 }
 
+/// The deck and where the user was, restored by undo.
+#[derive(Debug, Clone)]
+struct Snapshot {
+    deck: Deck,
+    slide: usize,
+    editing_layout: Option<String>,
+}
+
+const UNDO_LIMIT: usize = 200;
+
 /// Whether an element (or a group) holds an image.
 fn has_image(e: &Element) -> bool {
     match e {
@@ -254,7 +272,65 @@ fn has_image(e: &Element) -> bool {
 }
 
 impl AppState {
+    /// Records the state before an edit named `kind`. Edits of the same
+    /// kind in a row (typing in one box, dragging) share one snapshot
+    /// when `merge` is set.
+    pub fn checkpoint(&mut self, kind: &str, merge: bool) {
+        let Some(deck) = self.deck.as_ref() else { return };
+        if merge && self.last_edit.as_deref() == Some(kind) {
+            return;
+        }
+        self.undo.push(Snapshot { deck: deck.clone(), slide: self.slide, editing_layout: self.editing_layout.clone() });
+        if self.undo.len() > UNDO_LIMIT {
+            self.undo.remove(0);
+        }
+        self.redo.clear();
+        self.last_edit = Some(kind.to_string());
+    }
+
+    /// Ends a run of mergeable edits (a different edit, a navigation).
+    pub fn break_merge(&mut self) {
+        self.last_edit = None;
+    }
+
+    pub fn undo(&mut self) -> Result<(), String> {
+        let snap = self.undo.pop().ok_or("nothing to undo")?;
+        let current = self.swap_in(snap);
+        self.redo.push(current);
+        Ok(())
+    }
+
+    pub fn redo(&mut self) -> Result<(), String> {
+        let snap = self.redo.pop().ok_or("nothing to redo")?;
+        let current = self.swap_in(snap);
+        self.undo.push(current);
+        Ok(())
+    }
+
+    /// Whether undo and redo have something to do.
+    pub fn can_undo_redo(&self) -> (bool, bool) {
+        (!self.undo.is_empty(), !self.redo.is_empty())
+    }
+
+    fn swap_in(&mut self, snap: Snapshot) -> Snapshot {
+        let current = Snapshot {
+            deck: self.deck.take().unwrap_or_else(|| Deck::new("")),
+            slide: self.slide,
+            editing_layout: self.editing_layout.clone(),
+        };
+        self.slide = snap.slide.min(snap.deck.slides.len().saturating_sub(1));
+        self.step = 0;
+        self.editing_layout = snap.editing_layout.filter(|n| snap.deck.layout(n).is_some());
+        self.deck = Some(snap.deck);
+        self.last_edit = None;
+        self.touch(None);
+        current
+    }
+
     pub fn load(&mut self, deck: Deck, dir: PathBuf) {
+        self.undo.clear();
+        self.redo.clear();
+        self.last_edit = None;
         self.math = Math::for_deck(&dir);
         self.thumbs = vec![None; deck.slides.len()];
         self.assets.clear();
@@ -363,8 +439,11 @@ impl AppState {
                 starts: vec![],
                 editing_layout: None,
                 theme: ThemeInfo::default(),
+                can_undo: false,
+                can_redo: false,
             };
         };
+        let (can_undo, can_redo) = self.can_undo_redo();
         if let Some(layout) = self.editing_layout.as_deref().and_then(|n| deck.layout(n)) {
             return self.layout_view(deck, layout);
         }
@@ -444,12 +523,15 @@ impl AppState {
                 .collect(),
             editing_layout: None,
             theme: ThemeInfo { own: deck.theme.clone(), effective: deck.theme_of(slide), fonts: self.math.fonts() },
+            can_undo,
+            can_redo,
         }
     }
 
     /// The view of a layout under edit: its static elements, then its
     /// placeholders as elements of kind `placeholder` whose text is the name.
     fn layout_view(&self, deck: &Deck, layout: &Layout) -> View {
+        let (can_undo, can_redo) = self.can_undo_redo();
         let svg = inline_assets(&svg::render_layout(deck, layout, &*self.math.0), &self.dir, &self.assets);
         let mut elements: Vec<ElementInfo> = layout
             .elements
@@ -536,6 +618,8 @@ impl AppState {
                 effective: deck.theme_of_layout(layout),
                 fonts: self.math.fonts(),
             },
+            can_undo,
+            can_redo,
         }
     }
 
@@ -1451,6 +1535,42 @@ mod tests {
         s.move_slide(2, 0).unwrap();
         assert_eq!(s.slide, 2);
         assert!(s.move_slide(7, 0).is_err());
+    }
+
+    #[test]
+    fn undo_and_redo_restore_snapshots_and_merge_typing() {
+        let mut s = AppState::default();
+        s.load(deck(), PathBuf::new());
+        assert_eq!(s.can_undo_redo(), (false, false));
+        s.checkpoint("add_text", false);
+        s.add_text().unwrap();
+        let idx = s.deck.as_ref().unwrap().slides[0].elements.len() - 1;
+        // Typing: three edits, one undo step.
+        for (i, ch) in ["a", "b", "c"].iter().enumerate() {
+            s.checkpoint(&format!("text_edit:{idx}"), true);
+            s.text_edit(idx, 4 + i, 4 + i, ch).unwrap();
+        }
+        assert_eq!(s.undo.len(), 2);
+        let text_of = |s: &AppState| match &s.deck.as_ref().unwrap().slides[0].elements[idx] {
+            Element::Text(t) => t.text(),
+            _ => unreachable!(),
+        };
+        s.undo().unwrap();
+        assert_eq!(text_of(&s), "Text");
+        assert_eq!(s.can_undo_redo(), (true, true));
+        s.undo().unwrap();
+        assert_eq!(s.deck.as_ref().unwrap().slides[0].elements.len(), 1);
+        assert!(s.undo().is_err());
+        s.redo().unwrap();
+        s.redo().unwrap();
+        assert_eq!(text_of(&s), "Textabc");
+        // A new edit after undo drops the redo stack; navigation ends a typing run.
+        s.undo().unwrap();
+        s.break_merge();
+        s.checkpoint(&format!("text_edit:{idx}"), true);
+        s.text_edit(idx, 0, 0, "x").unwrap();
+        assert_eq!(s.can_undo_redo(), (true, false));
+        assert_eq!(s.undo.len(), 2);
     }
 
     #[test]

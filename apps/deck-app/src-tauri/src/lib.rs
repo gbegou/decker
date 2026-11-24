@@ -132,7 +132,11 @@ fn add_image(
 ) -> Result<usize, String> {
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD.decode(data.as_bytes()).map_err(err)?;
-    let index = state.lock().map_err(err)?.add_image(&name, &bytes, x.zip(y))?;
+    let index = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint("add_image", false);
+        s.add_image(&name, &bytes, x.zip(y))?
+    };
     edited(&app);
     Ok(index)
 }
@@ -163,12 +167,20 @@ fn paste(app: AppHandle, state: Shared, clipboard: State<SystemClipboard>) -> Re
         Ok((text, png))
     })?;
     if let Some(clip) = text.as_deref().and_then(deck_core::transfer::Clip::parse) {
-        let added = state.lock().map_err(err)?.paste_elements(clip)?;
+        let added = {
+            let mut s = state.lock().map_err(err)?;
+            s.checkpoint("paste", false);
+            s.paste_elements(clip)?
+        };
         edited(&app);
         return Ok(Pasted { added, text: None });
     }
     if let Some(png) = png {
-        let index = state.lock().map_err(err)?.add_image("pasted.png", &png, None)?;
+        let index = {
+            let mut s = state.lock().map_err(err)?;
+            s.checkpoint("paste", false);
+            s.add_image("pasted.png", &png, None)?
+        };
         edited(&app);
         return Ok(Pasted { added: vec![index], text: None });
     }
@@ -206,7 +218,11 @@ fn add_image_file(
     let p = PathBuf::from(&path);
     let bytes = std::fs::read(&p).map_err(err)?;
     let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("image.png");
-    let index = state.lock().map_err(err)?.add_image(name, &bytes, x.zip(y))?;
+    let index = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint("add_image_file", false);
+        s.add_image(name, &bytes, x.zip(y))?
+    };
     edited(&app);
     Ok(index)
 }
@@ -233,6 +249,7 @@ fn set_section(
 ) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("set_section", false);
         s.set_section(section, subsection)?;
         s.view()
     };
@@ -251,6 +268,7 @@ fn set_section_of(
 ) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("set_section_of", false);
         s.set_section_of(slide, section, subsection)?;
         s.view()
     };
@@ -263,6 +281,7 @@ fn set_section_of(
 fn move_slide(app: AppHandle, state: Shared, from: usize, to: usize) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("move_slide", false);
         s.move_slide(from, to)?;
         s.view()
     };
@@ -285,6 +304,7 @@ fn edit_layout(app: AppHandle, state: Shared, name: Option<String>) -> Result<Vi
 fn new_layout(app: AppHandle, state: Shared) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("new_layout", false);
         s.new_layout()?;
         s.view()
     };
@@ -296,6 +316,7 @@ fn new_layout(app: AppHandle, state: Shared) -> Result<View, String> {
 fn rename_layout(app: AppHandle, state: Shared, name: String) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("rename_layout", false);
         s.rename_layout(name)?;
         s.view()
     };
@@ -307,6 +328,7 @@ fn rename_layout(app: AppHandle, state: Shared, name: String) -> Result<View, St
 fn delete_layout(app: AppHandle, state: Shared) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("delete_layout", false);
         s.delete_layout()?;
         s.view()
     };
@@ -326,6 +348,7 @@ fn style_text(
 ) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("style_text", false);
         s.style_text(element, from.unwrap_or(usize::MAX), to.unwrap_or(usize::MAX), &change)?;
         s.view()
     };
@@ -344,6 +367,7 @@ fn style_paragraphs(
 ) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("style_paragraphs", false);
         s.style_paragraphs(element, from.unwrap_or(usize::MAX), to.unwrap_or(usize::MAX), &change)?;
         s.view()
     };
@@ -360,6 +384,7 @@ fn style_info(state: Shared, element: usize, from: Option<usize>, to: Option<usi
 fn style_element(app: AppHandle, state: Shared, element: usize, change: ElementStyle) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("style_element", false);
         s.style_element(element, &change)?;
         s.view()
     };
@@ -371,6 +396,7 @@ fn style_element(app: AppHandle, state: Shared, element: usize, change: ElementS
 fn set_theme(app: AppHandle, state: Shared, change: ThemeChange) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("set_theme", false);
         s.set_theme(&change)?;
         s.view()
     };
@@ -382,6 +408,7 @@ fn set_theme(app: AppHandle, state: Shared, change: ThemeChange) -> Result<View,
 fn set_steps(app: AppHandle, state: Shared, element: usize, steps: Vec<deck_core::Step>) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("set_steps", false);
         s.set_steps(element, steps)?;
         s.view()
     };
@@ -391,14 +418,22 @@ fn set_steps(app: AppHandle, state: Shared, element: usize, steps: Vec<deck_core
 
 #[tauri::command]
 fn group_elements(app: AppHandle, state: Shared, indices: Vec<usize>) -> Result<usize, String> {
-    let at = state.lock().map_err(err)?.group(&indices)?;
+    let at = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint("group_elements", false);
+        s.group(&indices)?
+    };
     edited(&app);
     Ok(at)
 }
 
 #[tauri::command]
 fn ungroup_element(app: AppHandle, state: Shared, index: usize) -> Result<usize, String> {
-    let n = state.lock().map_err(err)?.ungroup(index)?;
+    let n = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint("ungroup_element", false);
+        s.ungroup(index)?
+    };
     edited(&app);
     Ok(n)
 }
@@ -407,6 +442,7 @@ fn ungroup_element(app: AppHandle, state: Shared, index: usize) -> Result<usize,
 fn add_outline(app: AppHandle, state: Shared) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("add_outline", false);
         s.add_outline()?;
         s.view()
     };
@@ -425,6 +461,7 @@ fn save_layout(state: Shared, path: String) -> Result<String, String> {
 fn load_layout(app: AppHandle, state: Shared, path: String) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("load_layout", false);
         s.load_layout(&layout_dir(&path))?;
         s.view()
     };
@@ -446,6 +483,7 @@ fn layout_dir(path: &str) -> PathBuf {
 fn add_placeholder(app: AppHandle, state: Shared) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("add_placeholder", false);
         s.add_placeholder()?;
         s.view()
     };
@@ -458,11 +496,34 @@ fn get_view(state: Shared) -> Result<View, String> {
     Ok(state.lock().map_err(err)?.view())
 }
 
+#[tauri::command]
+fn undo(app: AppHandle, state: Shared) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.undo()?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+#[tauri::command]
+fn redo(app: AppHandle, state: Shared) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.redo()?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
 /// `next`, `prev`, `first`, `last`, `next_slide`, `prev_slide`, `black`, `white`.
 #[tauri::command]
 fn navigate(app: AppHandle, state: Shared, action: String) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.break_merge();
         s.navigate(&action);
         s.view()
     };
@@ -474,6 +535,7 @@ fn navigate(app: AppHandle, state: Shared, action: String) -> Result<View, Strin
 fn goto(app: AppHandle, state: Shared, slide: usize, step: Option<u32>) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.break_merge();
         s.goto(slide, step.unwrap_or(0));
         s.view()
     };
@@ -486,6 +548,7 @@ fn goto(app: AppHandle, state: Shared, slide: usize, step: Option<u32>) -> Resul
 fn set_rect(app: AppHandle, state: Shared, element: usize, rect: Rect) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("set_rect", false);
         s.set_rect(element, rect)?;
         s.view()
     };
@@ -498,6 +561,7 @@ fn set_rect(app: AppHandle, state: Shared, element: usize, rect: Rect) -> Result
 fn set_text(app: AppHandle, state: Shared, element: usize, text: String) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("set_text", false);
         s.set_text(element, &text)?;
         s.view()
     };
@@ -523,6 +587,7 @@ fn text_edit(
 ) -> Result<usize, String> {
     let caret = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint(&format!("text_edit:{element}"), true);
         s.text_edit(element, from, to, &insert)?
     };
     edited(&app);
@@ -533,6 +598,7 @@ fn text_edit(
 fn set_image(app: AppHandle, state: Shared, element: usize, crop: Crop, mask: Mask) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("set_image", false);
         s.set_image(element, crop, mask)?;
         s.view()
     };
@@ -544,6 +610,7 @@ fn set_image(app: AppHandle, state: Shared, element: usize, crop: Crop, mask: Ma
 fn set_notes(app: AppHandle, state: Shared, notes: String) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("set_notes", true);
         s.set_notes(notes)?;
         s.view()
     };
@@ -555,6 +622,7 @@ fn set_notes(app: AppHandle, state: Shared, notes: String) -> Result<View, Strin
 fn add_slide(app: AppHandle, state: Shared) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("add_slide", false);
         s.add_slide()?;
         s.view()
     };
@@ -566,6 +634,7 @@ fn add_slide(app: AppHandle, state: Shared) -> Result<View, String> {
 fn delete_slide(app: AppHandle, state: Shared) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("delete_slide", false);
         s.delete_slide()?;
         s.view()
     };
@@ -577,6 +646,7 @@ fn delete_slide(app: AppHandle, state: Shared) -> Result<View, String> {
 fn duplicate_slide(app: AppHandle, state: Shared) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("duplicate_slide", false);
         s.duplicate_slide()?;
         s.view()
     };
@@ -588,6 +658,7 @@ fn duplicate_slide(app: AppHandle, state: Shared) -> Result<View, String> {
 fn set_layout(app: AppHandle, state: Shared, name: Option<String>) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("set_layout", false);
         s.set_layout(name.filter(|n| !n.is_empty()))?;
         s.view()
     };
@@ -607,6 +678,7 @@ fn peek_deck(state: Shared, path: String) -> Result<Vec<String>, String> {
 fn import_slides(app: AppHandle, state: Shared, path: String, indices: Vec<usize>) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("import_slides", false);
         s.import_slides(&deck_dir(&path), &indices)?;
         s.view()
     };
@@ -628,6 +700,7 @@ fn deck_dir(path: &str) -> PathBuf {
 fn add_text(app: AppHandle, state: Shared) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("add_text", false);
         s.add_text()?;
         s.view()
     };
@@ -639,6 +712,7 @@ fn add_text(app: AppHandle, state: Shared) -> Result<View, String> {
 fn delete_element(app: AppHandle, state: Shared, element: usize) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
+        s.checkpoint("delete_element", false);
         s.delete_element(element)?;
         s.view()
     };
@@ -810,6 +884,8 @@ pub fn run() {
             load_layout,
             get_view,
             get_thumbnails,
+            undo,
+            redo,
             navigate,
             goto,
             set_rect,

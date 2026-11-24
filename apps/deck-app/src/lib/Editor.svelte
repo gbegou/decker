@@ -86,6 +86,15 @@
     );
   }
 
+  /** Ctrl+Z / Ctrl+Y: the whole deck steps back or forward; the selection is dropped. */
+  function undoRedo(redo: boolean) {
+    enqueue(() =>
+      run(redo ? "Redone" : "Undone", redo ? api.redo : api.undo).then(() => {
+        selected = null; also = []; editing = null;
+      }),
+    );
+  }
+
   /** Ctrl+C / Ctrl+X on the selection (not while editing text). */
   function copySelection(cut: boolean) {
     if (selected === null) return;
@@ -471,6 +480,12 @@
       e.preventDefault();
       return;
     }
+    if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z" || e.key === "y" || e.key === "Y") && view?.slide_count) {
+      const redo = e.key === "y" || e.key === "Y" || (e.shiftKey && (e.key === "z" || e.key === "Z"));
+      undoRedo(redo);
+      e.preventDefault();
+      return;
+    }
     if ((e.key === "v" || e.key === "V") && (e.ctrlKey || e.metaKey) && view?.slide_count) {
       pasteClipboard();
       e.preventDefault();
@@ -546,6 +561,8 @@
     <button onclick={exportPptx} disabled={!view?.slide_count}>Export PPTX…</button>
     <button onclick={exportPdf} disabled={!view?.slide_count}>Export PDF…</button>
     <span class="spacer"></span>
+    <button title="Undo (Ctrl+Z)" disabled={!view?.can_undo} onclick={() => undoRedo(false)}>↶</button>
+    <button title="Redo (Ctrl+Y)" disabled={!view?.can_redo} onclick={() => undoRedo(true)}>↷</button>
     <button title="Commands and keys (F1)" onclick={() => (help = !help)}>?</button>
     {#if view?.editing_layout !== null && view?.editing_layout !== undefined}
       <span class="banner">Layout

@@ -18,6 +18,7 @@
       ["Click · Shift+click", "Select; add to the selection; drag to move; corner handle to resize; Delete to remove"],
       ["Group · Ungroup (Ctrl+G · Ctrl+Shift+G)", "Several elements become one, moved, resized and animated together"],
       ["+ Text · + Plan", "A text box; the sections list with the current one highlighted"],
+      ["Ctrl+Z · Ctrl+Y (or Ctrl+Shift+Z)", "Undo and redo any edit of the deck; a run of typing in one box is one step"],
       ["Ctrl+C · Ctrl+X · Ctrl+V", "Copy or cut the selected elements; paste them (also into another deck or slide, images shared within a deck, copied across decks), a clipboard image, or text into the box being edited"],
       ["Drop a file", "Drop image files on the canvas where they should go"],
       ["Double-click a text", "Edit in place: type, Backspace/Delete, arrows, Home/End, Shift+arrows to select, Ctrl+A"],
