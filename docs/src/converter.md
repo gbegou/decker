@@ -58,3 +58,12 @@ Writes a package with one master, one PowerPoint layout per decker layout (place
 static shapes) plus a blank one, a theme and notes; slide elements as explicit shapes, text
 boxes bound to their layout placeholders, build steps as fade entrances and exits, and
 formulas as their source text. What cannot be expressed is reported: geometry or color changes in a step, formulas.
+
+## Formulas and figures in PowerPoint
+
+PowerPoint cannot run Typst, so the export writes each formula and each figure as a picture
+of what decker renders (PNG at three pixels per point, fitted and centered in the element's
+box), with the Typst source kept in the picture's description. Importing such a file gives
+the formula or figure back, editable. This needs the Typst engine: the application has it,
+and so does `deck-convert` built with the `typst` feature; without it the source is written
+as text, with a warning.

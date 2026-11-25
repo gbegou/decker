@@ -15,6 +15,13 @@ use super::*;
 /// Writes `deck` to `pptx`. Returns warnings about what could not be
 /// expressed in PPTX (formulas, step overrides other than appear/disappear).
 pub fn export(deck: &Deck, deck_dir: &Path, pptx: &Path) -> Result<Vec<String>> {
+    export_with(deck, deck_dir, pptx, &deck_core::NoMath)
+}
+
+/// [`export`] with a typesetter: formulas and figures are written as
+/// pictures of what it renders (and still carry their source, so that
+/// importing the file brings them back), instead of their source text.
+pub fn export_with(deck: &Deck, deck_dir: &Path, pptx: &Path, math: &dyn MathRenderer) -> Result<Vec<String>> {
     let mut warnings = vec![];
     let file = std::fs::File::create(pptx).with_context(|| format!("creating {}", pptx.display()))?;
     let mut zip = zip::ZipWriter::new(file);
@@ -130,6 +137,7 @@ pub fn export(deck: &Deck, deck_dir: &Path, pptx: &Path) -> Result<Vec<String>> 
                 None,
                 &format!("layout {}", layout.name),
                 &mut warnings,
+                math,
             )?;
         }
         let base_id = layout.elements.len() + 2;
@@ -191,6 +199,7 @@ pub fn export(deck: &Deck, deck_dir: &Path, pptx: &Path) -> Result<Vec<String>> 
                 ph.as_deref(),
                 &format!("slide {i}"),
                 &mut warnings,
+                math,
             )?;
         }
         part.xml.push_str("</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>");
@@ -382,9 +391,10 @@ fn write_element(
     ph: Option<&str>,
     where_: &str,
     warnings: &mut Vec<String>,
+    math: &dyn MathRenderer,
 ) -> Result<()> {
     let start = part.xml.len();
-    write_element_plain(part, media_count, add, deck_dir, deck, slide_index, element, id, ph, where_, warnings)?;
+    write_element_plain(part, media_count, add, deck_dir, deck, slide_index, element, id, ph, where_, warnings, math)?;
     // The rotation the element has from the start goes on its frame, in
     // 60000ths of a degree.
     let rotation = element.state_at(0).rotation;
@@ -415,6 +425,7 @@ fn write_element_plain(
     ph: Option<&str>,
     where_: &str,
     warnings: &mut Vec<String>,
+    math: &dyn MathRenderer,
 ) -> Result<()> {
     match element {
         Element::Text(t) => {
@@ -487,6 +498,7 @@ fn write_element_plain(
                     None,
                     where_,
                     warnings,
+                    math,
                 )?;
             }
             part.xml.push_str("</p:grpSp>");
@@ -501,6 +513,23 @@ fn write_element_plain(
                 tx_body(&paragraphs)
             );
         }
+        Element::Math(m)
+            if typeset_picture(part, media_count, add, id, &m.rect, &format!("typst:{}", m.source), {
+                let theme =
+                    slide_index.and_then(|i| deck.slides.get(i)).map(|sl| deck.theme_of(sl)).unwrap_or_default();
+                math.math_png(
+                    &deck.math_preamble,
+                    &m.source,
+                    m.size.or(theme.size).unwrap_or(18.0),
+                    m.color.or(theme.color).unwrap_or(Color::BLACK),
+                )
+            })? => {}
+        Element::Figure(f)
+            if typeset_picture(part, media_count, add, id, &f.rect, &format!("typst-figure:{}", f.source), {
+                let theme =
+                    slide_index.and_then(|i| deck.slides.get(i)).map(|sl| deck.theme_of(sl)).unwrap_or_default();
+                math.figure_png(&deck.math_preamble, &f.source, f.rect.w.max(1.0), &theme.defaults())
+            })? => {}
         Element::Math(m) => {
             let xml = &mut part.xml;
             warnings.push(format!("{where_}: formula exported as its source text"));
@@ -568,6 +597,7 @@ fn write_element_plain(
                 ph,
                 where_,
                 warnings,
+                math,
             );
         }
         Element::Media(m) => {
@@ -587,6 +617,7 @@ fn write_element_plain(
                     ph,
                     where_,
                     warnings,
+                    math,
                 );
             }
         }
@@ -641,6 +672,40 @@ fn write_element_plain(
 /// PowerPoint sections (a 2010 extension): one per slide that starts a
 /// section, holding the slide ids up to the next one. Slides before the
 /// first section go into a default section, as PowerPoint does.
+/// Writes a typeset formula or figure as a picture fitted in `rect`,
+/// its source in the picture's description. `false` when there is no
+/// picture (no typesetter, or an error): the caller writes the source.
+fn typeset_picture(
+    part: &mut Part,
+    media_count: &mut u32,
+    add: &mut dyn FnMut(&str, &[u8]) -> Result<()>,
+    id: usize,
+    rect: &Rect,
+    description: &str,
+    picture: Option<(Vec<u8>, f64, f64)>,
+) -> Result<bool> {
+    let Some((png, w, h)) = picture.filter(|(_, w, h)| *w > 0.0 && *h > 0.0) else { return Ok(false) };
+    *media_count += 1;
+    let media = format!("ppt/media/image{media_count}.png");
+    add(&media, &png)?;
+    let rel = part.next_rel();
+    let _ = write!(
+        part.rels,
+        r#"<Relationship Id="rId{rel}" Type="{REL_IMAGE}" Target="../media/image{media_count}.png"/>"#
+    );
+    // As on screen: natural size, scaled down to fit, centered in the box.
+    let scale = (rect.w / w).min(rect.h / h).min(1.0);
+    let fitted =
+        Rect::new(rect.x + (rect.w - w * scale) / 2.0, rect.y + (rect.h - h * scale) / 2.0, w * scale, h * scale);
+    let _ = write!(
+        part.xml,
+        r#"<p:pic><p:nvPicPr><p:cNvPr id="{id}" name="Typst {id}" descr="{}"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rId{rel}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>{}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>"#,
+        esc(description),
+        xfrm(&fitted)
+    );
+    Ok(true)
+}
+
 fn sections_xml(deck: &Deck) -> String {
     if deck.slides.iter().all(|s| s.section.is_none()) {
         return String::new();
@@ -1111,6 +1176,54 @@ mod tests {
         assert_eq!(b.rows[1][1].fill, Some(Color::rgb(0xFF, 0xEE, 0xDD)));
         assert_eq!(b.rows[2][0].text(), "");
         assert_eq!(b.steps.len(), 2, "the table's animation comes back");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(feature = "typst")]
+    #[test]
+    fn formulas_and_figures_go_out_as_pictures_and_come_back() {
+        let dir = std::env::temp_dir().join(format!("decker-typeset-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut deck = Deck::new("typeset");
+        deck.slides.push(Slide {
+            elements: vec![
+                Element::Math(MathBlock {
+                    rect: Rect::new(100.0, 100.0, 400.0, 100.0),
+                    source: "x^2 + y^2".into(),
+                    size: Some(30.0),
+                    ..Default::default()
+                }),
+                Element::Figure(Figure {
+                    rect: Rect::new(100.0, 250.0, 300.0, 200.0),
+                    source: "A *figure* <tag>".into(),
+                    ..Default::default()
+                }),
+            ],
+            ..Default::default()
+        });
+        let pptx = dir.join("t.pptx");
+        let engine = deck_typst::Engine::new();
+        let warnings = export_with(&deck, &dir, &pptx, &engine).unwrap();
+        assert!(warnings.is_empty(), "no source-text fallback: {warnings:?}");
+        let back_dir = dir.join("back.deck");
+        let (back, report) = super::super::import(&pptx, &back_dir).unwrap();
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        let Element::Math(m) = &back.slides[0].elements[0] else {
+            panic!("a formula, got {:?}", back.slides[0].elements[0])
+        };
+        assert_eq!(m.source, "x^2 + y^2");
+        // The picture is fitted and centered in the formula's box.
+        assert!(m.rect.w < 400.0 && (m.rect.x + m.rect.w / 2.0 - 300.0).abs() < 0.5, "{:?}", m.rect);
+        let Element::Figure(f) = &back.slides[0].elements[1] else { panic!("a figure") };
+        assert_eq!(f.source, "A *figure* <tag>");
+        assert!(
+            !back_dir.join("assets").exists() || std::fs::read_dir(back_dir.join("assets")).unwrap().count() == 0,
+            "their pictures are not kept as assets"
+        );
+        // Without a typesetter: the source as text, with a warning.
+        let plain = export(&deck, &dir, &dir.join("plain.pptx")).unwrap();
+        assert_eq!(plain.len(), 2, "{plain:?}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

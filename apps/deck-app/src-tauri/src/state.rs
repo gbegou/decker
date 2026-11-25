@@ -575,6 +575,11 @@ impl AppState {
         inline_assets(&svg::render_step_with(deck, slide, step, &*self.math.0), &self.dir, &self.assets)
     }
 
+    /// The typesetter in use (Typst, or none without the feature).
+    pub fn typesetter(&self) -> &dyn MathRenderer {
+        &*self.math.0
+    }
+
     /// The slide with videos and GIFs as their poster: thumbnails, PDF.
     fn render_still(&self, deck: &Deck, slide: &Slide, step: u32) -> String {
         inline_assets(&svg::render_step_still(deck, slide, step, &*self.math.0), &self.dir, &self.assets)

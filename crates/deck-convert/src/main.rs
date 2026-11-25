@@ -108,7 +108,11 @@ fn main() -> Result<()> {
         Command::Export { deck, out } => {
             let out = out.unwrap_or_else(|| deck.with_extension("pptx"));
             let d = native::load(&deck)?;
-            for w in pptx::export(&d, &deck, &out)? {
+            #[cfg(feature = "typst")]
+            let warnings = pptx::export_with(&d, &deck, &out, &deck_typst::Engine::for_deck(&deck))?;
+            #[cfg(not(feature = "typst"))]
+            let warnings = pptx::export(&d, &deck, &out)?;
+            for w in warnings {
                 eprintln!("warning: {w}");
             }
             println!("{}: {} slides written to {}", deck.display(), d.slides.len(), out.display());

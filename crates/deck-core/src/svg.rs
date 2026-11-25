@@ -45,6 +45,23 @@ pub trait MathRenderer {
         None
     }
 
+    /// A formula as a PNG picture with its natural size in points, for
+    /// formats that cannot hold it otherwise (PowerPoint).
+    fn math_png(&self, _preamble: &str, _source: &str, _size: f64, _color: Color) -> Option<(Vec<u8>, f64, f64)> {
+        None
+    }
+
+    /// A figure as a PNG picture with its size in points.
+    fn figure_png(
+        &self,
+        _preamble: &str,
+        _source: &str,
+        _width: f64,
+        _defaults: &TextDefaults,
+    ) -> Option<(Vec<u8>, f64, f64)> {
+        None
+    }
+
     /// Why a figure does not render, when it does not.
     fn figure_error(&self, _preamble: &str, _source: &str, _width: f64, _defaults: &TextDefaults) -> Option<String> {
         None

@@ -10,7 +10,7 @@ pub mod export;
 pub mod import;
 mod package;
 
-pub use export::export;
+pub use export::{export, export_with};
 pub use import::import;
 
 /// English Metric Units per point.

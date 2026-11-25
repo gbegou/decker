@@ -160,11 +160,7 @@ impl Engine {
     /// result's `width` and `height` are the formula's natural size in
     /// points.
     pub fn render_math(&self, preamble: &str, source: &str, size: f64, color: Color) -> Result<MathImage, Error> {
-        let text = format!(
-            "#set page(width: auto, height: auto, margin: 0pt, fill: none)\n#set text(size: {size}pt, fill: rgb(\"{}\"))\n{preamble}\n$ {source} $",
-            color.to_hex()
-        );
-        self.render_document(&text)
+        self.render_document(&math_source(preamble, source, size, color))
     }
 
     /// Typesets a figure: arbitrary Typst markup (CeTZ drawings and
@@ -178,13 +174,7 @@ impl Engine {
         width: f64,
         defaults: &TextDefaults,
     ) -> Result<MathImage, Error> {
-        let size = defaults.size.unwrap_or(DEFAULT_SIZE);
-        let font = font_list(defaults.font.as_deref());
-        let fill = defaults.color.unwrap_or(Color::BLACK).to_hex();
-        let text = format!(
-            "#set page(width: {width}pt, height: auto, margin: 0pt, fill: none)\n#set text(size: {size}pt, font: {font}, fill: rgb(\"{fill}\"))\n{preamble}\n{source}\n"
-        );
-        self.render_cached(&text)
+        self.render_cached(&figure_source(preamble, source, width, defaults))
     }
 
     /// Typesets paragraphs in a column `width` points wide: runs with their
@@ -239,6 +229,24 @@ fn text_source(preamble: &str, paragraphs: &[Paragraph], width: f64, defaults: &
     );
     text.push_str(&paragraphs_markup(paragraphs, defaults.size.unwrap_or(DEFAULT_SIZE)));
     text
+}
+
+/// The document of a display formula on a page fitted to it.
+fn math_source(preamble: &str, source: &str, size: f64, color: Color) -> String {
+    format!(
+        "#set page(width: auto, height: auto, margin: 0pt, fill: none)\n#set text(size: {size}pt, fill: rgb(\"{}\"))\n{preamble}\n$ {source} $",
+        color.to_hex()
+    )
+}
+
+/// The document of a figure on a page `width` wide, as tall as its content.
+fn figure_source(preamble: &str, source: &str, width: f64, defaults: &TextDefaults) -> String {
+    let size = defaults.size.unwrap_or(DEFAULT_SIZE);
+    let font = font_list(defaults.font.as_deref());
+    let fill = defaults.color.unwrap_or(Color::BLACK).to_hex();
+    format!(
+        "#set page(width: {width}pt, height: auto, margin: 0pt, fill: none)\n#set text(size: {size}pt, font: {font}, fill: rgb(\"{fill}\"))\n{preamble}\n{source}\n"
+    )
 }
 
 /// The texts of a slide at a build step as invisible Typst text placed
@@ -504,6 +512,19 @@ impl Engine {
         Ok(())
     }
 
+    /// The first page of a document as a PNG at 3 pixels per point, with
+    /// its size in points: a picture for formats that take no vectors.
+    pub fn render_png(&self, text: &str) -> Result<(Vec<u8>, f64, f64), Error> {
+        let main_id = FileId::new(None, VirtualPath::new("/main.typ"));
+        let binaries = Binaries::new();
+        let world = Sandbox { shared: &self.inner, main: Source::new(main_id, text.to_string()), binaries: &binaries };
+        let document: PagedDocument =
+            typst::compile(&world).output.map_err(|errors| Error::Typst(describe(&errors)))?;
+        let page = document.pages.first().ok_or(Error::Empty)?;
+        let png = typst_render::render(page, 3.0).encode_png().map_err(|e| Error::Typst(e.to_string()))?;
+        Ok((png, page.frame.width().to_pt(), page.frame.height().to_pt()))
+    }
+
     fn render_document(&self, text: &str) -> Result<MathImage, Error> {
         let main_id = FileId::new(None, VirtualPath::new("/main.typ"));
         let binaries = Binaries::new();
@@ -669,6 +690,20 @@ impl MathRenderer for Engine {
 
     fn render_figure(&self, preamble: &str, source: &str, width: f64, defaults: &TextDefaults) -> Option<MathImage> {
         Engine::render_figure(self, preamble, source, width, defaults).ok()
+    }
+
+    fn math_png(&self, preamble: &str, source: &str, size: f64, color: Color) -> Option<(Vec<u8>, f64, f64)> {
+        self.render_png(&math_source(preamble, source, size, color)).ok()
+    }
+
+    fn figure_png(
+        &self,
+        preamble: &str,
+        source: &str,
+        width: f64,
+        defaults: &TextDefaults,
+    ) -> Option<(Vec<u8>, f64, f64)> {
+        self.render_png(&figure_source(preamble, source, width, defaults)).ok()
     }
 
     fn figure_error(&self, preamble: &str, source: &str, width: f64, defaults: &TextDefaults) -> Option<String> {

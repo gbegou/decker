@@ -1010,6 +1010,7 @@ dependencies = [
  "typst",
  "typst-assets",
  "typst-pdf",
+ "typst-render",
  "typst-svg",
 ]
 
@@ -3633,6 +3634,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c938015719552d665fd0553b90d96cd7ff58e83e4c061ca99e6bb78865a72752"
 
 [[package]]
+name = "pixglyph"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47945e80a49d08350e4a007ac4294c6498d23956c18ea5e6ff480dc93d31643c"
+dependencies = [
+ "ttf-parser",
+]
+
+[[package]]
 name = "pkg-config"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5830,6 +5840,26 @@ dependencies = [
  "typst-syntax",
  "typst-timing",
  "typst-utils",
+]
+
+[[package]]
+name = "typst-render"
+version = "0.14.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1baabef8c01dd7150380592811bf37af9b2498be86043834ddd629d1bcb48ccb"
+dependencies = [
+ "bytemuck",
+ "comemo",
+ "hayro",
+ "image",
+ "pixglyph",
+ "resvg",
+ "tiny-skia",
+ "ttf-parser",
+ "typst-assets",
+ "typst-library",
+ "typst-macros",
+ "typst-timing",
 ]
 
 [[package]]

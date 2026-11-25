@@ -338,69 +338,86 @@ fn import_tree(
                     report.warnings.push(format!("{part}: picture without position skipped"));
                     continue;
                 };
-                let embed = node
-                    .descendants()
-                    .find(|n| n.has_tag_name((NS_A, "blip")))
-                    .and_then(|b| b.attribute((NS_R, "embed")));
-                match embed.and_then(|id| pkg.rel_by_id(part, id).ok()) {
-                    Some(media)
-                        if media.ends_with(".png")
-                            || media.ends_with(".jpg")
-                            || media.ends_with(".jpeg")
-                            || media.ends_with(".gif")
-                            || media.ends_with(".svg")
-                            || media.ends_with(".bmp")
-                            || media.ends_with(".webp") =>
-                    {
-                        // Crop: a:srcRect in thousandths of a percent; mask: the picture's preset geometry.
-                        let src_rect = node.descendants().find(|n| n.has_tag_name((NS_A, "srcRect")));
-                        let pct = |a: &str| {
-                            src_rect
-                                .and_then(|n| n.attribute(a))
-                                .and_then(|v| v.parse::<f64>().ok())
-                                .map(|v| v / 100_000.0)
-                                .unwrap_or(0.0)
-                        };
-                        let crop = Crop { left: pct("l"), top: pct("t"), right: pct("r"), bottom: pct("b") };
-                        let prst = child(node, NS_P, "spPr").and_then(|p| child(p, NS_A, "prstGeom"));
-                        let geom = prst.and_then(|g| g.attribute("prst")).unwrap_or("rect");
-                        let mask = match geom {
-                            "ellipse" => Mask::Ellipse,
-                            "roundRect" => {
-                                let adj = prst
-                                    .and_then(|g| child(g, NS_A, "avLst"))
-                                    .and_then(|l| l.children().find(|n| n.has_tag_name((NS_A, "gd"))))
-                                    .and_then(|gd| gd.attribute("fmla"))
-                                    .and_then(|f| f.strip_prefix("val "))
+                // A picture decker wrote for a formula or a figure carries its
+                // Typst source in its description: bring the element back.
+                let described =
+                    node.descendants().find(|n| n.has_tag_name((NS_P, "cNvPr"))).and_then(|n| n.attribute("descr"));
+                if let Some(source) = described.and_then(|d| d.strip_prefix("typst-figure:")) {
+                    elements.push(Element::Figure(deck_core::Figure {
+                        rect,
+                        source: source.to_string(),
+                        steps: vec![],
+                    }));
+                } else if let Some(source) = described.and_then(|d| d.strip_prefix("typst:")) {
+                    elements.push(Element::Math(MathBlock { rect, source: source.to_string(), ..Default::default() }));
+                }
+                if elements.len() > before {
+                    // Fall through to the id bookkeeping below.
+                } else {
+                    let embed = node
+                        .descendants()
+                        .find(|n| n.has_tag_name((NS_A, "blip")))
+                        .and_then(|b| b.attribute((NS_R, "embed")));
+                    match embed.and_then(|id| pkg.rel_by_id(part, id).ok()) {
+                        Some(media)
+                            if media.ends_with(".png")
+                                || media.ends_with(".jpg")
+                                || media.ends_with(".jpeg")
+                                || media.ends_with(".gif")
+                                || media.ends_with(".svg")
+                                || media.ends_with(".bmp")
+                                || media.ends_with(".webp") =>
+                        {
+                            // Crop: a:srcRect in thousandths of a percent; mask: the picture's preset geometry.
+                            let src_rect = node.descendants().find(|n| n.has_tag_name((NS_A, "srcRect")));
+                            let pct = |a: &str| {
+                                src_rect
+                                    .and_then(|n| n.attribute(a))
                                     .and_then(|v| v.parse::<f64>().ok())
                                     .map(|v| v / 100_000.0)
-                                    .unwrap_or(0.16667);
-                                Mask::RoundedRectangle { radius: adj.clamp(0.0, 0.5) }
-                            }
-                            "rect" => Mask::Rectangle,
-                            other => {
-                                report
-                                    .warnings
-                                    .push(format!("{part}: picture cropped to {other}, drawn as a rectangle"));
-                                Mask::Rectangle
-                            }
-                        };
-                        let frame = child(node, NS_P, "spPr").and_then(|p| child(p, NS_A, "xfrm"));
-                        let flipped = |name: &str| {
-                            frame.and_then(|x| x.attribute(name)).map(|v| v == "1" || v == "true").unwrap_or(false)
-                        };
-                        elements.push(Element::Image(Image {
-                            rect,
-                            src: images.copy(&media)?,
-                            crop,
-                            mask,
-                            mirror_h: flipped("flipH"),
-                            mirror_v: flipped("flipV"),
-                            ..Default::default()
-                        }));
+                                    .unwrap_or(0.0)
+                            };
+                            let crop = Crop { left: pct("l"), top: pct("t"), right: pct("r"), bottom: pct("b") };
+                            let prst = child(node, NS_P, "spPr").and_then(|p| child(p, NS_A, "prstGeom"));
+                            let geom = prst.and_then(|g| g.attribute("prst")).unwrap_or("rect");
+                            let mask = match geom {
+                                "ellipse" => Mask::Ellipse,
+                                "roundRect" => {
+                                    let adj = prst
+                                        .and_then(|g| child(g, NS_A, "avLst"))
+                                        .and_then(|l| l.children().find(|n| n.has_tag_name((NS_A, "gd"))))
+                                        .and_then(|gd| gd.attribute("fmla"))
+                                        .and_then(|f| f.strip_prefix("val "))
+                                        .and_then(|v| v.parse::<f64>().ok())
+                                        .map(|v| v / 100_000.0)
+                                        .unwrap_or(0.16667);
+                                    Mask::RoundedRectangle { radius: adj.clamp(0.0, 0.5) }
+                                }
+                                "rect" => Mask::Rectangle,
+                                other => {
+                                    report
+                                        .warnings
+                                        .push(format!("{part}: picture cropped to {other}, drawn as a rectangle"));
+                                    Mask::Rectangle
+                                }
+                            };
+                            let frame = child(node, NS_P, "spPr").and_then(|p| child(p, NS_A, "xfrm"));
+                            let flipped = |name: &str| {
+                                frame.and_then(|x| x.attribute(name)).map(|v| v == "1" || v == "true").unwrap_or(false)
+                            };
+                            elements.push(Element::Image(Image {
+                                rect,
+                                src: images.copy(&media)?,
+                                crop,
+                                mask,
+                                mirror_h: flipped("flipH"),
+                                mirror_v: flipped("flipV"),
+                                ..Default::default()
+                            }));
+                        }
+                        Some(media) => report.warnings.push(format!("{part}: unsupported media {media} skipped")),
+                        None => report.warnings.push(format!("{part}: picture without image skipped")),
                     }
-                    Some(media) => report.warnings.push(format!("{part}: unsupported media {media} skipped")),
-                    None => report.warnings.push(format!("{part}: picture without image skipped")),
                 }
             }
             "grpSp" => {

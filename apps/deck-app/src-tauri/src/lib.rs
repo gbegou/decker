@@ -273,7 +273,8 @@ fn add_image_file(
 fn export_pptx(state: Shared, path: String) -> Result<Vec<String>, String> {
     let s = state.lock().map_err(err)?;
     let deck = s.deck.as_ref().ok_or("no deck open")?;
-    deck_convert::pptx::export(deck, &s.dir, &PathBuf::from(path)).map_err(err)
+    // With the typesetter, formulas and figures go out as pictures.
+    deck_convert::pptx::export_with(deck, &s.dir, &PathBuf::from(path), s.typesetter()).map_err(err)
 }
 
 #[tauri::command]
