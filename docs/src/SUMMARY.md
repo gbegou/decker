@@ -5,9 +5,11 @@
 # Getting started
 
 - [Installation](installation.md)
+- [Your first deck](first-deck.md)
 
 # Making slides
 
+- [The editor at a glance](editor.md)
 - [Slides and sections](slides.md)
 - [Text](text.md)
 - [Shapes, pictures and media](media.md)
@@ -35,8 +37,10 @@
 
 # Reference
 
+- [Commands and keys](keys.md)
 - [The deck format](format.md)
 - [Variables](variables.md)
+- [Troubleshooting](troubleshooting.md)
 
 # Developer guide
 

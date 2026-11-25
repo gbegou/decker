@@ -15,6 +15,6 @@ a free, fast, modern alternative to PowerPoint, written in Rust, for Linux and W
 - **Exchange** with PowerPoint both ways, and export PDF with bookmarks and selectable text.
 - **Automate** with Python: build decks from data, or run macros on the open deck.
 
-New here? Start with [Installation](installation.md), then the [manual](slides.md).
+New here? [Install it](installation.md), then follow [Your first deck](first-deck.md).
 
 ![The stack](images/stack.svg)
