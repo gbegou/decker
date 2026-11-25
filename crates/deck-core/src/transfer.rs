@@ -225,6 +225,45 @@ pub fn save_as(deck: &Deck, src_dir: &Path, dst_dir: &Path) -> Result<Deck, Nati
     Ok(copy)
 }
 
+/// The pages of an exported document: `(slide, step)` in order, one page
+/// per slide at its last step, or one per build step when `steps` is set.
+pub fn pages(deck: &Deck, steps: bool) -> Vec<(usize, u32)> {
+    deck.slides
+        .iter()
+        .enumerate()
+        .flat_map(|(i, s)| {
+            let last = s.last_step();
+            (if steps { 0 } else { last }..=last).map(move |step| (i, step))
+        })
+        .collect()
+}
+
+/// The speaker notes as the Markdown file the viewer reads next to a PDF
+/// (`<name>.notes.md`): a `# N` section per page that has notes, a
+/// slide's notes repeated on each of its step pages. Empty without notes.
+pub fn notes_markdown(deck: &Deck, steps: bool) -> String {
+    let mut out = String::new();
+    for (n, (slide, _)) in pages(deck, steps).into_iter().enumerate() {
+        let notes = deck.slides[slide].notes.trim();
+        if !notes.is_empty() {
+            // A line starting with `#` and a number would read as a page heading: indent it.
+            let body: Vec<String> = notes
+                .lines()
+                .map(|l| {
+                    let t = l.trim_start_matches('#').trim();
+                    if l.starts_with('#') && t.parse::<usize>().is_ok() {
+                        format!(" {l}")
+                    } else {
+                        l.to_string()
+                    }
+                })
+                .collect();
+            out.push_str(&format!("# {}\n{}\n\n", n + 1, body.join("\n")));
+        }
+    }
+    out
+}
+
 /// Removes the files of `<dir>/assets/` that no element of `deck` (slides,
 /// layouts, groups included) references; returns their names.
 pub fn prune_assets(deck: &Deck, dir: &Path) -> Result<Vec<String>, NativeError> {
@@ -491,5 +530,29 @@ mod tests {
         assert!(dir.join("assets/kept.png").is_file() && dir.join("assets/grouped.png").is_file());
         assert_eq!(prune_assets(&Deck::new("x"), Path::new("/nonexistent")).unwrap(), Vec::<String>::new());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn pages_and_notes_follow_the_build_steps() {
+        let mut deck = Deck::new("t");
+        let mut stepped = Shape { rect: Rect::new(0.0, 0.0, 1.0, 1.0), ..Default::default() };
+        stepped.steps = vec![Step::disappear(0), Step::appear(2)];
+        deck.slides.push(Slide { notes: "first".into(), ..Default::default() });
+        deck.slides.push(Slide {
+            elements: vec![Element::Shape(stepped)],
+            notes: "second\n# 3".into(),
+            ..Default::default()
+        });
+        deck.slides.push(Slide::default());
+        assert_eq!(pages(&deck, false), [(0, 0), (1, 2), (2, 0)]);
+        assert_eq!(pages(&deck, true), [(0, 0), (1, 0), (1, 1), (1, 2), (2, 0)]);
+        assert_eq!(
+            notes_markdown(&deck, false),
+            "# 1\nfirst\n\n# 2\nsecond\n # 3\n\n",
+            "a bare page-number line is indented so it is not read as a heading"
+        );
+        let stepped = notes_markdown(&deck, true);
+        assert!(stepped.contains("# 2\nsecond") && stepped.contains("# 4\nsecond") && !stepped.contains("# 5"));
+        assert_eq!(notes_markdown(&Deck::new("x"), true), "");
     }
 }

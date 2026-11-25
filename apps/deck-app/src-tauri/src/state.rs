@@ -1001,26 +1001,29 @@ impl AppState {
     }
 
     /// Writes the deck as a PDF with bookmarks (Typst feature), else an error.
-    pub fn export_pdf(&mut self, out: &Path) -> Result<(), String> {
+    /// `steps`: one page per build step. The notes go next to the PDF as
+    /// `<name>.notes.md` for decker-viewer.
+    pub fn export_pdf(&mut self, out: &Path, steps: bool) -> Result<(), String> {
         let Some(deck) = self.deck.take() else { return Err("no deck open".into()) };
         for slide in &deck.slides {
             self.cache_assets(slide);
         }
-        let result = self.pdf(&deck, out);
+        let result = self.pdf(&deck, out, steps);
         self.deck = Some(deck);
         result
     }
 
     #[cfg(feature = "typst")]
-    fn pdf(&self, deck: &Deck, out: &Path) -> Result<(), String> {
+    fn pdf(&self, deck: &Deck, out: &Path, steps: bool) -> Result<(), String> {
         let engine = deck_typst::Engine::for_deck(&self.dir);
+        let pages = transfer::pages(deck, steps);
         engine
-            .export_pdf(deck, |i| self.render_still(deck, &deck.slides[i], deck.slides[i].last_step()), out)
+            .export_pdf_pages(deck, &pages, |i, step| self.render_still(deck, &deck.slides[i], step), out)
             .map_err(|e| e.to_string())
     }
 
     #[cfg(not(feature = "typst"))]
-    fn pdf(&self, _deck: &Deck, _out: &Path) -> Result<(), String> {
+    fn pdf(&self, _deck: &Deck, _out: &Path, _steps: bool) -> Result<(), String> {
         Err("PDF export needs the typst feature".into())
     }
 

@@ -17,7 +17,7 @@ megabytes, and it is the thing to put on a machine that only has to show slides.
 
 Pages are rendered by pdf.js inside the window, sharp at any size, so vector slides stay
 vector. A page has no build steps: a Beamer overlay is a page of its own, as Beamer exports
-it.
+it, and decker can export one page per build step.
 
 ## Notes
 
@@ -32,7 +32,8 @@ Skip the details of the proof if short on time.
 ```
 
 The notes panel of the main window edits them and writes the file back. decker's PDF export
-does not write this file yet; the notes of a deck are in its `deck.json`.
+writes this file from the deck's notes, and its "one page per build step" option makes a PDF
+that plays the builds here.
 
 ## Building it
 

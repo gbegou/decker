@@ -237,9 +237,9 @@ fn export_pptx(state: Shared, path: String) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-fn export_pdf(state: Shared, path: String) -> Result<(), String> {
+fn export_pdf(state: Shared, path: String, steps: Option<bool>) -> Result<(), String> {
     let mut s = state.lock().map_err(err)?;
-    s.export_pdf(&PathBuf::from(path))
+    s.export_pdf(&PathBuf::from(path), steps.unwrap_or(false))
 }
 
 #[tauri::command]

@@ -282,17 +282,35 @@ impl Engine {
     /// step, with bookmarks for sections, subsections and slide titles.
     /// `render` gives each slide's SVG (assets inlined as data URIs).
     pub fn export_pdf(&self, deck: &Deck, render: impl Fn(usize) -> String, out: &Path) -> Result<(), Error> {
+        self.export_pdf_pages(deck, &deck_core::transfer::pages(deck, false), |slide, _| render(slide), out)
+    }
+
+    /// Writes `pages` (`(slide, step)` pairs, see [`deck_core::transfer::pages`])
+    /// as a PDF, `render` drawing a slide at a step. Bookmarks go on the
+    /// first page of each slide. The speaker notes are written next to it
+    /// as `<name>.notes.md`, the file decker-viewer reads, when there are any.
+    pub fn export_pdf_pages(
+        &self,
+        deck: &Deck,
+        pages: &[(usize, u32)],
+        render: impl Fn(usize, u32) -> String,
+        out: &Path,
+    ) -> Result<(), Error> {
         let mut binaries = Binaries::new();
         let mut text = format!(
             "#set page(width: {w}pt, height: {h}pt, margin: 0pt)\n#set heading(outlined: true)\n#show heading: none\n",
             w = deck.width,
             h = deck.height
         );
-        for (i, slide) in deck.slides.iter().enumerate() {
+        let mut previous = None;
+        for (i, &(slide_index, step)) in pages.iter().enumerate() {
+            let Some(slide) = deck.slides.get(slide_index) else { continue };
+            let first_of_slide = previous != Some(slide_index);
+            previous = Some(slide_index);
             let path = format!("/slides/{i}.svg");
             // Generic CSS families have no meaning for the PDF engine's SVG
             // rendering: pin them to bundled fonts so the PDF matches the screen.
-            let svg = render(i)
+            let svg = render(slide_index, step)
                 .replace(r#"font-family="sans-serif""#, r#"font-family="DejaVu Sans""#)
                 .replace(r#"font-family="monospace""#, r#"font-family="DejaVu Sans Mono""#);
             binaries.insert(FileId::new(None, VirtualPath::new(&path)), Bytes::from_string(svg));
@@ -301,15 +319,17 @@ impl Engine {
             }
             // Headings make the PDF outline; `show heading: none` keeps
             // them out of the page.
-            if let Some(t) = &slide.section {
-                text.push_str(&format!("#heading(level: 1)[{}]\n", typst_markup(t)));
-            }
-            if let Some(t) = &slide.subsection {
-                text.push_str(&format!("#heading(level: 2)[{}]\n", typst_markup(t)));
-            }
-            let title = slide.title();
-            if !title.is_empty() {
-                text.push_str(&format!("#heading(level: 3)[{}]\n", typst_markup(&title)));
+            if first_of_slide {
+                if let Some(t) = &slide.section {
+                    text.push_str(&format!("#heading(level: 1)[{}]\n", typst_markup(t)));
+                }
+                if let Some(t) = &slide.subsection {
+                    text.push_str(&format!("#heading(level: 2)[{}]\n", typst_markup(t)));
+                }
+                let title = slide.title();
+                if !title.is_empty() {
+                    text.push_str(&format!("#heading(level: 3)[{}]\n", typst_markup(&title)));
+                }
             }
             text.push_str(&format!("#image(\"{path}\", width: 100%, height: 100%, fit: \"contain\")\n"));
         }
@@ -319,7 +339,17 @@ impl Engine {
             typst::compile(&world).output.map_err(|errors| Error::Typst(describe(&errors)))?;
         let pdf = typst_pdf::pdf(&document, &typst_pdf::PdfOptions::default())
             .map_err(|errors| Error::Typst(describe(&errors)))?;
-        std::fs::write(out, pdf).map_err(|e| Error::Typst(format!("writing {}: {e}", out.display())))
+        std::fs::write(out, pdf).map_err(|e| Error::Typst(format!("writing {}: {e}", out.display())))?;
+        // One page per step when a slide appears more than once in `pages`.
+        let stepped = pages.len() > deck.slides.len();
+        let notes = deck_core::transfer::notes_markdown(deck, stepped);
+        let sidecar = out.with_extension("notes.md");
+        if notes.is_empty() {
+            let _ = std::fs::remove_file(&sidecar);
+        } else {
+            std::fs::write(&sidecar, notes).map_err(|e| Error::Typst(format!("writing {}: {e}", sidecar.display())))?;
+        }
+        Ok(())
     }
 
     fn render_document(&self, text: &str) -> Result<MathImage, Error> {
@@ -771,7 +801,22 @@ mod tests {
         e.export_pdf(&deck, |i| svg::render_slide(&deck, &deck.slides[i]), &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         assert!(bytes.starts_with(b"%PDF"));
-        assert!(bytes.windows(7).any(|w| w == b"/Count 2") || bytes.windows(9).any(|w| w == b"/Count -2") || true);
+        assert!(!out.with_extension("notes.md").exists(), "no notes, no sidecar");
+        // One page per build step, with the notes next to the PDF.
+        let mut late = Shape { rect: Rect::new(0.0, 0.0, 50.0, 50.0), fill: Some(Color::BLACK), ..Default::default() };
+        late.steps = vec![Step::disappear(0), Step::appear(1)];
+        deck.slides[1].elements.push(Element::Shape(late));
+        deck.slides[1].notes = "say this".into();
+        let pages = transfer::pages(&deck, true);
+        assert_eq!(pages.len(), 3);
+        e.export_pdf_pages(&deck, &pages, |i, step| svg::render_step(&deck, &deck.slides[i], step), &out).unwrap();
+        let stepped = std::fs::read(&out).unwrap();
+        assert!(stepped.len() > bytes.len(), "three pages weigh more than two");
+        assert_eq!(
+            std::fs::read_to_string(out.with_extension("notes.md")).unwrap(),
+            "# 2\nsay this\n\n# 3\nsay this\n\n"
+        );
+        std::fs::remove_file(out.with_extension("notes.md")).unwrap();
         std::fs::remove_file(&out).unwrap();
     }
 

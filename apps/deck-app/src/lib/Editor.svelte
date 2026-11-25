@@ -222,10 +222,14 @@
     await run(`Layout loaded from ${picked}`, () => api.loadLayout(picked));
   }
 
+  // "Export PDF…" first asks how: one page per slide, or one per build step.
+  let pdfDialog = $state(false);
+  let pdfSteps = $state(false);
   async function exportPdf() {
+    pdfDialog = false;
     const picked = await saveDialog({ defaultPath: "talk.pdf", filters: [{ name: "PDF", extensions: ["pdf"] }] });
     if (!picked) return;
-    await run(`Exported ${picked}`, () => api.exportPdf(picked));
+    await run(`Exported ${picked}`, () => api.exportPdf(picked, pdfSteps));
   }
 
   // Reordering slides by dragging thumbnails: the drop target is the gap
@@ -677,7 +681,7 @@
     <button onclick={save} disabled={!view?.slide_count}>Save</button>
     <button onclick={saveAs} disabled={!view?.slide_count}>Save as…</button>
     <button onclick={exportPptx} disabled={!view?.slide_count}>Export PPTX…</button>
-    <button onclick={exportPdf} disabled={!view?.slide_count}>Export PDF…</button>
+    <button onclick={() => (pdfDialog = true)} disabled={!view?.slide_count}>Export PDF…</button>
     <span class="spacer"></span>
     <button title="Undo (Ctrl+Z)" disabled={!view?.can_undo} onclick={() => undoRedo(false)}>↶</button>
     <button title="Redo (Ctrl+Y)" disabled={!view?.can_redo} onclick={() => undoRedo(true)}>↷</button>
@@ -1009,6 +1013,20 @@
   <footer>{status}</footer>
   {#if help}<Help onclose={() => (help = false)} />{/if}
 
+  {#if pdfDialog}
+    <div class="modal">
+      <div class="dialog small">
+        <h3>Export PDF</h3>
+        <label><input type="radio" name="pdfmode" checked={!pdfSteps} onchange={() => (pdfSteps = false)} /> One page per slide, as it looks at the end (for reading and printing)</label>
+        <label><input type="radio" name="pdfmode" checked={pdfSteps} onchange={() => (pdfSteps = true)} /> One page per build step (for presenting with decker-viewer or any PDF reader)</label>
+        <p class="muted">Sections and slide titles become bookmarks. Speaker notes are written next to the PDF as <code>name.notes.md</code>, which decker-viewer shows in its presenter view.</p>
+        <div class="row">
+          <button class="primary" onclick={exportPdf}>Choose file…</button>
+          <button onclick={() => (pdfDialog = false)}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  {/if}
   {#if picker}
     <div class="modal">
       <div class="dialog">
@@ -1047,6 +1065,7 @@
   .layout-name { width: 160px; padding: 3px 6px; }
   .row { display: flex; gap: 6px; margin-top: 6px; }
   .macros { display: flex; flex-wrap: wrap; gap: 6px; }
+  .dialog.small { width: min(520px, 90vw); }
   .guide { stroke: #ff3b8d; stroke-width: 1; vector-effect: non-scaling-stroke; stroke-dasharray: 4 3; pointer-events: none; }
   .add-shape { width: auto; flex: none; padding: 5px 6px; background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; }
   .text-editing { user-select: none; }

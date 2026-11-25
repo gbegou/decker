@@ -39,3 +39,18 @@ target/debug/deck-convert pdf talk.deck            # → talk.pdf
 
 Slide text uses the DejaVu Sans family bundled with the engine, so the output does not
 depend on the fonts installed on the machine.
+
+## PDF export options
+
+**Export PDF…** asks how the pages are made:
+
+- **One page per slide**, as each slide looks at its last build step: for reading and
+  printing.
+- **One page per build step**: a slide with three clicks becomes four pages, so the PDF plays
+  the builds in [decker-viewer](viewer.md) or in any PDF reader. Bookmarks point at the first
+  page of each slide.
+
+Either way, the speaker notes are written next to the PDF as `name.notes.md`, one `# page`
+section per page (a slide's notes repeat on each of its step pages), which is the file the
+viewer's presenter view reads. The converter does the same: `deck-convert pdf talk.deck
+--steps`.
