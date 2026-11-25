@@ -2,6 +2,8 @@
 
 The editor is one window in five areas.
 
+![The editor, a figure selected](images/screens/editor.png)
+
 ```text
 ┌────────────────────────────────────────────────────────────────────────────┐
 │ ① New  Open file…  Open .deck folder…  Save  Save as…  Export…   ↶ ↷ ?    │

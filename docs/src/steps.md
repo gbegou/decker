@@ -22,6 +22,8 @@ together, while keeping steps of their own.
 
 ## In the editor
 
+![The build steps of an element in the side panel](images/screens/build-steps.png)
+
 Select an element: the **Build steps** panel lists its steps with everything they change, and
 offers **Appear on click** and **Disappear on click**. The ◀ ▶ controls under the canvas show
 the slide at a given click; viewing click 1 or later, dragging, resizing or rotating an

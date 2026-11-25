@@ -584,9 +584,11 @@ impl AppState {
     }
 
     fn render(&self, deck: &Deck, slide: &Slide, step: u32) -> String {
-        let raw = self.raw_slide(slide);
-        let slide = raw.as_ref().unwrap_or(slide);
-        inline_assets(&svg::render_step_with(deck, slide, step, &*self.math.0), &self.dir, &self.assets)
+        let svg = match self.raw_slide(slide) {
+            Some(copy) => svg::render_copy_with(deck, self.slide, &copy, step, &*self.math.0),
+            None => svg::render_step_with(deck, slide, step, &*self.math.0),
+        };
+        inline_assets(&svg, &self.dir, &self.assets)
     }
 
     /// The current slide with the formula under the caret shown as source,

@@ -43,7 +43,10 @@
     }
     const next = new DOMParser().parseFromString(scoped, "image/svg+xml").documentElement;
     const nextGroups = Array.from(next.querySelectorAll(":scope > g"));
-    const same = nextGroups.length === current.querySelectorAll(":scope > g").length;
+    // Patching only fits two steps of one slide: same elements, same
+    // background and the rest of what is not an element.
+    const rest = (svg: Element) => Array.from(svg.children).filter((c) => c.tagName !== "g").map((c) => c.outerHTML).join("");
+    const same = nextGroups.length === current.querySelectorAll(":scope > g").length && rest(next) === rest(current);
     if (!same) {
       replace();
       return;

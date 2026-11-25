@@ -1,5 +1,7 @@
 # Arranging
 
+![Two elements selected: the arrange bar above the slide](images/screens/arrange.png)
+
 ## Selecting
 
 - Click an element to select it; Shift+click adds or removes one from the selection.

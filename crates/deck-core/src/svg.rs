@@ -115,8 +115,25 @@ pub fn render_step_still(deck: &Deck, slide: &Slide, step: u32, math: &dyn MathR
     render_step_mode(deck, slide, step, math, false)
 }
 
+/// [`render_step_with`] for a stand-in of the slide at `index` (an edited
+/// copy, not in the deck): the variables are those of slide `index`.
+pub fn render_copy_with(deck: &Deck, index: usize, slide: &Slide, step: u32, math: &dyn MathRenderer) -> String {
+    render_at(deck, Some(index), slide, step, math, true)
+}
+
 fn render_step_mode(deck: &Deck, slide: &Slide, step: u32, math: &dyn MathRenderer, live: bool) -> String {
     let slide_index = deck.slides.iter().position(|s| std::ptr::eq(s, slide));
+    render_at(deck, slide_index, slide, step, math, live)
+}
+
+fn render_at(
+    deck: &Deck,
+    slide_index: Option<usize>,
+    slide: &Slide,
+    step: u32,
+    math: &dyn MathRenderer,
+    live: bool,
+) -> String {
     let ctx = Ctx { deck, math, slide_index, defaults: deck.theme_of(slide).defaults(), live };
     let mut out = String::new();
     let _ = write!(
@@ -864,6 +881,9 @@ mod tests {
         let second = render_slide(&deck, &deck.slides[1]);
         assert!(first.contains("Intro 1/2"), "{first}");
         assert!(second.contains("Intro 2/2"), "{second}");
+        let copy = deck.slides[1].clone();
+        let stand_in = render_copy_with(&deck, 1, &copy, 0, &NoMath);
+        assert!(stand_in.contains("Intro 2/2"), "a copy takes the variables of its slide: {stand_in}");
         let editor = render_layout(&deck, &deck.layouts[0], &NoMath);
         assert!(editor.contains("{{section}}"), "the layout editor shows the variables themselves");
     }

@@ -2,6 +2,8 @@
 
 ## The thumbnail pane
 
+![The menu of a thumbnail](images/screens/slide-menu.png)
+
 The left column lists the slides. Click one to edit it.
 
 - **Reorder** by dragging a thumbnail, or with Ctrl+Up and Ctrl+Down on the current slide.

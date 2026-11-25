@@ -3,6 +3,8 @@
 The same list as the editor's help (**F1** or **?**). Generated from the editor's source by
 `docs/gen_keys.py`; do not edit by hand.
 
+![The help dialog](images/screens/help.png)
+
 ## Deck
 
 | Key or control | Does |

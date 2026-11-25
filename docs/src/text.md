@@ -29,6 +29,8 @@ to the theme's default. The box's own fill and outline are set there as well.
 
 ## Formulas in text
 
+![Typing in place: the caret in a formula shows its source](images/screens/text-editing.png)
+
 Typing `$...$` in any text box makes an inline formula: `the angle $alpha$ is small`.
 Formulas use [Typst math](https://typst.app/docs/reference/math/), which names symbols
 without a backslash, but LaTeX's habit works too: `$\alpha + 2\pi$` reads as

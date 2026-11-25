@@ -13,7 +13,8 @@ def render() -> str:
     src = HELP.read_text(encoding="utf-8")
     out = ["# Commands and keys", "",
            "The same list as the editor's help (**F1** or **?**). Generated from the editor's source by",
-           "`docs/gen_keys.py`; do not edit by hand.", ""]
+           "`docs/gen_keys.py`; do not edit by hand.", "",
+           "![The help dialog](images/screens/help.png)", ""]
     for title, body in re.findall(r'\["(\w[^"]*)", \[\n(.*?)\n    \]\]', src, re.S):
         out += [f"## {title}", "", "| Key or control | Does |", "| --- | --- |"]
         for key, what in re.findall(r'\["((?:[^"\\]|\\.)*)", "((?:[^"\\]|\\.)*)"\]', body):

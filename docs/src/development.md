@@ -81,6 +81,20 @@ git tag v0.1.0 && git push origin v0.1.0
 The manual is published by the `Docs` workflow to GitHub Pages, which has to be enabled once
 in the repository's settings (Pages, source "GitHub Actions").
 
+## Screenshots
+
+The manual's screenshots (`docs/src/images/screens/`) are taken from the real editor, driven
+over WebDriver, on a demo deck built by `docs/screenshots/make_demo.py`:
+
+```bash
+docs/screenshots/shoot.sh
+```
+
+It needs Linux (it starts Xvfb when there is no display), `tauri-driver`
+(`cargo install tauri-driver`), WebKitWebDriver (package `webkit2gtk-driver`) and ImageMagick.
+Each shot is a function in `docs/screenshots/shoot.py` with its own app start; retake them
+when the interface changes, and add one for a new feature that is easier shown than told.
+
 ## Branding
 
 The logo is drawn by `branding/decker_logo.py` and installed (app icons, the manual's images

@@ -59,6 +59,8 @@ the same way (`subtitle2` for a second one).
 
 ## Editing a layout
 
+![The layout editor: placeholders dashed, a footer with variables](images/screens/layout-editor.png)
+
 **Edit layout**, under the layout selector, shows the layout on the canvas instead of a
 slide: its background, its static elements, editable like slide elements (drag, resize,
 double-click to type), and its placeholders as dashed boxes with their name, which move and
