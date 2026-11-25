@@ -714,7 +714,15 @@ fn is_math_mask(paragraphs: &[Paragraph]) -> Vec<bool> {
             mask.push(false);
         }
         for r in &p.runs {
-            mask.extend(r.text.chars().map(|_| r.math));
+            if r.math {
+                mask.extend(r.text.chars().map(|_| true));
+            } else {
+                // `$...$` typed in the text is a formula too, delimiters included.
+                for (math, part) in inline_math(&r.text) {
+                    let n = part.chars().count() + if math { 2 } else { 0 };
+                    mask.extend(std::iter::repeat_n(math, n));
+                }
+            }
         }
     }
     mask
@@ -859,12 +867,64 @@ fn run_markup(run: &Run) -> String {
     if let Some(f) = &run.font {
         args.push(format!("font: {}", font_list(Some(f))));
     }
-    let body = if run.math { format!("${}$", run.text) } else { typst_markup(&run.text) };
+    let body = if run.math {
+        format!("${}$", run.text)
+    } else {
+        inline_math(&run.text)
+            .into_iter()
+            .map(|(math, part)| if math { format!("${}$", latex_names(part)) } else { typst_markup(part) })
+            .collect()
+    };
     if args.is_empty() {
         body
     } else {
         format!("#text({})[{body}]", args.join(", "))
     }
+}
+
+/// Splits text into plain parts and inline formulas typed as `$...$`
+/// (`(true, formula)` without its dollars). A `$` without a closing one,
+/// an empty `$$` and an escaped `\$` stay text.
+fn inline_math(text: &str) -> Vec<(bool, &str)> {
+    let mut parts = vec![];
+    let bytes = text.as_bytes();
+    let (mut start, mut i) = (0, 0);
+    while i < bytes.len() {
+        if bytes[i] == b'$' && (i == 0 || bytes[i - 1] != b'\\') {
+            if let Some(len) = text[i + 1..].find('$').filter(|&len| len > 0) {
+                if start < i {
+                    parts.push((false, &text[start..i]));
+                }
+                parts.push((true, &text[i + 1..i + 1 + len]));
+                i += len + 2;
+                start = i;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    if start < text.len() {
+        parts.push((false, &text[start..]));
+    }
+    parts
+}
+
+/// A formula written with LaTeX's names (`\alpha`, `\sum`) in Typst's
+/// (`alpha`, `sum`): Typst names symbols without a backslash.
+fn latex_names(formula: &str) -> String {
+    let mut out = String::with_capacity(formula.len());
+    let mut chars = formula.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' && chars.peek().is_some_and(|n| n.is_ascii_alphabetic()) {
+            // A name after a letter or digit needs a space: `2\pi` is `2 pi`.
+            if out.chars().last().is_some_and(|l| l.is_alphanumeric()) {
+                out.push(' ');
+            }
+            continue;
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// The font files (`.ttf`, `.otf`) of `<deck_dir>/fonts/`.
@@ -1203,6 +1263,28 @@ mod theme_tests {
         assert_eq!(deck_fonts(&dir).len(), 1);
         let _ = Engine::for_deck(&dir);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod inline_math_tests {
+    use super::*;
+
+    #[test]
+    fn dollars_in_text_are_formulas() {
+        assert_eq!(inline_math("a $x$ b"), [(false, "a "), (true, "x"), (false, " b")]);
+        assert_eq!(inline_math("costs $5"), [(false, "costs $5")]);
+        assert_eq!(inline_math(r"\$1 and $$"), [(false, r"\$1 and $$")]);
+        assert_eq!(latex_names(r"\alpha + 2\pi r"), "alpha + 2 pi r");
+        assert_eq!(run_markup(&Run::plain(r"angle $\alpha$!")), r"angle $alpha$!");
+        let e = Engine::new();
+        let d = TextDefaults::default();
+        let typed = e.render_text("", &[Paragraph::plain(r"angle $\alpha$")], 400.0, &d).unwrap();
+        let symbol = e.render_text("", &[Paragraph::plain("angle α")], 400.0, &d).unwrap();
+        assert!((typed.width - symbol.width).abs() < 1e-9 && typed.height > 10.0);
+        // The caret: every character of `$\alpha$` maps onto the formula.
+        let boxes = e.layout_text("", &[Paragraph::plain(r"a $\alpha$ b")], 400.0, &d).unwrap();
+        assert_eq!(boxes.len(), r"a $\alpha$ b".chars().count() + 1);
     }
 }
 

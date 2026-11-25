@@ -6,6 +6,14 @@ bold, italic, size, color and font per run, alignment, bullets by level, and inl
 thumbnails and the PDF therefore show the same lines. Without the `typst` feature, text is
 wrapped by an estimate. Text defaults to the bundled DejaVu Sans at 18 pt.
 
+
+### Formulas inside text
+
+Typing `$...$` in any text box makes an inline formula: `the angle $alpha$ is small`.
+Typst names symbols without a backslash, but LaTeX's habit works too: `$\alpha + 2\pi$`
+reads as `$alpha + 2 pi$`. A lone `$` (a price) and `\$` stay text. Other LaTeX commands such
+as `\frac{a}{b}` are not translated: write `a/b` or `frac(a, b)`.
+
 ## Formulas
 
 Formulas are written in [Typst math](https://typst.app/docs/reference/math/) and rendered by
