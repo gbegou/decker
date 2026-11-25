@@ -15,6 +15,9 @@ fn main() {
     if env::var("HOST").map(|h| h.ends_with("windows-gnu")).unwrap_or(false) {
         provide_windres();
     }
+    // The icons are embedded at compile time (the executable's resource, the
+    // window icon): rebuild when they change, which Cargo would not see.
+    println!("cargo:rerun-if-changed=icons");
     tauri_build::build()
 }
 

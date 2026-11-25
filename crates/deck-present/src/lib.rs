@@ -116,6 +116,20 @@ pub fn present_at_launch() -> Option<String> {
     std::env::var("DECKER_PRESENT").ok().filter(|v| !v.is_empty())
 }
 
+/// Gives every window of the app the icon `png` (PNG bytes, typically
+/// `include_bytes!` of the app's `icons/128x128.png`, which makes the
+/// compiler track the file): the taskbar and title bar show it even when
+/// an incremental build kept an older embedded icon.
+pub fn set_icons(app: &AppHandle, png: &'static [u8]) {
+    let Ok(icon) = tauri::image::Image::from_bytes(png) else {
+        eprintln!("[decker] the window icon is not a readable PNG");
+        return;
+    };
+    for window in app.webview_windows().values() {
+        let _ = window.set_icon(icon.clone());
+    }
+}
+
 /// Creates the audience and presenter windows, hidden, at startup: on
 /// Windows a webview created later never loaded its page. `app_name`
 /// prefixes their titles. Both load the app's page; the window label

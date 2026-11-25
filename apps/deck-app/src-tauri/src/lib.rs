@@ -1004,6 +1004,7 @@ pub fn run() {
         .setup(move |app| {
             // The presentation windows, hidden until "Present".
             deck_present::create_windows(app.handle(), "decker");
+            deck_present::set_icons(app.handle(), include_bytes!("../icons/128x128.png"));
             if let Some(mode) = present {
                 let handle = app.handle().clone();
                 let state = handle.state::<Mutex<AppState>>();
