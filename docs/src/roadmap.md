@@ -1,6 +1,5 @@
 # Roadmap
 
-1. PDF pages as native Typst text so that text stays selectable.
 2. Python: publish `decker-slides` on PyPI.
 3. Editor: tables; rotation handle; rubber-band selection.
 4. Notes pages in the PDF.

@@ -54,3 +54,7 @@ Either way, the speaker notes are written next to the PDF as `name.notes.md`, on
 section per page (a slide's notes repeat on each of its step pages), which is the file the
 viewer's presenter view reads. The converter does the same: `deck-convert pdf talk.deck
 --steps`.
+
+Text in the PDF can be selected, searched and read by a screen reader: each slide is drawn as
+vector artwork, and its texts are typeset once more on top, invisibly, at the same place.
+Formulas and figures are artwork only.

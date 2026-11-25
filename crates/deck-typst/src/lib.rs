@@ -19,7 +19,7 @@ use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
 use typst::{Library, LibraryExt, World};
 
-use deck_core::{Align, Color, Deck, MathImage, MathRenderer, Paragraph, Run, TextDefaults};
+use deck_core::{Align, Color, Deck, Element, MathImage, MathRenderer, Paragraph, Run, TextDefaults};
 use typst::layout::{Frame, FrameItem, Point, Transform};
 
 /// The font text boxes default to (bundled, see [`DEJAVU_SANS`]).
@@ -232,12 +232,89 @@ impl Engine {
 
 /// The Typst source of a text box; `defaults` style what runs leave unset.
 fn text_source(preamble: &str, paragraphs: &[Paragraph], width: f64, defaults: &TextDefaults) -> String {
-    let size = defaults.size.unwrap_or(DEFAULT_SIZE);
-    let font = font_list(defaults.font.as_deref());
     let fill = defaults.color.unwrap_or(Color::BLACK).to_hex();
     let mut text = format!(
-            "#set page(width: {width}pt, height: auto, margin: 0pt, fill: none)\n#set text(size: {size}pt, font: {font}, fill: rgb(\"{fill}\"), top-edge: \"ascender\", bottom-edge: \"descender\")\n#set par(leading: 0.4em)\n#set block(spacing: 0.6em)\n#set list(marker: [•], indent: 0pt, body-indent: 0.5em)\n{preamble}\n"
-        );
+        "#set page(width: {width}pt, height: auto, margin: 0pt, fill: none)\n{}{preamble}\n",
+        text_setup(defaults, &fill)
+    );
+    text.push_str(&paragraphs_markup(paragraphs, defaults.size.unwrap_or(DEFAULT_SIZE)));
+    text
+}
+
+/// The texts of a slide at a build step as invisible Typst text placed
+/// where the picture of the slide shows them: the layout's (variables
+/// filled) and the slide's, inside groups too, skipping hidden elements.
+fn text_layer(deck: &Deck, slide_index: usize, step: u32) -> String {
+    let Some(slide) = deck.slides.get(slide_index) else { return String::new() };
+    let defaults = deck.theme_of(slide).defaults();
+    let mut out = String::new();
+    if let Some(layout) = deck.layout_of(slide) {
+        let vars = deck_core::vars::Vars::for_slide(deck, slide_index);
+        for e in &layout.elements {
+            let e = vars.element(e);
+            text_layer_element(&mut out, &e, e.last_step(), (0.0, 0.0), &defaults);
+        }
+    }
+    for e in &slide.elements {
+        text_layer_element(&mut out, e, step, (0.0, 0.0), &defaults);
+    }
+    out
+}
+
+fn text_layer_element(out: &mut String, e: &Element, step: u32, offset: (f64, f64), defaults: &TextDefaults) {
+    let state = e.state_at(step);
+    if state.opacity <= 0.01 {
+        return;
+    }
+    let paragraphs = match e {
+        Element::Text(t) => &t.paragraphs,
+        Element::Shape(s) => &s.paragraphs,
+        Element::Group(g) => {
+            // A group's step moves its children along with it.
+            let moved = (offset.0 + state.rect.x - g.rect.x, offset.1 + state.rect.y - g.rect.y);
+            for c in &g.children {
+                text_layer_element(out, c, c.last_step(), moved, defaults);
+            }
+            return;
+        }
+        _ => return,
+    };
+    if paragraphs.iter().all(|p| p.text().trim().is_empty()) {
+        return;
+    }
+    // Run colors would show: the layer is all transparent.
+    let plain: Vec<Paragraph> = paragraphs
+        .iter()
+        .map(|p| Paragraph { runs: p.runs.iter().map(|r| Run { color: None, ..r.clone() }).collect(), ..p.clone() })
+        .collect();
+    let pad = deck_core::svg::PADDING;
+    let r = state.rect;
+    let _ = std::fmt::Write::write_fmt(
+        out,
+        format_args!(
+            "#place(top + left, dx: {}pt, dy: {}pt, block(width: {}pt)[\n{}{}])\n",
+            r.x + offset.0 + pad,
+            r.y + offset.1 + pad,
+            (r.w - 2.0 * pad).max(1.0),
+            text_setup(defaults, "#00000000"),
+            paragraphs_markup(&plain, defaults.size.unwrap_or(DEFAULT_SIZE))
+        ),
+    );
+}
+
+/// The `#set` rules of a text box: font, size, color (`fill`, a hex color
+/// with or without alpha), line metrics, bullets.
+fn text_setup(defaults: &TextDefaults, fill: &str) -> String {
+    let size = defaults.size.unwrap_or(DEFAULT_SIZE);
+    let font = font_list(defaults.font.as_deref());
+    format!(
+        "#set text(size: {size}pt, font: {font}, fill: rgb(\"{fill}\"), top-edge: \"ascender\", bottom-edge: \"descender\")\n#set par(leading: 0.4em)\n#set block(spacing: 0.6em)\n#set list(marker: [•], indent: 0pt, body-indent: 0.5em)\n"
+    )
+}
+
+/// Paragraphs as Typst markup, under the rules of [`text_setup`].
+fn paragraphs_markup(paragraphs: &[Paragraph], size: f64) -> String {
+    let mut text = String::new();
     for p in paragraphs {
         let body: String = p.runs.iter().map(run_markup).collect();
         let body = if body.trim().is_empty() { "#v(1em)".to_string() } else { body };
@@ -298,9 +375,10 @@ impl Engine {
     ) -> Result<(), Error> {
         let mut binaries = Binaries::new();
         let mut text = format!(
-            "#set page(width: {w}pt, height: {h}pt, margin: 0pt)\n#set heading(outlined: true)\n#show heading: none\n",
+            "#set page(width: {w}pt, height: {h}pt, margin: 0pt)\n#set heading(outlined: true)\n#show heading: none\n{preamble}\n",
             w = deck.width,
-            h = deck.height
+            h = deck.height,
+            preamble = deck.math_preamble
         );
         let mut previous = None;
         for (i, &(slide_index, step)) in pages.iter().enumerate() {
@@ -332,6 +410,9 @@ impl Engine {
                 }
             }
             text.push_str(&format!("#image(\"{path}\", width: 100%, height: 100%, fit: \"contain\")\n"));
+            // The slide's texts once more, typeset invisibly at the same
+            // place: the PDF's text can be selected, searched and read aloud.
+            text.push_str(&text_layer(deck, slide_index, step));
         }
         let main_id = FileId::new(None, VirtualPath::new("/main.typ"));
         let world = Sandbox { shared: &self.inner, main: Source::new(main_id, text), binaries: &binaries };
@@ -802,6 +883,9 @@ mod tests {
         let bytes = std::fs::read(&out).unwrap();
         assert!(bytes.starts_with(b"%PDF"));
         assert!(!out.with_extension("notes.md").exists(), "no notes, no sidecar");
+        let layer = text_layer(&deck, 0, 0);
+        assert!(layer.contains("#place(top + left, dx: 54pt, dy: 54pt, block(width: 792pt)["), "{layer}");
+        assert!(layer.contains(r##"fill: rgb("#00000000")"##) && layer.contains(r"Welcome \[all\]"), "{layer}");
         // One page per build step, with the notes next to the PDF.
         let mut late = Shape { rect: Rect::new(0.0, 0.0, 50.0, 50.0), fill: Some(Color::BLACK), ..Default::default() };
         late.steps = vec![Step::disappear(0), Step::appear(1)];
