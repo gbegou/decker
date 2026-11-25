@@ -9,7 +9,8 @@
     ["Slides", [
       ["Click a thumbnail", "Go to that slide"],
       ["Right-click between or below thumbnails", "New slide, new plan slide, new section or new subsection there (a section starts with a new slide)"],
-      ["Right-click a thumbnail", "New slide or plan slide after, duplicate, delete, start or remove a section or subsection"],
+      ["Ctrl+click · Shift+click a thumbnail", "Pick several slides; right-click one of them to give them all a layout"],
+      ["Right-click a thumbnail", "Layout of the slide (or of the picked slides); new slide or plan slide after, duplicate, delete, start or remove a section or subsection"],
       ["Drag a thumbnail · Ctrl+Up / Ctrl+Down", "Reorder slides; sections travel with their first slide"],
       ["Page Up / Page Down", "Previous or next slide"],
       ["Insert from deck…", "Copy slides from another deck, with their images and layouts"],

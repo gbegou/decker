@@ -25,6 +25,8 @@
 
   onMount(() => {
     const stopView = watchView((v) => {
+      // Slides added or removed: the picked indices no longer mean the same slides.
+      if (view && v.slide_count !== view.slide_count) picked = [];
       view = v;
       if (selected !== null && selected >= v.elements.length) selected = null;
       also = also.filter((i) => i < v.elements.length);
@@ -333,8 +335,38 @@
 
   // ----- The thumbnail pane's right-click menu
   let slideMenu = $state<{ slide: number; x: number; y: number } | null>(null);
+  /** Thumbnails picked with Ctrl+click or Shift+click: the slides the menu acts on. */
+  let picked = $state<number[]>([]);
+  /** The layout list of the slide menu, unfolded. */
+  let layoutList = $state(false);
+  function clickThumb(e: MouseEvent, i: number) {
+    if (dragged) { dragged = false; return; }
+    if (!view) return;
+    if (e.ctrlKey || e.metaKey) {
+      const base = picked.length ? picked : [view.slide];
+      picked = base.includes(i) ? base.filter((k) => k !== i) : [...base, i].sort((a, b) => a - b);
+      return;
+    }
+    if (e.shiftKey) {
+      const [a, b] = [Math.min(view.slide, i), Math.max(view.slide, i)];
+      picked = Array.from({ length: b - a + 1 }, (_, k) => a + k);
+      return;
+    }
+    picked = [];
+    api.goto(i);
+  }
+  /** The slides a menu opened on `slide` acts on: the picked ones when it is among them. */
+  const targets = (slide: number) => (picked.includes(slide) ? picked : [slide]);
+  function applyLayout(name: string | null) {
+    const slides = targets(slideMenu!.slide);
+    slideMenu = null;
+    layoutList = false;
+    enqueue(async () => { await run(slides.length > 1 ? `Layout of ${slides.length} slides` : "Layout", () => api.setLayoutOf(slides, name)); });
+  }
+
   function openSlideMenu(e: MouseEvent, slide: number) {
     e.preventDefault();
+    layoutList = false;
     // Kept inside the window: the menu is about 300 px tall.
     slideMenu = { slide, x: e.clientX, y: Math.min(e.clientY, window.innerHeight - 310) };
   }
@@ -954,7 +986,7 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div class="stack-item" data-index={i} class:drop-before={dropAt === i} class:drop-after={dropAt === i + 1 && i === thumbnails.length - 1} class:dragging={dragging === i}
              onpointerdown={(e) => thumbDown(e, i)}>
-          <button class="thumb" class:current={i === view.slide} onclick={() => { if (dragged) { dragged = false; return; } api.goto(i); }} oncontextmenu={(e) => openSlideMenu(e, i)}>
+          <button class="thumb" class:current={i === view.slide} class:picked={picked.includes(i)} onclick={(e) => clickThumb(e, i)} oncontextmenu={(e) => openSlideMenu(e, i)}>
             <span class="num">{i + 1}</span>
             <SlideView svg={thumb} width={view.width} height={view.height} />
           </button>
@@ -1282,7 +1314,18 @@
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="menu-backdrop" onclick={() => (slideMenu = null)} oncontextmenu={(e) => { e.preventDefault(); slideMenu = null; }}></div>
     <div class="context-menu" role="menu" style="left: {m.x}px; top: {m.y}px">
-      <div class="menu-title">Slide {m.slide + 1}</div>
+      <div class="menu-title">{targets(m.slide).length > 1 ? `${targets(m.slide).length} slides` : `Slide ${m.slide + 1}`}</div>
+      <button role="menuitem" aria-expanded={layoutList} onclick={() => (layoutList = !layoutList)}>Layout {layoutList ? "▾" : "▸"}</button>
+      {#if layoutList}
+        <div class="menu-list">
+          {#each view.layouts as name}
+            <button role="menuitem" onclick={() => applyLayout(name)}>{name}</button>
+          {/each}
+          <button role="menuitem" onclick={() => applyLayout(null)}><em>No layout</em></button>
+        </div>
+      {/if}
+      {#if targets(m.slide).length === 1}
+      <hr />
       <button role="menuitem" onclick={() => onSlide("Added slide", api.addSlide)}>New slide after</button>
       <button role="menuitem" title="A slide listing the sections, the current one highlighted" onclick={() => onSlide("Added plan slide", async () => { await api.addSlide(); await api.addOutline(); })}>New plan slide after</button>
       <button role="menuitem" onclick={() => onSlide("Duplicated slide", api.duplicateSlide)}>Duplicate</button>
@@ -1297,6 +1340,7 @@
         <button role="menuitem" onclick={() => { const k = m.slide; slideMenu = null; startHeading(k, "subsection"); }}>Start a subsection here</button>
       {:else}
         <button role="menuitem" onclick={() => removeHeading(m.slide, "subsection")}>Remove subsection “{st.subsection}”</button>
+      {/if}
       {/if}
     </div>
   {/if}
@@ -1393,6 +1437,8 @@
   .heading.subsection .heading-name { font-weight: 500; color: var(--muted); }
   .heading input { font-size: 12px; padding: 2px 4px; }
   .thumb { padding: 2px; position: relative; background: none; width: 100%; }
+  .thumb.picked { outline: 2px dashed var(--accent); outline-offset: 1px; }
+  .menu-list { max-height: 40vh; overflow-y: auto; padding-left: 12px; display: flex; flex-direction: column; }
   .thumb.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .thumb .num { position: absolute; left: -2px; top: -2px; background: var(--panel); font-size: 11px; padding: 1px 4px; border-radius: 4px; z-index: 1; }
   main { grid-area: main; display: flex; flex-direction: column; min-width: 0; min-height: 0; }

@@ -1492,6 +1492,26 @@ impl AppState {
         Ok(())
     }
 
+    /// Sets the layout of several slides (`None`: no layout).
+    pub fn set_layout_of(&mut self, slides: &[usize], name: Option<String>) -> Result<(), String> {
+        let deck = self.deck.as_ref().ok_or("no deck")?;
+        if let Some(n) = &name {
+            if deck.layout(n).is_none() {
+                return Err(format!("no layout named {n}"));
+            }
+        }
+        if let Some(&bad) = slides.iter().find(|&&i| i >= deck.slides.len()) {
+            return Err(format!("no slide {}", bad + 1));
+        }
+        for &i in slides {
+            self.touch(Some(i));
+            if let Some(slide) = self.deck.as_mut().and_then(|d| d.slides.get_mut(i)) {
+                slide.layout.clone_from(&name);
+            }
+        }
+        Ok(())
+    }
+
     /// Thumbnails of another deck, for the slide picker.
     pub fn peek(&self, dir: &Path) -> Result<Vec<String>, String> {
         let other = native::load(dir).map_err(|e| e.to_string())?;
@@ -2240,6 +2260,20 @@ fn data_uri(path: &Path) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_layout_for_several_slides() {
+        let mut s = AppState::default();
+        let mut deck = Deck::new("t");
+        deck.layouts.push(deck_core::Layout { name: "L".into(), ..Default::default() });
+        deck.slides = vec![Slide::default(), Slide::default(), Slide::default()];
+        s.load(deck, std::path::PathBuf::new());
+        s.set_layout_of(&[0, 2], Some("L".into())).unwrap();
+        let layouts: Vec<_> = s.deck.as_ref().unwrap().slides.iter().map(|x| x.layout.clone()).collect();
+        assert_eq!(layouts, [Some("L".into()), None, Some("L".into())]);
+        assert!(s.set_layout_of(&[1], Some("nope".into())).is_err());
+        assert!(s.set_layout_of(&[9], None).is_err());
+    }
+
     use super::*;
     use deck_core::{Overrides, Shape, Step};
 

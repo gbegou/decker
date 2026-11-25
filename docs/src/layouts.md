@@ -44,6 +44,8 @@ export produces real placeholders and how a slide keeps its link to the layout.
 
 ## Choosing a slide's layout
 
+- Right-click a thumbnail, **Layout ▸**, and pick one: to give several slides the same
+  layout, pick them first with Ctrl+click or Shift+click on their thumbnails.
 - The right panel shows the slide's layout, with a selector to change it. Changing it keeps
   the slide's elements; placeholders are not re-created.
 - **New slide** (right-click a thumbnail) creates the next slide from that slide's layout: one text box per

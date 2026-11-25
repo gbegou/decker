@@ -895,6 +895,19 @@ fn set_layout(app: AppHandle, state: Shared, name: Option<String>) -> Result<Vie
     Ok(view)
 }
 
+/// The layout of several slides at once, one undo step.
+#[tauri::command]
+fn set_layout_of(app: AppHandle, state: Shared, slides: Vec<usize>, name: Option<String>) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint("set_layout_of", false);
+        s.set_layout_of(&slides, name.filter(|n| !n.is_empty()))?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
 /// Thumbnails of the slides of another deck folder.
 #[tauri::command]
 fn peek_deck(state: Shared, path: String) -> Result<Vec<String>, String> {
@@ -1079,6 +1092,7 @@ pub fn run() {
             delete_slide,
             duplicate_slide,
             set_layout,
+            set_layout_of,
             peek_deck,
             import_slides,
             add_text,

@@ -193,6 +193,7 @@ export const api = {
   styleElement: (element: number, change: ElementStyle) => invoke<View>("style_element", { element, change }),
   saveLayout: (path: string) => invoke<string>("save_layout", { path }),
   loadLayout: (path: string) => invoke<View>("load_layout", { path }),
+  setLayoutOf: (slides: number[], name: string | null) => invoke<View>("set_layout_of", { slides, name }),
   setLayout: (name: string | null) => invoke<View>("set_layout", { name }),
   peekDeck: (path: string) => invoke<string[]>("peek_deck", { path }),
   importSlides: (path: string, indices: number[]) => invoke<View>("import_slides", { path, indices }),

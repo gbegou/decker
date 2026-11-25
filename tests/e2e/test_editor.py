@@ -141,6 +141,29 @@ class SlideMenus(EditorTest):
                          "those are in the menus now")
 
 
+class Layouts(EditorTest):
+    def test_a_layout_for_several_slides_from_the_menu(self):
+        e = self.e
+        thumb = lambda i: e.rect(f".stack-item[data-index='{i}'] .thumb")
+        x, y = thumb(2)[:2]
+        e.pointer(x + 40, y + 40, keys=(decker_app.CTRL,))
+        x, y = thumb(4)[:2]
+        e.pointer(x + 40, y + 40, keys=(decker_app.CTRL,))
+        e.pointer(x + 40, y + 40, button=2)
+        self.assertEqual(e.s.js("return document.querySelector('.context-menu .menu-title').textContent"), "3 slides")
+        click = "[...document.querySelectorAll('.context-menu button')].find(b => b.textContent.trim().startsWith(arguments[0])).click(); return true"
+        e.s.js(click, "Layout")
+        e.settle(0.3)
+        e.s.js(click, "Title slide")
+        e.settle(1.5)
+        layouts = []
+        for i in range(5):
+            e.goto(i)
+            layouts.append(self.view()["layout"])
+        # Ctrl+click adds to the current slide (the first): slides 1, 3 and 5.
+        self.assertEqual(layouts, ["Title slide", "Title only", "Title slide", "Title only", "Title slide"])
+
+
 class Presenting(EditorTest):
     def env(self):
         return {"DECKER_PRESENT": "both", "DECKER_WINDOWED": "1"}

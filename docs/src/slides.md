@@ -8,7 +8,9 @@ The left column lists the slides. Click one to edit it.
 
 - **Reorder** by dragging a thumbnail, or with Ctrl+Up and Ctrl+Down on the current slide.
   Sections move with the slide that starts them.
-- **Right-click a thumbnail** for its menu: new slide or new plan slide after it, duplicate,
+- **Ctrl+click** thumbnails to pick several slides, **Shift+click** to pick a range; the
+  menu of a picked thumbnail then acts on all of them (its layout).
+- **Right-click a thumbnail** for its menu: its layout, new slide or new plan slide after it, duplicate,
   delete, and start or
   remove a section or subsection there. A duplicate belongs to its original's section.
 - **Right-click between or below thumbnails** to add a new slide, a new plan slide, a new
