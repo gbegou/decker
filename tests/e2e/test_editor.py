@@ -164,6 +164,38 @@ class Layouts(EditorTest):
         self.assertEqual(layouts, ["Title slide", "Title only", "Title slide", "Title only", "Title slide"])
 
 
+class Themes(EditorTest):
+    def button(self, text):
+        self.e.s.js("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === arguments[0]).click(); return true", text)
+        self.e.settle(1.0)
+
+    def set_field(self, selector, value):
+        self.e.s.js("""const el = document.querySelector(arguments[0]); el.value = arguments[1];
+                       el.dispatchEvent(new Event('change', {bubbles: true})); return true""", selector, value)
+        self.e.settle(1.0)
+
+    def test_override_reset_and_theme_change(self):
+        e = self.e
+        e.goto(2)
+        self.button("Edit layout")
+        e.click_slide(400, 60)  # the title placeholder
+        self.assertEqual(e.s.js("return document.querySelectorAll('.props .mark').length"), 6, "all from the theme")
+        self.set_field(".props .fields input[type=number]", "40")
+        self.assertEqual(self.view()["layout_meta"]["overrides"], ["title: size"])
+        e.s.js("document.querySelector('.props .mark.own button').click(); return true")  # ↺
+        e.settle(1.0)
+        self.assertEqual(self.view()["layout_meta"]["overrides"], [])
+        self.button("Edit theme “Waves”")
+        self.assertEqual(self.view()["editing_theme"], "Waves")
+        e.s.js("document.querySelector('details.kind').open = true; return true")
+        self.set_field("details.kind .fields input[type=number]", "36")
+        self.button("Done")
+        e.goto(2)
+        self.button("Edit layout")
+        title = next(x for x in self.view()["elements"] if x["kind"] == "placeholder" and x["text"] == "title")
+        self.assertEqual(title["placeholder"]["size"], 36, "the theme's new title size reaches the layout")
+
+
 class Presenting(EditorTest):
     def env(self):
         return {"DECKER_PRESENT": "both", "DECKER_WINDOWED": "1"}

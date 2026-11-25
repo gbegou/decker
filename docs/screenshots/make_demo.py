@@ -25,17 +25,29 @@ def band():
     return {"type": "shape", "kind": "rectangle", "rect": {"x": 0, "y": 0, "w": 960, "h": 8}, "fill": ACCENT}
 
 
+# One theme: the band, footer and slide number on every slide, the
+# placeholder styles; the layouts keep only what differs.
+THEMES = [
+    {"name": "Waves", "background": "#FFFFFF", "elements": [band(), footer(), number()],
+     "placeholders": [
+         {"name": "title", "rect": {"x": 0, "y": 0, "w": 0, "h": 0}, "size": 32, "bold": True, "color": INK},
+         {"name": "subtitle", "rect": {"x": 0, "y": 0, "w": 0, "h": 0}, "size": 24, "color": ACCENT},
+         {"name": "body", "rect": {"x": 0, "y": 0, "w": 0, "h": 0}, "size": 22, "bullets": True}]},
+]
+
 LAYOUTS = [
-    {"name": "Title slide", "background": PALE, "elements": [band()],
+    # The title slide changes the theme's background, title size and
+    # alignment, and has no footer.
+    {"name": "Title slide", "parent": "Waves", "background": PALE, "hide_theme_elements": True, "elements": [band()],
      "placeholders": [
-         {"name": "title", "rect": {"x": 80, "y": 170, "w": 800, "h": 90}, "size": 48, "bold": True, "align": "center", "color": INK},
-         {"name": "subtitle", "rect": {"x": 80, "y": 280, "w": 800, "h": 50}, "size": 24, "align": "center", "color": ACCENT}]},
-    {"name": "Title and content", "background": "#FFFFFF", "elements": [band(), footer(), number()],
+         {"name": "title", "rect": {"x": 80, "y": 170, "w": 800, "h": 90}, "size": 48, "align": "center", "own": ["size", "align"]},
+         {"name": "subtitle", "rect": {"x": 80, "y": 280, "w": 800, "h": 50}, "align": "center", "own": ["align"]}]},
+    {"name": "Title and content", "parent": "Waves",
      "placeholders": [
-         {"name": "title", "rect": {"x": 60, "y": 30, "w": 860, "h": 60}, "size": 32, "bold": True, "color": INK},
-         {"name": "body", "rect": {"x": 60, "y": 110, "w": 860, "h": 380}, "size": 22, "bullets": True}]},
-    {"name": "Title only", "background": "#FFFFFF", "elements": [band(), footer(), number()],
-     "placeholders": [{"name": "title", "rect": {"x": 60, "y": 30, "w": 860, "h": 60}, "size": 32, "bold": True, "color": INK}]},
+         {"name": "title", "rect": {"x": 60, "y": 30, "w": 860, "h": 60}},
+         {"name": "body1", "rect": {"x": 60, "y": 110, "w": 860, "h": 380}}]},
+    {"name": "Title only", "parent": "Waves",
+     "placeholders": [{"name": "title", "rect": {"x": 60, "y": 30, "w": 860, "h": 60}}]},
 ]
 
 
@@ -48,6 +60,7 @@ def fill(slide, **texts):
 
 def main(out: str):
     deck = decker.new("Waves in a tank")
+    deck.data["themes"] = THEMES
     deck.data["layouts"] = LAYOUTS
     deck.theme.update({"accent": ACCENT})
 

@@ -23,10 +23,12 @@ pub enum NativeError {
 pub fn load(dir: &Path) -> Result<Deck, NativeError> {
     let path = dir.join(DECK_FILE);
     let text = fs::read_to_string(&path).map_err(|source| NativeError::Io { path: path.clone(), source })?;
-    let deck: Deck = serde_json::from_str(&text).map_err(|source| NativeError::Json { path: path.clone(), source })?;
+    let mut deck: Deck =
+        serde_json::from_str(&text).map_err(|source| NativeError::Json { path: path.clone(), source })?;
     if deck.version > FORMAT_VERSION {
         return Err(NativeError::Version { path, found: deck.version, supported: FORMAT_VERSION });
     }
+    deck.migrate();
     Ok(deck)
 }
 

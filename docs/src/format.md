@@ -78,8 +78,11 @@ Every element may carry `steps`; see [Build steps](steps.md). A rotation from th
 a step at click 0 that sets `rotation` (degrees clockwise); PowerPoint's frame rotation maps
 to it both ways. The deck may carry a
 `math_preamble` and a `typst/` folder of importable files; see [Formulas and figures](formulas.md), a `theme`
-(default font, size, colors and palette, overridable per layout) and `layouts` that slides
-name; see [Layouts and themes](layouts.md). Variables in layout texts are listed in
+(the deck's text style: default font, size, colors and palette), `themes` (what a family of
+layouts shares: background, elements, text style, placeholder styles) and `layouts` that
+slides name, each keeping only what it changes of its theme; see
+[Themes and layouts](layouts.md#in-deckjson). The format version is 2; decks of version 1
+are converted when opened. Variables in theme and layout texts are listed in
 [Variables](variables.md).
 
 The authoritative definition is the `Deck` type in `deck-core`, documented in the

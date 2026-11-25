@@ -37,7 +37,7 @@ from typing import Any, Iterator
 
 __all__ = ["Deck", "Slide", "Element", "Rect", "Series", "load", "new", "current", "VERSION"]
 
-VERSION = 1
+VERSION = 2
 
 
 class Rect:
@@ -386,6 +386,38 @@ class Deck:
         return self.data.setdefault("layouts", [])
 
     @property
+    def themes(self) -> list[dict]:
+        """The themes (raw dicts): what a family of layouts shares, see the format chapter."""
+        return self.data.setdefault("themes", [])
+
+    def placeholders(self, layout: str) -> list[dict]:
+        """The placeholders of layout ``layout`` with their style resolved: what the
+        layout does not set itself (``own``) comes from its theme's placeholder of
+        the same kind (``body2`` takes ``body``)."""
+        lay = self.layout(layout)
+        if lay is None:
+            raise KeyError(f"no layout named {layout!r}")
+        theme = next((t for t in self.themes if t.get("name") == lay.get("parent")), None)
+        out = []
+        for ph in lay.get("placeholders", []):
+            ph = dict(ph)
+            if theme is not None:
+                name = ph.get("name", "")
+                kind = name.rstrip("0123456789")
+                base = next((b for b in theme.get("placeholders", []) if b.get("name") == name), None) or \
+                    next((b for b in theme.get("placeholders", []) if b.get("name", "").rstrip("0123456789") == kind), None)
+                if base is not None:
+                    for prop in ("size", "bold", "color", "font", "align", "bullets"):
+                        if prop not in ph.get("own", []):
+                            if prop in base:
+                                ph[prop] = base[prop]
+                            else:
+                                ph.pop(prop, None)
+            ph.pop("own", None)
+            out.append(ph)
+        return out
+
+    @property
     def theme(self) -> dict:
         return self.data.setdefault("theme", {})
 
@@ -409,10 +441,7 @@ class Deck:
         s: dict[str, Any] = {"elements": []}
         if layout:
             s["layout"] = layout
-            lay = next((l for l in self.layouts if l.get("name") == layout), None)
-            if lay is None:
-                raise KeyError(f"no layout named {layout!r}")
-            for ph in lay.get("placeholders", []):
+            for ph in self.placeholders(layout):
                 run = {k: ph[k] for k in ("size", "bold", "color", "font") if ph.get(k)}
                 p: dict[str, Any] = {"runs": [dict(run, text=ph.get("name", ""))]}
                 if ph.get("align"):

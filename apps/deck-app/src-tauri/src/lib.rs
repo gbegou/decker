@@ -383,6 +383,79 @@ fn move_slide(app: AppHandle, state: Shared, from: usize, to: usize) -> Result<V
     Ok(view)
 }
 
+/// Runs a theme or layout edit: one undo step, then the new view.
+fn template_edit(
+    app: &AppHandle,
+    state: &Shared,
+    label: &str,
+    f: impl FnOnce(&mut AppState) -> Result<(), String>,
+) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint(label, false);
+        f(&mut s)?;
+        s.view()
+    };
+    edited(app);
+    Ok(view)
+}
+
+#[tauri::command]
+fn edit_theme(app: AppHandle, state: Shared, name: Option<String>) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.edit_theme(name.filter(|n| !n.is_empty()))?;
+        s.view()
+    };
+    changed(&app);
+    Ok(view)
+}
+
+#[tauri::command]
+fn new_theme(app: AppHandle, state: Shared) -> Result<View, String> {
+    template_edit(&app, &state, "new_theme", |s| s.new_theme().map(|_| ()))
+}
+
+#[tauri::command]
+fn rename_theme(app: AppHandle, state: Shared, name: String) -> Result<View, String> {
+    template_edit(&app, &state, "rename_theme", |s| s.rename_theme(name))
+}
+
+#[tauri::command]
+fn delete_theme(app: AppHandle, state: Shared) -> Result<View, String> {
+    template_edit(&app, &state, "delete_theme", |s| s.delete_theme())
+}
+
+#[tauri::command]
+fn style_theme_placeholder(
+    app: AppHandle,
+    state: Shared,
+    kind: String,
+    change: PlaceholderStyle,
+) -> Result<View, String> {
+    template_edit(&app, &state, &format!("theme_placeholder:{kind}"), |s| s.style_theme_placeholder(&kind, &change))
+}
+
+#[tauri::command]
+fn set_layout_theme(app: AppHandle, state: Shared, theme: Option<String>) -> Result<View, String> {
+    template_edit(&app, &state, "set_layout_theme", |s| s.set_layout_theme(theme.filter(|t| !t.is_empty())))
+}
+
+#[tauri::command]
+fn hide_theme_elements(app: AppHandle, state: Shared, hide: bool) -> Result<View, String> {
+    template_edit(&app, &state, "hide_theme_elements", |s| s.hide_theme_elements(hide))
+}
+
+#[tauri::command]
+fn reset_to_theme(app: AppHandle, state: Shared, element: Option<usize>, prop: Option<String>) -> Result<View, String> {
+    template_edit(&app, &state, "reset_to_theme", |s| s.reset_to_theme(element, prop))
+}
+
+#[tauri::command]
+fn push_to_theme(app: AppHandle, state: Shared, element: usize, prop: String) -> Result<View, String> {
+    template_edit(&app, &state, "push_to_theme", |s| s.push_to_theme(element, &prop))
+}
+
 #[tauri::command]
 fn edit_layout(app: AppHandle, state: Shared, name: Option<String>) -> Result<View, String> {
     let view = {
@@ -1093,6 +1166,15 @@ pub fn run() {
             duplicate_slide,
             set_layout,
             set_layout_of,
+            edit_theme,
+            new_theme,
+            rename_theme,
+            delete_theme,
+            style_theme_placeholder,
+            set_layout_theme,
+            hide_theme_elements,
+            reset_to_theme,
+            push_to_theme,
             peek_deck,
             import_slides,
             add_text,

@@ -1,6 +1,7 @@
 # Variables
 
-In a [layout](layouts.md)'s texts, variables are replaced on each slide that uses the layout:
+In the texts of a [theme or a layout](layouts.md), variables are replaced on each slide that uses
+them:
 
 | Variable | Value |
 | --- | --- |

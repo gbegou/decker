@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use deck_core::{
     native, svg, text, transfer, Color, Crop, Deck, Element, Layout, Mask, MathRenderer, Media, Paragraph, Placeholder,
-    Play, Rect, Slide, Step, Stroke, TextBox, TextDefaults, Theme,
+    Play, Rect, Slide, Step, Stroke, TextBox, TextDefaults, Theme, ThemeSet,
 };
 
 #[derive(Default)]
@@ -26,6 +26,9 @@ pub struct AppState {
     pub blank: String,
     /// The layout being edited instead of a slide, by name.
     pub editing_layout: Option<String>,
+    /// The theme being edited instead of a slide, by name (its background,
+    /// shared elements and placeholder styles).
+    pub editing_theme: Option<String>,
     pub warnings: Vec<String>,
     /// Rendered thumbnails, one per slide; `None` when stale.
     thumbs: Vec<Option<String>>,
@@ -242,6 +245,15 @@ pub struct View {
     pub starts: Vec<SlideStart>,
     /// The layout being edited, when the canvas shows a layout.
     pub editing_layout: Option<String>,
+    /// The theme being edited, when the canvas shows a theme.
+    pub editing_theme: Option<String>,
+    /// The layouts by theme, for the layout menus; layouts without a theme
+    /// under an empty name, last.
+    pub layout_groups: Vec<LayoutGroup>,
+    /// The layout under edit: its theme and what it overrides.
+    pub layout_meta: Option<LayoutMeta>,
+    /// The theme under edit: the default style of each kind of placeholder.
+    pub theme_placeholders: Vec<Placeholder>,
     /// The theme of the layout under edit, else of the current slide.
     pub theme: ThemeInfo,
     pub can_undo: bool,
@@ -437,11 +449,29 @@ fn element_style_info(e: &Element) -> (Option<Color>, Option<Stroke>, Option<Col
 }
 
 /// The deck and where the user was, restored by undo.
+/// The layouts of one theme.
+#[derive(Debug, Clone, Serialize)]
+pub struct LayoutGroup {
+    pub theme: String,
+    pub layouts: Vec<String>,
+}
+
+/// A layout under edit, against its theme.
+#[derive(Debug, Clone, Serialize)]
+pub struct LayoutMeta {
+    pub parent: Option<String>,
+    pub hide_theme_elements: bool,
+    /// What it overrides, in words; empty when it follows its theme.
+    pub overrides: Vec<String>,
+    pub themes: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 struct Snapshot {
     deck: Deck,
     slide: usize,
     editing_layout: Option<String>,
+    editing_theme: Option<String>,
 }
 
 const UNDO_LIMIT: usize = 200;
@@ -526,7 +556,12 @@ impl AppState {
         if merge && self.last_edit.as_deref() == Some(kind) {
             return;
         }
-        self.undo.push(Snapshot { deck: deck.clone(), slide: self.slide, editing_layout: self.editing_layout.clone() });
+        self.undo.push(Snapshot {
+            deck: deck.clone(),
+            slide: self.slide,
+            editing_layout: self.editing_layout.clone(),
+            editing_theme: self.editing_theme.clone(),
+        });
         if self.undo.len() > UNDO_LIMIT {
             self.undo.remove(0);
         }
@@ -563,10 +598,12 @@ impl AppState {
             deck: self.deck.take().unwrap_or_else(|| Deck::new("")),
             slide: self.slide,
             editing_layout: self.editing_layout.clone(),
+            editing_theme: self.editing_theme.clone(),
         };
         self.slide = snap.slide.min(snap.deck.slides.len().saturating_sub(1));
         self.step = 0;
         self.editing_layout = snap.editing_layout.filter(|n| snap.deck.layout(n).is_some());
+        self.editing_theme = snap.editing_theme.filter(|n| snap.deck.theme_set(n).is_some());
         self.deck = Some(snap.deck);
         self.last_edit = None;
         self.touch(None);
@@ -577,6 +614,9 @@ impl AppState {
     pub fn replace_deck(&mut self, deck: Deck, slide: Option<usize>) {
         self.slide = slide.unwrap_or(self.slide).min(deck.slides.len().saturating_sub(1));
         self.step = 0;
+        if self.editing_theme.as_deref().is_some_and(|n| deck.theme_set(n).is_none()) {
+            self.editing_theme = None;
+        }
         if let Some(n) = &self.editing_layout {
             if deck.layout(n).is_none() {
                 self.editing_layout = None;
@@ -628,7 +668,7 @@ impl AppState {
     /// when `slide` is the current slide and there is one.
     fn raw_slide(&self, slide: &Slide) -> Option<Slide> {
         let (element, caret) = self.raw?;
-        if self.editing_layout.is_some() || !std::ptr::eq(self.current()?.1, slide) {
+        if self.editing_template() || !std::ptr::eq(self.current()?.1, slide) {
             return None;
         }
         let mut slide = slide.clone();
@@ -741,12 +781,19 @@ impl AppState {
                 in_subsection: None,
                 starts: vec![],
                 editing_layout: None,
+                editing_theme: None,
+                layout_groups: vec![],
+                layout_meta: None,
+                theme_placeholders: vec![],
                 theme: ThemeInfo::default(),
                 can_undo: false,
                 can_redo: false,
             };
         };
         let (can_undo, can_redo) = self.can_undo_redo();
+        if let Some(theme) = self.editing_theme.as_deref().and_then(|n| deck.theme_set(n)) {
+            return self.theme_view(deck, theme);
+        }
         if let Some(layout) = self.editing_layout.as_deref().and_then(|n| deck.layout(n)) {
             return self.layout_view(deck, layout);
         }
@@ -838,6 +885,10 @@ impl AppState {
                 .map(|s| SlideStart { section: s.section.clone(), subsection: s.subsection.clone() })
                 .collect(),
             editing_layout: None,
+            editing_theme: None,
+            layout_groups: layout_groups(deck),
+            layout_meta: None,
+            theme_placeholders: vec![],
             theme: ThemeInfo { own: deck.theme.clone(), effective: deck.theme_of(slide), fonts: self.math.fonts() },
             can_undo,
             can_redo,
@@ -895,7 +946,11 @@ impl AppState {
                 table: table_info(e, e.rect()),
             })
             .collect();
-        for (k, ph) in layout.placeholders.iter().enumerate() {
+        let resolved = deck.resolve(layout);
+        for (k, (ph, shown)) in layout.placeholders.iter().zip(&resolved.placeholders).enumerate() {
+            // The style as drawn (the theme's where the layout sets none),
+            // with what the layout overrides in `own`.
+            let ph = &Placeholder { own: ph.own.clone(), ..shown.clone() };
             elements.push(ElementInfo {
                 index: layout.elements.len() + k,
                 kind: "placeholder",
@@ -947,6 +1002,15 @@ impl AppState {
             in_subsection: None,
             starts,
             editing_layout: Some(layout.name.clone()),
+            editing_theme: None,
+            layout_groups: layout_groups(deck),
+            layout_meta: Some(LayoutMeta {
+                parent: layout.parent.clone(),
+                hide_theme_elements: layout.hide_theme_elements,
+                overrides: if layout.parent.is_some() { layout.overrides() } else { vec![] },
+                themes: deck.themes.iter().map(|t| t.name.clone()).collect(),
+            }),
+            theme_placeholders: vec![],
             theme: ThemeInfo {
                 own: layout.theme.clone(),
                 effective: deck.theme_of_layout(layout),
@@ -972,7 +1036,9 @@ impl AppState {
             .as_ref()
             .map(|p| p.iter().map(|v| Color::from_hex(v).map_err(|e| e.to_string())).collect::<Result<Vec<_>, _>>())
             .transpose()?;
-        let theme = if self.editing_layout.is_some() {
+        let theme = if self.editing_theme.is_some() {
+            &mut self.theme_mut()?.style
+        } else if self.editing_layout.is_some() {
             &mut self.layout_mut()?.theme
         } else {
             &mut self.deck.as_mut().ok_or("no deck")?.theme
@@ -996,6 +1062,223 @@ impl AppState {
         Ok(())
     }
 
+    // ----- themes -----
+
+    /// Whether a layout or a theme is under edit rather than a slide.
+    pub fn editing_template(&self) -> bool {
+        self.editing_layout.is_some() || self.editing_theme.is_some()
+    }
+
+    /// The elements under edit: the theme's, the layout's or the slide's.
+    fn edited_elements<'a>(&self, deck: &'a Deck, slide: &'a Slide) -> &'a Vec<Element> {
+        if let Some(t) = self.editing_theme.as_deref().and_then(|n| deck.theme_set(n)) {
+            return &t.elements;
+        }
+        match self.editing_layout.as_deref().and_then(|n| deck.layout(n)) {
+            Some(layout) => &layout.elements,
+            None => &slide.elements,
+        }
+    }
+
+    fn theme_mut(&mut self) -> Result<&mut ThemeSet, String> {
+        let name = self.editing_theme.clone().ok_or("no theme under edit")?;
+        self.deck
+            .as_mut()
+            .and_then(|d| d.themes.iter_mut().find(|t| t.name == name))
+            .ok_or_else(|| "no such theme".to_string())
+    }
+
+    /// The theme editor's view: background and shared elements on the
+    /// canvas, the placeholder styles for the panel.
+    fn theme_view(&self, deck: &Deck, theme: &ThemeSet) -> View {
+        let as_layout = Layout {
+            name: theme.name.clone(),
+            background: theme.background,
+            theme: theme.style.clone(),
+            elements: theme.elements.clone(),
+            ..Default::default()
+        };
+        let mut view = self.layout_view(deck, &as_layout);
+        view.svg = inline_assets(&svg::render_theme(deck, theme, &*self.math.0), &self.dir, &self.assets);
+        view.editing_layout = None;
+        view.editing_theme = Some(theme.name.clone());
+        view.layout = None;
+        view.layout_meta = None;
+        view.theme_placeholders = theme.placeholders.clone();
+        view.theme.effective = theme.style.over(&deck.theme);
+        view
+    }
+
+    /// Enters (`Some(name)`) or leaves (`None`) the theme editor.
+    pub fn edit_theme(&mut self, name: Option<String>) -> Result<(), String> {
+        if let Some(n) = &name {
+            if self.deck.as_ref().ok_or("no deck")?.theme_set(n).is_none() {
+                return Err(format!("no theme named {n}"));
+            }
+            self.editing_layout = None;
+        }
+        self.editing_theme = name;
+        Ok(())
+    }
+
+    /// A new theme (with the deck's default placeholder styles), entered
+    /// for editing. Returns its name.
+    pub fn new_theme(&mut self) -> Result<String, String> {
+        let deck = self.deck.as_mut().ok_or("no deck")?;
+        let name = deck.free_theme_name("Theme");
+        let (w, h) = (deck.width, deck.height);
+        let sample = Layout::preset("", "compare", w, h);
+        let mut placeholders: Vec<Placeholder> = vec![];
+        for p in sample.placeholders.iter().chain(Layout::preset("", "title", w, h).placeholders.iter()) {
+            let kind = deck_core::themes::kind_of(&p.name).to_string();
+            if !placeholders.iter().any(|q| q.name == kind) {
+                placeholders.push(Placeholder { name: kind, rect: Rect::default(), ..p.clone() });
+            }
+        }
+        deck.themes.push(ThemeSet { name: name.clone(), placeholders, ..Default::default() });
+        self.editing_layout = None;
+        self.editing_theme = Some(name.clone());
+        Ok(name)
+    }
+
+    /// Renames the theme under edit, in its layouts too.
+    pub fn rename_theme(&mut self, new_name: String) -> Result<(), String> {
+        let new_name = new_name.trim().to_string();
+        if new_name.is_empty() {
+            return Err("a theme needs a name".into());
+        }
+        let old = self.editing_theme.clone().ok_or("no theme under edit")?;
+        let deck = self.deck.as_mut().ok_or("no deck")?;
+        if old != new_name && deck.theme_set(&new_name).is_some() {
+            return Err(format!("a theme named {new_name} exists"));
+        }
+        for t in deck.themes.iter_mut().filter(|t| t.name == old) {
+            t.name = new_name.clone();
+        }
+        for l in deck.layouts.iter_mut().filter(|l| l.parent.as_deref() == Some(old.as_str())) {
+            l.parent = Some(new_name.clone());
+        }
+        self.editing_theme = Some(new_name);
+        Ok(())
+    }
+
+    /// Deletes the theme under edit; its layouts keep their look (they are
+    /// resolved first) and lose the theme.
+    pub fn delete_theme(&mut self) -> Result<(), String> {
+        let name = self.editing_theme.take().ok_or("no theme under edit")?;
+        let deck = self.deck.as_mut().ok_or("no deck")?;
+        let resolved: Vec<(usize, Layout)> = deck
+            .layouts
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.parent.as_deref() == Some(name.as_str()))
+            .map(|(i, l)| (i, Layout { parent: None, ..deck.resolve(l) }))
+            .collect();
+        for (i, l) in resolved {
+            deck.layouts[i] = l;
+        }
+        deck.themes.retain(|t| t.name != name);
+        self.touch(None);
+        Ok(())
+    }
+
+    /// Sets the default style of placeholder kind `kind` in the theme under edit.
+    pub fn style_theme_placeholder(&mut self, kind: &str, change: &PlaceholderStyle) -> Result<(), String> {
+        self.touch(None);
+        let theme = self.theme_mut()?;
+        if !theme.placeholders.iter().any(|p| p.name == kind) {
+            theme.placeholders.push(Placeholder { name: kind.to_string(), ..Default::default() });
+        }
+        let ph = theme.placeholders.iter_mut().find(|p| p.name == kind).ok_or("no such placeholder")?;
+        apply_placeholder_style(ph, change)
+    }
+
+    /// The theme the layout under edit belongs to (`None`: none). Its look
+    /// is kept: what differs from the new theme becomes overrides.
+    pub fn set_layout_theme(&mut self, theme: Option<String>) -> Result<(), String> {
+        self.touch(None);
+        let deck = self.deck.as_ref().ok_or("no deck")?;
+        if let Some(t) = &theme {
+            if deck.theme_set(t).is_none() {
+                return Err(format!("no theme named {t}"));
+            }
+        }
+        let name = self.editing_layout.clone().ok_or("no layout under edit")?;
+        let deck = self.deck.as_mut().ok_or("no deck")?;
+        let i = deck.layouts.iter().position(|l| l.name == name).ok_or("no such layout")?;
+        let mut layout = Layout { parent: None, ..deck.resolve(&deck.layouts[i]) };
+        if let Some(t) = theme.as_deref().and_then(|t| deck.theme_set(t)) {
+            layout.parent = Some(t.name.clone());
+            // What the theme shares is no longer the layout's own.
+            layout.elements.retain(|e| !t.elements.contains(e));
+            if layout.background == t.background {
+                layout.background = None;
+            }
+            if layout.theme == t.style {
+                layout.theme = Theme::default();
+            }
+            for p in &mut layout.placeholders {
+                p.own = match t.placeholder_for(&p.name) {
+                    Some(base) => deck_core::PLACEHOLDER_PROPS
+                        .iter()
+                        .filter(|prop| !same_prop(p, base, prop))
+                        .map(|s| s.to_string())
+                        .collect(),
+                    None => deck_core::PLACEHOLDER_PROPS.iter().map(|s| s.to_string()).collect(),
+                };
+            }
+        }
+        deck.layouts[i] = layout;
+        Ok(())
+    }
+
+    /// Whether the layout under edit draws its theme's shared elements.
+    pub fn hide_theme_elements(&mut self, hide: bool) -> Result<(), String> {
+        self.touch(None);
+        self.layout_mut()?.hide_theme_elements = hide;
+        Ok(())
+    }
+
+    /// Drops overrides of the layout under edit: of one placeholder
+    /// property (`element` and `prop`), or all of them.
+    pub fn reset_to_theme(&mut self, element: Option<usize>, prop: Option<String>) -> Result<(), String> {
+        self.touch(None);
+        let name = self.editing_layout.clone().ok_or("no layout under edit")?;
+        let deck = self.deck.as_mut().ok_or("no deck")?;
+        let i = deck.layouts.iter().position(|l| l.name == name).ok_or("no such layout")?;
+        let theme = deck.layouts[i].parent.as_deref().and_then(|t| deck.theme_set(t)).cloned();
+        let layout = &mut deck.layouts[i];
+        match (element, prop) {
+            (Some(e), Some(prop)) => {
+                let k = e.checked_sub(layout.elements.len()).ok_or("not a placeholder")?;
+                layout.placeholders.get_mut(k).ok_or("no such placeholder")?.reset(&prop, theme.as_ref());
+            }
+            _ => layout.reset_to_theme(theme.as_ref()),
+        }
+        Ok(())
+    }
+
+    /// Makes an override of the layout under edit the theme's default: the
+    /// placeholder's property moves to the theme, for all its layouts.
+    pub fn push_to_theme(&mut self, element: usize, prop: &str) -> Result<(), String> {
+        self.touch(None);
+        let name = self.editing_layout.clone().ok_or("no layout under edit")?;
+        let deck = self.deck.as_mut().ok_or("no deck")?;
+        let i = deck.layouts.iter().position(|l| l.name == name).ok_or("no such layout")?;
+        let parent = deck.layouts[i].parent.clone().ok_or("the layout has no theme")?;
+        let k = element.checked_sub(deck.layouts[i].elements.len()).ok_or("not a placeholder")?;
+        let ph = deck.layouts[i].placeholders.get(k).ok_or("no such placeholder")?.clone();
+        let kind = deck_core::themes::kind_of(&ph.name).to_string();
+        let theme = deck.themes.iter_mut().find(|t| t.name == parent).ok_or("no such theme")?;
+        if !theme.placeholders.iter().any(|p| deck_core::themes::kind_of(&p.name) == kind) {
+            theme.placeholders.push(Placeholder { name: kind.clone(), ..Default::default() });
+        }
+        let base = theme.placeholders.iter_mut().find(|p| deck_core::themes::kind_of(&p.name) == kind).unwrap();
+        copy_prop(base, &ph, prop);
+        deck.layouts[i].placeholders[k].own.retain(|p| p != prop);
+        Ok(())
+    }
+
     // ----- layouts -----
 
     /// Enters (`Some(name)`) or leaves (`None`) the layout editor.
@@ -1005,6 +1288,7 @@ impl AppState {
             if deck.layout(n).is_none() {
                 return Err(format!("no layout named {n}"));
             }
+            self.editing_theme = None;
         }
         self.editing_layout = name;
         Ok(())
@@ -1026,8 +1310,21 @@ impl AppState {
             n += 1;
             name = format!("{base} {n}");
         }
-        let layout = Layout::preset(&name, kind, deck.width, deck.height);
+        let mut layout = Layout::preset(&name, kind, deck.width, deck.height);
+        // In the theme of the current slide's layout (else the first one):
+        // its placeholders take the theme's styles.
+        let current = deck.slides.get(self.slide).and_then(|s| s.layout.as_deref()).and_then(|n| deck.layout(n));
+        let theme = current.and_then(|l| l.parent.clone()).or_else(|| deck.themes.first().map(|t| t.name.clone()));
+        if let Some(t) = theme.as_deref().and_then(|t| deck.theme_set(t)) {
+            for p in &mut layout.placeholders {
+                if t.placeholder_for(&p.name).is_none() {
+                    p.own = deck_core::PLACEHOLDER_PROPS.iter().map(|s| s.to_string()).collect();
+                }
+            }
+            layout.parent = Some(t.name.clone());
+        }
         deck.layouts.push(layout);
+        self.editing_theme = None;
         self.editing_layout = Some(name.clone());
         Ok(name)
     }
@@ -1121,7 +1418,9 @@ impl AppState {
     /// The elements being edited: the layout's when a layout is under
     /// edit, else the current slide's.
     fn elements_mut(&mut self) -> Result<&mut Vec<Element>, String> {
-        if self.editing_layout.is_some() {
+        if self.editing_theme.is_some() {
+            Ok(&mut self.theme_mut()?.elements)
+        } else if self.editing_layout.is_some() {
             Ok(&mut self.layout_mut()?.elements)
         } else {
             Ok(&mut self.slide_mut()?.elements)
@@ -1131,7 +1430,7 @@ impl AppState {
     /// Marks what the current edit changes: the slide, or every slide of
     /// the layout under edit.
     fn touch_target(&mut self) {
-        if self.editing_layout.is_some() {
+        if self.editing_template() {
             self.touch(None);
         } else {
             self.touch(Some(self.slide));
@@ -1255,7 +1554,7 @@ impl AppState {
         // Viewing a build step the element changes at: the drag edits that
         // step's target box rather than the base position.
         let step = self.step;
-        if step > 0 && self.editing_layout.is_none() {
+        if step > 0 && !self.editing_template() {
             if let Some(e) = self.elements_mut()?.get_mut(element) {
                 let steps = e.steps_mut();
                 let target = match steps.iter_mut().position(|st| st.at == step) {
@@ -1370,11 +1669,8 @@ impl AppState {
     /// caret box after the last character. `None` without the typesetter.
     pub fn text_layout(&self, element: usize) -> Result<Option<TextLayout>, String> {
         let (deck, slide) = self.current().ok_or("no slide")?;
-        let elements = match self.editing_layout.as_deref().and_then(|n| deck.layout(n)) {
-            Some(layout) => &layout.elements,
-            None => &slide.elements,
-        };
-        let shown = |e: &Element| if self.editing_layout.is_some() { *e.rect() } else { e.state_at(self.step).rect };
+        let elements = self.edited_elements(deck, slide);
+        let shown = |e: &Element| if self.editing_template() { *e.rect() } else { e.state_at(self.step).rect };
         let mut size = None;
         let cell_paragraphs;
         let (rect, paragraphs): (Rect, &[Paragraph]) = match elements.get(element) {
@@ -1393,6 +1689,12 @@ impl AppState {
         };
         let mut defaults = match self.editing_layout.as_deref().and_then(|n| deck.layout(n)) {
             Some(layout) => deck.theme_of_layout(layout).defaults(),
+            None if self.editing_theme.is_some() => self
+                .editing_theme
+                .as_deref()
+                .and_then(|n| deck.theme_set(n))
+                .map(|t| t.style.over(&deck.theme).defaults())
+                .unwrap_or_default(),
             None => deck.theme_of(slide).defaults(),
         };
         defaults.size = size.or(defaults.size);
@@ -1625,10 +1927,7 @@ impl AppState {
     /// The clipboard text for `indices` of the current slide or layout.
     pub fn copy_elements(&self, indices: &[usize]) -> Result<String, String> {
         let (deck, slide) = self.current().ok_or("no slide")?;
-        let elements = match self.editing_layout.as_deref().and_then(|n| deck.layout(n)) {
-            Some(layout) => &layout.elements,
-            None => &slide.elements,
-        };
+        let elements = self.edited_elements(deck, slide);
         let mut sorted: Vec<usize> = indices.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -1703,23 +2002,19 @@ impl AppState {
         let layout = self.layout_mut()?;
         let k = element.checked_sub(layout.elements.len()).ok_or("not a placeholder")?;
         let ph = layout.placeholders.get_mut(k).ok_or("no such placeholder")?;
-        if let Some(size) = change.size {
-            ph.size = if size > 0.0 { Some(size) } else { None };
-        }
-        if let Some(b) = change.bold {
-            ph.bold = b;
-        }
-        if let Some(c) = &change.color {
-            ph.color = if c.is_empty() { None } else { Some(Color::from_hex(c).map_err(|e| e.to_string())?) };
-        }
-        if let Some(f) = &change.font {
-            ph.font = if f.is_empty() { None } else { Some(f.clone()) };
-        }
-        if let Some(a) = change.align {
-            ph.align = a;
-        }
-        if let Some(b) = change.bullets {
-            ph.bullets = b;
+        apply_placeholder_style(ph, change)?;
+        // In a layout with a theme, what is set here overrides the theme.
+        for (prop, set) in [
+            ("size", change.size.is_some()),
+            ("bold", change.bold.is_some()),
+            ("color", change.color.is_some()),
+            ("font", change.font.is_some()),
+            ("align", change.align.is_some()),
+            ("bullets", change.bullets.is_some()),
+        ] {
+            if set {
+                ph.set_own(prop);
+            }
         }
         Ok(())
     }
@@ -1858,7 +2153,7 @@ impl AppState {
     /// the start (kept as an instant step at click 0).
     pub fn set_rotation(&mut self, element: usize, degrees: f64) -> Result<(), String> {
         self.touch_target();
-        let step = if self.editing_layout.is_some() { 0 } else { self.step };
+        let step = if self.editing_template() { 0 } else { self.step };
         let degrees = ((degrees % 360.0) + 360.0) % 360.0;
         let e = self.elements_mut()?.get_mut(element).ok_or("no such element")?;
         let steps = e.steps_mut();
@@ -2258,8 +2553,122 @@ fn data_uri(path: &Path) -> Option<String> {
     Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
 }
 
+/// Applies a placeholder style change.
+fn apply_placeholder_style(ph: &mut Placeholder, change: &PlaceholderStyle) -> Result<(), String> {
+    if let Some(size) = change.size {
+        ph.size = if size > 0.0 { Some(size) } else { None };
+    }
+    if let Some(b) = change.bold {
+        ph.bold = b;
+    }
+    if let Some(c) = &change.color {
+        ph.color = if c.is_empty() { None } else { Some(Color::from_hex(c).map_err(|e| e.to_string())?) };
+    }
+    if let Some(f) = &change.font {
+        ph.font = if f.is_empty() { None } else { Some(f.clone()) };
+    }
+    if let Some(a) = change.align {
+        ph.align = a;
+    }
+    if let Some(b) = change.bullets {
+        ph.bullets = b;
+    }
+    Ok(())
+}
+
+/// Whether two placeholders agree on style property `prop`.
+fn same_prop(a: &Placeholder, b: &Placeholder, prop: &str) -> bool {
+    let mut c = b.clone();
+    copy_prop(&mut c, a, prop);
+    c == *b
+}
+
+/// Copies style property `prop` of `from` into `to`.
+fn copy_prop(to: &mut Placeholder, from: &Placeholder, prop: &str) {
+    match prop {
+        "size" => to.size = from.size,
+        "bold" => to.bold = from.bold,
+        "color" => to.color = from.color,
+        "font" => to.font.clone_from(&from.font),
+        "align" => to.align = from.align,
+        "bullets" => to.bullets = from.bullets,
+        _ => {}
+    }
+}
+
+/// The layouts grouped by theme, themes in deck order, then the layouts
+/// without a theme (under an empty name).
+fn layout_groups(deck: &Deck) -> Vec<LayoutGroup> {
+    let mut groups: Vec<LayoutGroup> = deck
+        .themes
+        .iter()
+        .map(|t| LayoutGroup {
+            theme: t.name.clone(),
+            layouts: deck.layouts_of_theme(&t.name).iter().map(|l| l.name.clone()).collect(),
+        })
+        .collect();
+    let loose: Vec<String> = deck
+        .layouts
+        .iter()
+        .filter(|l| l.parent.as_deref().is_none_or(|p| deck.theme_set(p).is_none()))
+        .map(|l| l.name.clone())
+        .collect();
+    if !loose.is_empty() {
+        groups.push(LayoutGroup { theme: String::new(), layouts: loose });
+    }
+    groups
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn layouts_override_their_theme_and_come_back_to_it() {
+        let mut deck = Deck { version: 1, ..Deck::new("t") };
+        let title = |size: f64| Placeholder { name: "title".into(), size: Some(size), ..Default::default() };
+        let logo = Element::Text(TextBox::plain(Rect::new(0.0, 500.0, 50.0, 20.0), "logo"));
+        for name in ["A", "B"] {
+            deck.layouts.push(Layout {
+                name: name.into(),
+                elements: vec![logo.clone()],
+                placeholders: vec![title(30.0)],
+                ..Default::default()
+            });
+        }
+        deck.slides = vec![Slide { layout: Some("A".into()), ..Default::default() }];
+        deck.migrate();
+        let mut s = AppState::default();
+        s.load(deck, std::path::PathBuf::new());
+        s.edit_layout(Some("A".into())).unwrap();
+        let size = |s: &AppState, l: &str| s.deck.as_ref().unwrap().resolved_layout(l).unwrap().placeholders[0].size;
+        // The title is element 0: the logo belongs to the theme.
+        s.style_placeholder(0, &PlaceholderStyle { size: Some(50.0), ..Default::default() }).unwrap();
+        assert_eq!((size(&s, "A"), size(&s, "B")), (Some(50.0), Some(30.0)));
+        assert_eq!(s.view().layout_meta.unwrap().overrides, ["title: size"]);
+        s.reset_to_theme(Some(0), Some("size".into())).unwrap();
+        assert_eq!(size(&s, "A"), Some(30.0), "back to the theme");
+        s.style_placeholder(0, &PlaceholderStyle { size: Some(44.0), ..Default::default() }).unwrap();
+        s.push_to_theme(0, "size").unwrap();
+        assert_eq!((size(&s, "A"), size(&s, "B")), (Some(44.0), Some(44.0)), "now the theme's, for both");
+        s.hide_theme_elements(true).unwrap();
+        assert!(s.deck.as_ref().unwrap().resolved_layout("A").unwrap().elements.is_empty());
+        s.reset_to_theme(None, None).unwrap();
+        assert_eq!(s.deck.as_ref().unwrap().resolved_layout("A").unwrap().elements.len(), 1);
+        let before = s.deck.as_ref().unwrap().resolved_layout("A").unwrap();
+        s.set_layout_theme(None).unwrap();
+        let after = s.deck.as_ref().unwrap().resolved_layout("A").unwrap();
+        assert_eq!(
+            (before.elements, before.placeholders[0].size),
+            (after.elements, after.placeholders[0].size),
+            "leaving the theme keeps the look"
+        );
+        s.set_layout_theme(Some("Theme".into())).unwrap();
+        assert!(s.deck.as_ref().unwrap().layout("A").unwrap().overrides().is_empty(), "back in: nothing differs");
+        s.edit_theme(Some("Theme".into())).unwrap();
+        assert!(s.view().editing_theme.is_some() && s.view().editing_layout.is_none());
+        s.style_theme_placeholder("title", &PlaceholderStyle { bold: Some(true), ..Default::default() }).unwrap();
+        assert!(s.deck.as_ref().unwrap().resolved_layout("B").unwrap().placeholders[0].bold);
+    }
+
     #[test]
     fn a_layout_for_several_slides() {
         let mut s = AppState::default();

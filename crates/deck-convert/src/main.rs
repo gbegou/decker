@@ -214,12 +214,16 @@ fn main() -> Result<()> {
             if d.layouts.is_empty() {
                 println!("no layouts");
             }
-            for l in &d.layouts {
+            let show = |l: &deck_core::Layout, indent: &str| {
                 let used = d.slides.iter().filter(|s| s.layout.as_deref() == Some(l.name.as_str())).count();
-                println!("{} ({} static elements, used by {used} slides)", l.name, l.elements.len());
+                println!("{indent}{} ({} own elements, used by {used} slides)", l.name, l.elements.len());
+                let overrides = l.overrides();
+                if !overrides.is_empty() {
+                    println!("{indent}    overrides: {}", overrides.join("; "));
+                }
                 for p in &l.placeholders {
                     println!(
-                        "    {:<12} at {},{} {}x{}",
+                        "{indent}    {:<12} at {},{} {}x{}",
                         p.name,
                         p.rect.x.round(),
                         p.rect.y.round(),
@@ -227,6 +231,15 @@ fn main() -> Result<()> {
                         p.rect.h.round()
                     );
                 }
+            };
+            for t in &d.themes {
+                println!("theme {} ({} shared elements)", t.name, t.elements.len());
+                for l in d.layouts_of_theme(&t.name) {
+                    show(l, "  ");
+                }
+            }
+            for l in d.layouts.iter().filter(|l| l.parent.as_deref().is_none_or(|p| d.theme_set(p).is_none())) {
+                show(l, "");
             }
         }
         Command::Copy { from, slides, into, at } => {

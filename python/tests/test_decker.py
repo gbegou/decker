@@ -11,6 +11,18 @@ import decker  # noqa: E402
 
 
 class DeckTests(unittest.TestCase):
+    def test_placeholders_take_their_theme_style(self):
+        deck = decker.new("t")
+        deck.themes.append({"name": "T", "placeholders": [{"name": "body", "rect": {"x": 0, "y": 0, "w": 0, "h": 0}, "size": 22.0, "bullets": True}]})
+        deck.layouts.append({"name": "L", "parent": "T", "placeholders": [
+            {"name": "body1", "rect": {"x": 10, "y": 10, "w": 100, "h": 50}, "size": 10.0},
+            {"name": "body2", "rect": {"x": 10, "y": 70, "w": 100, "h": 50}, "size": 10.0, "own": ["size"]},
+        ]})
+        sizes = [p.get("size") for p in deck.placeholders("L")]
+        self.assertEqual(sizes, [22.0, 10.0])
+        slide = deck.add_slide(layout="L")
+        self.assertEqual(slide.data["elements"][0]["paragraphs"][0].get("bullet"), 0, "bullets from the theme")
+
     def test_build_and_save(self):
         deck = decker.new("Demo")
         deck.theme["font"] = "Libertinus Serif"

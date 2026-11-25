@@ -7,11 +7,12 @@ opening of the same file opens that folder. The command line does the same with
 ## What comes across
 
 - Slide size and order, slide names, solid background colors, speaker notes, sections.
-- Masters and layouts, as decker [layouts](layouts.md) with their placeholders and the
-  master's text styles (size, bold, color, alignment, bullets); slide text takes what its runs
+- Each slide master as a decker [theme](layouts.md) holding its layouts: what the layouts
+  share (background, shapes, fonts and colors, placeholder styles) in the theme, their
+  differences as overrides. Placeholders keep the master's text styles (size, bold, color, alignment, bullets); slide text takes what its runs
   leave unset from its placeholder, one size step down per bullet level. Placeholders without
   an explicit position inherit it from the layout, then the master. The master's theme fonts
-  and colors become the layout's theme.
+  and colors become the theme's text style.
 - Text: paragraphs with alignment and bullet level, runs with bold, italic, size, color and
   font.
 - Pictures (PNG, JPEG, GIF, BMP, SVG, WebP), copied into `assets/`, with their crop, their

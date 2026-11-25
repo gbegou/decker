@@ -15,7 +15,7 @@ Layouts give slides their placeholders, background and footer, like PowerPoint's
 the side panel, open **+ New layout** and pick **Title and content**: the layout editor
 opens. Click **+ Text** and type `{{section}} — {{slide}} / {{slides}}` in the new box; drag it
 to the bottom of the slide. Click **Done**. Back on the slide, choose the new layout in the
-side panel's **Layout** selector. See [Layouts and themes](layouts.md) and
+side panel's **Layout** selector. See [Themes and layouts](layouts.md) and
 [Variables](variables.md).
 
 ## 3. Bullets and a formula

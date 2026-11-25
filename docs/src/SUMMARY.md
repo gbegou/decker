@@ -17,7 +17,7 @@
 - [Formulas and figures](formulas.md)
 - [Arranging](arranging.md)
 - [Build steps](steps.md)
-- [Layouts and themes](layouts.md)
+- [Themes and layouts](layouts.md)
 
 # Presenting
 

@@ -78,10 +78,22 @@ def build_steps(e):
 
 
 def layout_editor(e):
-    e.goto(2)
+    # The title slide's layout: its title overrides the theme's size and
+    # alignment, the panel says so.
+    e.goto(0)
     e.s.js("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Edit layout').click(); return true")
     e.settle(1.5)
+    e.click_slide(480, 215)
     e.shot("layout-editor")
+
+
+def theme_editor(e):
+    e.goto(2)
+    e.s.js("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Edit theme').click(); return true")
+    e.settle(1.5)
+    e.s.js("document.querySelector('details.kind').open = true; return true")
+    e.settle(0.5)
+    e.shot("theme-editor")
 
 
 def help_dialog(e):
@@ -89,7 +101,7 @@ def help_dialog(e):
     e.shot("help", crop=e.rect(".dialog"))
 
 
-SHOTS = [window, text_editing, slide_menu, arrange, build_steps, layout_editor, help_dialog]
+SHOTS = [window, text_editing, slide_menu, arrange, build_steps, layout_editor, theme_editor, help_dialog]
 
 
 def editor_shots(app: str, out: Path):

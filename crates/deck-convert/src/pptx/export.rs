@@ -112,7 +112,10 @@ pub fn export_with(deck: &Deck, deck_dir: &Path, pptx: &Path, math: &dyn MathRen
     add("ppt/slideMasters/_rels/slideMaster1.xml.rels", master_rels.as_bytes())?;
 
     let mut media_count = 0u32;
-    for (k, layout) in deck.layouts.iter().enumerate() {
+    // Layouts are written resolved: with their theme's background, elements
+    // and placeholder styles (one PowerPoint master for all).
+    let resolved: Vec<Layout> = deck.layouts.iter().map(|l| deck.resolve(l)).collect();
+    for (k, layout) in resolved.iter().enumerate() {
         let l = k + 1;
         let mut part = Part::new(format!(
             r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{NS_REL}"><Relationship Id="rId1" Type="{REL_MASTER}" Target="../slideMasters/slideMaster1.xml"/>"#
@@ -168,8 +171,11 @@ pub fn export_with(deck: &Deck, deck_dir: &Path, pptx: &Path, math: &dyn MathRen
     for (i, slide) in deck.slides.iter().enumerate() {
         let i = i + 1;
         let layout = deck.layout_of(slide);
-        let layout_no =
-            layout.and_then(|l| deck.layouts.iter().position(|x| x.name == l.name)).map(|k| k + 1).unwrap_or(n_layouts);
+        let layout_no = layout
+            .as_ref()
+            .and_then(|l| deck.layouts.iter().position(|x| x.name == l.name))
+            .map(|k| k + 1)
+            .unwrap_or(n_layouts);
         let mut part = Part::new(format!(
             r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{NS_REL}"><Relationship Id="rId1" Type="{REL_LAYOUT}" Target="../slideLayouts/slideLayout{layout_no}.xml"/>"#
         ));
@@ -181,7 +187,7 @@ pub fn export_with(deck: &Deck, deck_dir: &Path, pptx: &Path, math: &dyn MathRen
         part.background(slide.background);
         part.open_tree();
         for (k, element) in slide.elements.iter().enumerate() {
-            let ph = match (element, layout) {
+            let ph = match (element, &layout) {
                 (Element::Text(t), Some(layout)) => {
                     t.placeholder.as_deref().filter(|n| layout.placeholder(n).is_some()).map(|n| ph_tag(layout, n))
                 }
@@ -1160,6 +1166,7 @@ mod tests {
                     ..Default::default()
                 },
             ],
+            ..Default::default()
         });
         let mut from_layout = deck.layouts[0].new_slide();
         from_layout.name = "second".into();
@@ -1176,7 +1183,9 @@ mod tests {
         assert_eq!(back.slides.len(), 2);
         // The layout came back with its background, static shape and placeholders.
         assert_eq!(back.layouts.len(), 1, "{:?}", back.layouts);
-        let corp = &back.layouts[0];
+        assert_eq!(back.themes.len(), 1, "the slide master comes back as a theme");
+        assert_eq!(back.layouts[0].parent.as_deref(), Some(back.themes[0].name.as_str()));
+        let corp = &back.resolve(&back.layouts[0]);
         assert_eq!(corp.name, "Corp");
         assert_eq!(corp.background, Some(Color::rgb(0xEE, 0xEE, 0xEE)));
         assert_eq!(corp.theme.font.as_deref(), Some("Libertinus Serif"), "the theme font comes back on the layout");

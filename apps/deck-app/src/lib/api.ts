@@ -29,7 +29,7 @@ export interface ElementInfo {
   shape?: "rectangle" | "ellipse" | "line" | "arrow";
   flip: boolean;
   /** Placeholders: their default text style. */
-  placeholder?: PlaceholderStyle & { name: string };
+  placeholder?: PlaceholderStyle & { name: string; own?: string[] };
   /** Tables: the cells' texts and fills by row, and the settings. */
   table?: { cells: string[][]; fills: (string | null)[][]; header: boolean; columns: number[]; rects: Rect[][]; spans: [number, number][][] };
 }
@@ -110,6 +110,14 @@ export interface View {
   starts: { section: string | null; subsection: string | null }[];
   /** The layout shown on the canvas instead of a slide, when editing one. */
   editing_layout: string | null;
+  /** The theme under edit, when the canvas shows a theme. */
+  editing_theme: string | null;
+  /** The layouts by theme; layouts without a theme under "". */
+  layout_groups: { theme: string; layouts: string[] }[];
+  /** The layout under edit, against its theme. */
+  layout_meta: { parent: string | null; hide_theme_elements: boolean; overrides: string[]; themes: string[] } | null;
+  /** The theme under edit: the default style of each kind of placeholder. */
+  theme_placeholders: (PlaceholderStyle & { name: string })[];
   theme: ThemeInfo;
   can_undo: boolean;
   can_redo: boolean;
@@ -194,6 +202,15 @@ export const api = {
   saveLayout: (path: string) => invoke<string>("save_layout", { path }),
   loadLayout: (path: string) => invoke<View>("load_layout", { path }),
   setLayoutOf: (slides: number[], name: string | null) => invoke<View>("set_layout_of", { slides, name }),
+  editTheme: (name: string | null) => invoke<View>("edit_theme", { name }),
+  newTheme: () => invoke<View>("new_theme"),
+  renameTheme: (name: string) => invoke<View>("rename_theme", { name }),
+  deleteTheme: () => invoke<View>("delete_theme"),
+  styleThemePlaceholder: (kind: string, change: PlaceholderStyle) => invoke<View>("style_theme_placeholder", { kind, change }),
+  setLayoutTheme: (theme: string | null) => invoke<View>("set_layout_theme", { theme }),
+  hideThemeElements: (hide: boolean) => invoke<View>("hide_theme_elements", { hide }),
+  resetToTheme: (element: number | null = null, prop: string | null = null) => invoke<View>("reset_to_theme", { element, prop }),
+  pushToTheme: (element: number, prop: string) => invoke<View>("push_to_theme", { element, prop }),
   setLayout: (name: string | null) => invoke<View>("set_layout", { name }),
   peekDeck: (path: string) => invoke<string[]>("peek_deck", { path }),
   importSlides: (path: string, indices: number[]) => invoke<View>("import_slides", { path, indices }),

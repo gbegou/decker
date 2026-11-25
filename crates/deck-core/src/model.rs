@@ -2,9 +2,14 @@
 
 use serde::{Deserialize, Serialize};
 
+pub use crate::themes::ThemeSet;
+
 /// Version of the `deck.json` schema. Bump it with a migration when the
 /// model changes incompatibly.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
+
+/// The first version with themes holding layouts (see [`crate::themes`]).
+pub const THEMES_VERSION: u32 = 2;
 
 /// Width of a 16:9 slide, in points.
 pub const DEFAULT_WIDTH: f64 = 960.0;
@@ -26,7 +31,12 @@ pub struct Deck {
     /// `typst/` folder.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub math_preamble: String,
-    /// The layouts (PowerPoint's masters and layouts) slides can use.
+    /// The themes: what a family of layouts shares (PowerPoint's slide
+    /// masters), see [`crate::themes`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub themes: Vec<ThemeSet>,
+    /// The layouts slides can use; each may belong to a theme and then
+    /// holds only what it changes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layouts: Vec<Layout>,
     /// Default font, size and colors; a layout's theme overrides it field
@@ -90,6 +100,7 @@ impl Default for Deck {
             width: DEFAULT_WIDTH,
             height: DEFAULT_HEIGHT,
             math_preamble: String::new(),
+            themes: Vec::new(),
             layouts: Vec::new(),
             theme: Theme::default(),
             slides: Vec::new(),
@@ -106,12 +117,24 @@ impl Deck {
         self.layouts.iter().find(|l| l.name == name)
     }
 
-    /// The layout of a slide, when it names one that exists.
-    pub fn layout_of(&self, slide: &Slide) -> Option<&Layout> {
-        slide.layout.as_deref().and_then(|n| self.layout(n))
+    /// The layout of a slide, when it names one that exists, resolved
+    /// against its theme (see [`Deck::resolve`]).
+    pub fn layout_of(&self, slide: &Slide) -> Option<Layout> {
+        slide.layout.as_deref().and_then(|n| self.resolved_layout(n))
     }
 
-    /// The theme in force on a slide: its layout's over the deck's.
+    /// The layout named `name`, resolved against its theme.
+    pub fn resolved_layout(&self, name: &str) -> Option<Layout> {
+        self.layout(name).map(|l| self.resolve(l))
+    }
+
+    /// The theme named `name`.
+    pub fn theme_set(&self, name: &str) -> Option<&ThemeSet> {
+        self.themes.iter().find(|t| t.name == name)
+    }
+
+    /// The text style in force on a slide: its layout's (with its theme's)
+    /// over the deck's.
     pub fn theme_of(&self, slide: &Slide) -> Theme {
         match self.layout_of(slide) {
             Some(l) => l.theme.over(&self.theme),
@@ -119,9 +142,9 @@ impl Deck {
         }
     }
 
-    /// The theme in force on a layout (its own over the deck's).
+    /// The text style in force on a layout (its own, its theme's, the deck's).
     pub fn theme_of_layout(&self, layout: &Layout) -> Theme {
-        layout.theme.over(&self.theme)
+        self.resolve(layout).theme.over(&self.theme)
     }
 
     /// Sections and subsections in slide order, each with the index of
@@ -180,6 +203,14 @@ pub struct Layout {
     pub elements: Vec<Element>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub placeholders: Vec<Placeholder>,
+    /// The theme this layout belongs to: what it leaves unset comes from
+    /// there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// The theme's shared elements (logo, footer) are not drawn on this
+    /// layout's slides.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub hide_theme_elements: bool,
 }
 
 impl Layout {
@@ -269,6 +300,11 @@ pub struct Placeholder {
     /// Paragraphs start bulleted (a body placeholder).
     #[serde(default, skip_serializing_if = "is_default")]
     pub bullets: bool,
+    /// In a layout with a theme: the style properties (`size`, `bold`,
+    /// `color`, `font`, `align`, `bullets`) this placeholder sets itself;
+    /// the others come from the theme's placeholder of the same kind.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub own: Vec<String>,
 }
 
 impl Placeholder {
@@ -1314,7 +1350,7 @@ pub struct Shape {
     pub reverse: bool,
 }
 
-fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+pub(crate) fn is_default<T: Default + PartialEq>(v: &T) -> bool {
     *v == T::default()
 }
 
@@ -1373,7 +1409,7 @@ mod tests {
         let json = serde_json::to_string_pretty(&deck).unwrap();
         let back: Deck = serde_json::from_str(&json).unwrap();
         assert_eq!(back, deck);
-        assert!(json.contains("\"version\": 1"));
+        assert!(json.contains("\"version\": 2"));
         assert!(json.contains("\"type\": \"text\""));
     }
 
@@ -1425,6 +1461,7 @@ mod tests {
                     ..Default::default()
                 },
             ],
+            ..Default::default()
         });
         let slide = deck.layouts[0].new_slide();
         assert_eq!(slide.layout.as_deref(), Some("Title"));
@@ -1437,7 +1474,7 @@ mod tests {
         let Element::Text(b) = &slide.elements[1] else { panic!() };
         assert_eq!(b.paragraphs[0].bullet, Some(0));
         deck.slides.push(slide);
-        assert_eq!(deck.layout_of(&deck.slides[0]).map(|l| l.name.as_str()), Some("Title"));
+        assert_eq!(deck.layout_of(&deck.slides[0]).map(|l| l.name), Some("Title".to_string()));
         let json = serde_json::to_string(&deck).unwrap();
         assert!(json.contains("\"layouts\""));
         assert_eq!(serde_json::from_str::<Deck>(&json).unwrap(), deck);

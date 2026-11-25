@@ -144,9 +144,9 @@ fn render_at(
         font = DEFAULT_FONT
     );
     let layout = deck.layout_of(slide);
-    let bg = slide.background.or(layout.and_then(|l| l.background)).unwrap_or(Color::WHITE);
+    let bg = slide.background.or(layout.as_ref().and_then(|l| l.background)).unwrap_or(Color::WHITE);
     let _ = write!(out, r#"<rect width="100%" height="100%" fill="{}"/>"#, bg.to_hex());
-    if let Some(layout) = layout {
+    if let Some(layout) = &layout {
         // The layout's static elements, under the slide, at their final
         // step, with the variables of this slide substituted.
         let vars = slide_index.map(|i| crate::vars::Vars::for_slide(deck, i));
@@ -168,6 +168,19 @@ fn render_at(
 /// Renders a layout for its editor: background, static elements (with
 /// `id="e{index}"` like slide elements), then its placeholders as dashed
 /// boxes showing their names, with ids continuing the numbering.
+/// A theme for its editor: background and shared elements (ids `e{index}`
+/// as for a layout), on the theme's style.
+pub fn render_theme(deck: &Deck, theme: &ThemeSet, math: &dyn MathRenderer) -> String {
+    let as_layout = Layout {
+        name: theme.name.clone(),
+        background: theme.background,
+        theme: theme.style.clone(),
+        elements: theme.elements.clone(),
+        ..Default::default()
+    };
+    render_layout(deck, &as_layout, math)
+}
+
 pub fn render_layout(deck: &Deck, layout: &Layout, math: &dyn MathRenderer) -> String {
     let ctx = Ctx { deck, math, slide_index: None, defaults: deck.theme_of_layout(layout).defaults(), live: true };
     let defaults = &ctx.defaults;
@@ -179,12 +192,23 @@ pub fn render_layout(deck: &Deck, layout: &Layout, math: &dyn MathRenderer) -> S
         h = fmt(deck.height),
         font = DEFAULT_FONT
     );
-    let bg = layout.background.unwrap_or(Color::WHITE);
+    // The layout with its theme: the theme's elements are drawn but belong
+    // to the theme (no element id), the layout's own keep their indices.
+    let resolved = deck.resolve(layout);
+    let bg = resolved.background.unwrap_or(Color::WHITE);
     let _ = write!(out, r#"<rect width="100%" height="100%" fill="{}"/>"#, bg.to_hex());
+    let shared = resolved.elements.len() - layout.elements.len();
+    if shared > 0 {
+        out.push_str(r#"<g id="theme" opacity="0.55">"#);
+        for element in &resolved.elements[..shared] {
+            element_body(&mut out, &ctx, element, element.last_step(), None);
+        }
+        out.push_str("</g>");
+    }
     for (index, element) in layout.elements.iter().enumerate() {
         element_body(&mut out, &ctx, element, element.last_step(), Some(index));
     }
-    for (k, ph) in layout.placeholders.iter().enumerate() {
+    for (k, ph) in resolved.placeholders.iter().enumerate() {
         let index = layout.elements.len() + k;
         let r = &ph.rect;
         let _ = write!(

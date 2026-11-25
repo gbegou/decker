@@ -43,6 +43,8 @@ pub fn import(pptx: &Path, out: &Path) -> Result<(Deck, ImportReport)> {
     let mut images = ImageStore { pkg: &pkg, out, copied: HashMap::new(), next: 1 };
     // Layout part name → decker layout name, filled as slides reference them.
     let mut layouts: HashMap<String, String> = HashMap::new();
+    // Slide master part → its layouts (decker names), to make one theme of each.
+    let mut masters: Vec<(String, Vec<String>)> = vec![];
 
     let ids: Vec<String> = child(root, NS_P, "sldIdLst")
         .map(|l| {
@@ -73,6 +75,11 @@ pub fn import(pptx: &Path, out: &Path) -> Result<(Deck, ImportReport)> {
                     }
                     layouts.insert(layout_part.clone(), layout.name.clone());
                     resolve_shrunk(&mut layout.elements);
+                    let master = pkg.rel_by_type(&layout_part, REL_MASTER).ok().flatten().unwrap_or_default();
+                    match masters.iter_mut().find(|(m, _)| *m == master) {
+                        Some((_, names)) => names.push(layout.name.clone()),
+                        None => masters.push((master, vec![layout.name.clone()])),
+                    }
                     deck.layouts.push(layout);
                 }
             }
@@ -89,6 +96,23 @@ pub fn import(pptx: &Path, out: &Path) -> Result<(Deck, ImportReport)> {
         }
         resolve_shrunk(&mut slide.elements);
         deck.slides.push(slide);
+    }
+
+    // Each slide master becomes a theme: what its layouts share (the
+    // master's elements, background, text styles) moves into it.
+    for (master, names) in &masters {
+        let theme_name = pkg
+            .rel_by_type(master, REL_THEME)
+            .ok()
+            .flatten()
+            .and_then(|t| pkg.xml(&t).ok())
+            .and_then(|xml| {
+                let doc = Document::parse(&xml).ok()?;
+                doc.root_element().attribute("name").filter(|n| !n.is_empty()).map(str::to_string)
+            })
+            .unwrap_or_else(|| "Theme".to_string());
+        let name = deck.free_theme_name(&theme_name);
+        deck.factor_theme(&name, names);
     }
 
     // PowerPoint sections: each names the slide ids it starts with.
@@ -218,6 +242,7 @@ fn import_layout(pkg: &Package, part: &str, images: &mut ImageStore, report: &mu
             font: None,
             align: Align::Left,
             bullets: matches!(ph.kind.as_str(), "body" | "obj"),
+            own: vec![],
         };
         // The master's text styles first (title, body or other), then the
         // placeholder's own first-level list style over them.

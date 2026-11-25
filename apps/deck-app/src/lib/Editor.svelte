@@ -6,6 +6,7 @@
   import { SlideView, captureFrame } from "$shared";
   import StyleBar from "./StyleBar.svelte";
   import ArrangeBar from "./ArrangeBar.svelte";
+  import PlaceholderFields from "./PlaceholderFields.svelte";
   import TablePanel from "./TablePanel.svelte";
   import Help from "./Help.svelte";
   import Steps from "./Steps.svelte";
@@ -13,6 +14,8 @@
   let help = $state(false);
 
   let view = $state<View | null>(null);
+  /** A layout or a theme is under edit, not a slide. */
+  const editingTemplate = $derived(view !== null && (view.editing_layout !== null || view.editing_theme !== null));
   let thumbnails = $state<string[]>([]);
   let selected = $state<number | null>(null);
   // Further selected elements (Shift+click), for grouping.
@@ -30,9 +33,10 @@
       view = v;
       if (selected !== null && selected >= v.elements.length) selected = null;
       also = also.filter((i) => i < v.elements.length);
-      if (editing && (editing.index >= v.elements.length || v.slide !== editingSlide || v.editing_layout !== editingLayout)) editing = null;
+      if (editing && (editing.index >= v.elements.length || v.slide !== editingSlide || v.editing_layout !== editingLayout || v.editing_theme !== editingTheme)) editing = null;
       editingSlide = v.slide;
       editingLayout = v.editing_layout;
+      editingTheme = v.editing_theme;
     });
     const stopThumbs = watchThumbnails((t) => (thumbnails = t));
     // Files dragged from the desktop: the OS hands their paths to the window.
@@ -468,6 +472,7 @@
   }
   let editingSlide = -1;
   let editingLayout: string | null = null;
+  let editingTheme: string | null = null;
 
   /** The table cell being edited in place, when the edited element is a table. */
   let editingCell: { row: number; column: number } | null = null;
@@ -919,7 +924,21 @@
     <button title="Undo (Ctrl+Z)" disabled={!view?.can_undo} onclick={() => undoRedo(false)}>↶</button>
     <button title="Redo (Ctrl+Y)" disabled={!view?.can_redo} onclick={() => undoRedo(true)}>↷</button>
     <button title="Commands and keys (F1)" onclick={() => (help = !help)}>?</button>
-    {#if view?.editing_layout !== null && view?.editing_layout !== undefined}
+    {#if view?.editing_theme !== null && view?.editing_theme !== undefined}
+      <span class="banner">Theme
+        <input class="layout-name" value={view.editing_theme} onchange={(e) => run("Theme renamed", () => api.renameTheme(e.currentTarget.value))} />
+      </span>
+      <button onclick={() => run("Added text", api.addText)}>+ Text</button>
+      <select class="add-shape" title="Add a shape" value="" onchange={(e) => { const k = e.currentTarget.value as "rectangle" | "ellipse" | "line" | "arrow"; e.currentTarget.value = ""; if (k) enqueue(() => run("Added shape", () => api.addShape(k)).then(selectAdded)); }}>
+        <option value="">+ Shape</option>
+        <option value="rectangle">▭ Rectangle</option>
+        <option value="ellipse">◯ Ellipse</option>
+        <option value="line">╱ Line</option>
+        <option value="arrow">→ Arrow</option>
+      </select>
+      <button title="Its layouts keep their look and lose the theme" onclick={() => run("Theme deleted", api.deleteTheme)}>Delete theme</button>
+      <button class="primary" onclick={() => run("Back to slides", () => api.editTheme(null))}>Done</button>
+    {:else if view?.editing_layout !== null && view?.editing_layout !== undefined}
       <span class="banner">Layout
         <input class="layout-name" value={view.editing_layout} onchange={(e) => run("Layout renamed", () => api.renameLayout(e.currentTarget.value))} />
       </span>
@@ -1138,25 +1157,11 @@
             {@const ph = sel.placeholder}
             {@const idx = sel.index}
             <h3>Default text style</h3>
-            <div class="theme">
-              <label>size <input type="number" min="0" max="200" value={ph.size ?? ""} placeholder={String(view.theme.effective.size ?? 18)}
-                     onchange={(e) => run("Placeholder size", () => api.stylePlaceholder(idx, { size: +e.currentTarget.value || 0 }))} /></label>
-              <label><input type="checkbox" checked={ph.bold ?? false} onchange={(e) => run("Placeholder bold", () => api.stylePlaceholder(idx, { bold: e.currentTarget.checked }))} /> bold</label>
-              <label>color <input type="color" value={ph.color ?? view.theme.effective.color ?? "#000000"} onchange={(e) => run("Placeholder color", () => api.stylePlaceholder(idx, { color: e.currentTarget.value }))} />
-                <button title="Theme color" onclick={() => run("Placeholder color reset", () => api.stylePlaceholder(idx, { color: "" }))}>⌀</button></label>
-              <label>font
-                <select value={ph.font ?? ""} onchange={(e) => run("Placeholder font", () => api.stylePlaceholder(idx, { font: e.currentTarget.value }))}>
-                  <option value="">theme font</option>
-                  {#each view.theme.fonts as f}<option value={f}>{f}</option>{/each}
-                </select>
-              </label>
-              <label>align
-                <select value={ph.align ?? "left"} onchange={(e) => run("Placeholder alignment", () => api.stylePlaceholder(idx, { align: e.currentTarget.value as "left" | "center" | "right" | "justify" }))}>
-                  <option value="left">left</option><option value="center">center</option><option value="right">right</option><option value="justify">justify</option>
-                </select>
-              </label>
-              <label><input type="checkbox" checked={ph.bullets ?? false} onchange={(e) => run("Placeholder bullets", () => api.stylePlaceholder(idx, { bullets: e.currentTarget.checked }))} /> bullets</label>
-            </div>
+            <PlaceholderFields {ph} fonts={view.theme.fonts} themeSize={view.theme.effective.size} themeColor={view.theme.effective.color}
+              inTheme={!!view.layout_meta?.parent}
+              onchange={(change) => run("Placeholder style", () => api.stylePlaceholder(idx, change))}
+              onreset={(prop) => run("Back to the theme", () => api.resetToTheme(idx, prop))}
+              onpush={(prop) => run("Made the theme's", () => api.pushToTheme(idx, prop))} />
             <p class="muted">New slides made from this layout start with this style; existing slides keep theirs.</p>
           {/if}
         {:else if sel.kind === "table" && sel.table}
@@ -1169,7 +1174,7 @@
             <p class="muted">Any Typst markup, with <code>@preview/cetz:0.5.2</code> and <code>@preview/cetz-plot:0.1.4</code> bundled: <code>plot.add(points)</code>, <code>plot.add-bar</code>, <code>draw.line</code>… The page is as wide as the box and is scaled to fit it. A Python macro can generate it from data.</p>
           {/if}
         {/if}
-        {#if sel.kind !== "placeholder" && view.editing_layout === null}
+        {#if sel.kind !== "placeholder" && !editingTemplate}
           <h3>Build steps</h3>
           <Steps element={sel} current={view.step} last={view.last_step}
                  onrun={(label, f) => run(label, f)} ongoto={(step) => api.goto(view!.slide, step)} />
@@ -1177,7 +1182,7 @@
       {:else}
         <p class="muted">Click an element to select it, Shift+click to select several (then Group), double-click its text to edit it in place (arrows, Shift for a selection, Enter for a paragraph, Escape to finish). Drag to move, corner handle to resize, Delete to remove.</p>
       {/if}
-      {#if view.editing_layout === null}
+      {#if !editingTemplate}
       <h3>Section</h3>
       <label>starts section
         <input type="text" value={view.section ?? ""} placeholder={view.in_section ?? "none"}
@@ -1189,22 +1194,69 @@
       </label>
       <p class="muted">Sections become PDF bookmarks and PowerPoint sections.</p>
       {/if}
-      <h3>Layout</h3>
-      {#if view.editing_layout !== null}
-        <p class="muted">Static elements of the layout are drawn under every slide that uses it; placeholders (dashed) are the slots new slides start from. In texts, these variables are filled per slide: <code>{"{{section}}"}</code>, <code>{"{{subsection}}"}</code>, <code>{"{{slide}}"}</code>, <code>{"{{slides}}"}</code>, <code>{"{{title}}"}</code>, <code>{"{{deck}}"}</code>, <code>{"{{date}}"}</code>.</p>
+      {#if view.editing_theme !== null}
+        <h3>Placeholder styles</h3>
+        <p class="muted">The style each kind of placeholder starts with in this theme's layouts, unless a layout sets its own. Body styles apply to body1, body2…</p>
+        {#each view.theme_placeholders as tph (tph.name)}
+          <details class="kind">
+            <summary>{tph.name}</summary>
+            <PlaceholderFields ph={tph} fonts={view.theme.fonts} themeSize={view.theme.effective.size} themeColor={view.theme.effective.color}
+              onchange={(change) => run(`Theme ${tph.name} style`, () => api.styleThemePlaceholder(tph.name, change))} />
+          </details>
+        {/each}
+        <h3>Layouts of this theme</h3>
+        <div class="row">
+          {#each view.layout_groups.find((g) => g.theme === view!.editing_theme)?.layouts ?? [] as name}
+            <button onclick={() => run("Editing layout", () => api.editLayout(name))}>{name}</button>
+          {:else}
+            <span class="muted">None yet: "+ New layout" on a slide of this theme.</span>
+          {/each}
+        </div>
+      {:else if view.editing_layout !== null && view.layout_meta}
+        {@const meta = view.layout_meta}
+        <h3>Theme</h3>
+        <label>theme
+          <select value={meta.parent ?? ""} onchange={(e) => run("Layout theme", () => api.setLayoutTheme(e.currentTarget.value || null))}>
+            <option value="">none</option>
+            {#each meta.themes as t}<option value={t}>{t}</option>{/each}
+          </select>
+        </label>
+        {#if meta.parent}
+          <label class="check"><input type="checkbox" checked={meta.hide_theme_elements} onchange={(e) => run("Theme elements", () => api.hideThemeElements(e.currentTarget.checked))} /> hide the theme's elements (logo, footer…)</label>
+          {#if meta.overrides.length}
+            <p class="muted">Changes the theme's: {meta.overrides.join("; ")}.</p>
+            <button onclick={() => run("Back to the theme", () => api.resetToTheme())}>Reset to theme</button>
+          {:else}
+            <p class="muted">Follows its theme in everything but placeholder positions.</p>
+          {/if}
+          <div class="row"><button onclick={() => run("Editing theme", () => api.editTheme(meta.parent))}>Edit theme “{meta.parent}”</button></div>
+        {/if}
+        <h3>Layout</h3>
+        <p class="muted">The layout's own elements are drawn under every slide that uses it, over the theme's (dimmed here); placeholders (dashed) are the slots new slides start from. In texts, these variables are filled per slide: <code>{"{{section}}"}</code>, <code>{"{{subsection}}"}</code>, <code>{"{{slide}}"}</code>, <code>{"{{slides}}"}</code>, <code>{"{{title}}"}</code>, <code>{"{{deck}}"}</code>, <code>{"{{date}}"}</code>.</p>
       {:else}
+        <h3>Layout</h3>
         {#if view.layouts.length}
           <select value={view.layout ?? ""} onchange={(e) => run("Layout set", () => api.setLayout(e.currentTarget.value || null))}>
             <option value="">none</option>
-            {#each view.layouts as name}<option value={name}>{name}</option>{/each}
+            {#each view.layout_groups as g}
+              {#if g.theme}
+                <optgroup label={g.theme}>{#each g.layouts as name}<option value={name}>{name}</option>{/each}</optgroup>
+              {:else}
+                {#each g.layouts as name}<option value={name}>{name}</option>{/each}
+              {/if}
+            {/each}
           </select>
-          <p class="muted">"+ Slide" starts from this layout's placeholders.</p>
+          <p class="muted">"New slide" (right-click a thumbnail) starts from this layout's placeholders.</p>
         {:else}
           <p class="muted">No layouts in this deck. Importing a PPTX brings its masters along.</p>
         {/if}
         <div class="row">
           {#if view.layout}<button onclick={() => run("Editing layout", () => api.editLayout(view!.layout))}>Edit layout</button>{/if}
-          <select class="add-shape" title="A new layout from a disposition" value="" onchange={(e) => { const k = e.currentTarget.value; e.currentTarget.value = ""; if (k) run("New layout", () => api.newLayout(k)); }}>
+          {#if view.layout && view.layout_groups.find((g) => g.theme && g.layouts.includes(view!.layout ?? ""))}
+            {@const t = view.layout_groups.find((g) => g.theme && g.layouts.includes(view!.layout ?? ""))!.theme}
+            <button onclick={() => run("Editing theme", () => api.editTheme(t))}>Edit theme</button>
+          {/if}
+          <select class="add-shape" title="A new layout from a disposition, in this slide's theme" value="" onchange={(e) => { const k = e.currentTarget.value; e.currentTarget.value = ""; if (k) run("New layout", () => api.newLayout(k)); }}>
             <option value="">+ New layout</option>
             <option value="title">Title slide</option>
             <option value="content">Title and content</option>
@@ -1214,13 +1266,16 @@
             <option value="title-only">Title only</option>
             <option value="blank">Blank</option>
           </select>
+          <button onclick={() => run("New theme", api.newTheme)} title="A theme: shared background, elements and placeholder styles for a family of layouts">+ New theme</button>
           <button onclick={loadLayoutFrom} disabled={!view.dir}>Load layout…</button>
         </div>
       {/if}
-      <h3>Theme{view.editing_layout !== null ? " of this layout" : " of the deck"}</h3>
+      <h3>Text style{view.editing_theme !== null ? " of this theme" : view.editing_layout !== null ? " of this layout" : " of the deck"}</h3>
       <p class="muted">
-        {#if view.editing_layout !== null}
-          Default font, size and colors of the slides using this layout; blank fields take the deck's.
+        {#if view.editing_theme !== null}
+          Default font, size and colors of the slides of this theme's layouts; blank fields take the deck's.
+        {:else if view.editing_layout !== null}
+          Default font, size and colors of the slides using this layout; blank fields take its theme's.
         {:else}
           Default font, size and colors of text that sets none; a layout's theme overrides them.
           Fonts in the deck's <code>fonts/</code> folder are listed here.
@@ -1229,7 +1284,7 @@
       <div class="theme">
         <label>font
           <select value={view.theme.own.font ?? ""} onchange={(e) => run("Theme font", () => api.setTheme({ font: e.currentTarget.value }))}>
-            <option value="">{view.editing_layout !== null && view.theme.effective.font ? `deck (${view.theme.effective.font})` : "DejaVu Sans"}</option>
+            <option value="">{editingTemplate && view.theme.effective.font ? `deck (${view.theme.effective.font})` : "DejaVu Sans"}</option>
             {#each view.theme.fonts as f}<option value={f}>{f}</option>{/each}
           </select>
         </label>
@@ -1254,7 +1309,7 @@
             </span>
           {/each}
           <button title="Add a swatch" onclick={() => run("Palette", () => api.setTheme({ palette: [...(view!.theme.own.palette ?? []), view!.theme.effective.accent ?? "#4472C4"] }))}>+</button>
-          {#if view.editing_layout !== null && !(view.theme.own.palette ?? []).length && (view.theme.effective.palette ?? []).length}
+          {#if editingTemplate && !(view.theme.own.palette ?? []).length && (view.theme.effective.palette ?? []).length}
             <span class="muted">(deck's)</span>
           {/if}
         </div>
@@ -1275,7 +1330,7 @@
       {:else}
         <p class="muted">No Python found on this machine. Install one (python.org, conda) or point <code>DECKER_PYTHON</code> at it to run macros.</p>
       {/if}
-      {#if view.editing_layout === null}
+      {#if !editingTemplate}
       <h3>Notes</h3>
       <textarea rows="8" value={view.notes} onchange={(e) => api.setNotes(e.currentTarget.value)}></textarea>
       {/if}
@@ -1318,8 +1373,11 @@
       <button role="menuitem" aria-expanded={layoutList} onclick={() => (layoutList = !layoutList)}>Layout {layoutList ? "▾" : "▸"}</button>
       {#if layoutList}
         <div class="menu-list">
-          {#each view.layouts as name}
-            <button role="menuitem" onclick={() => applyLayout(name)}>{name}</button>
+          {#each view.layout_groups as g}
+            {#if g.theme}<div class="menu-group">{g.theme}</div>{/if}
+            {#each g.layouts as name}
+              <button role="menuitem" onclick={() => applyLayout(name)}>{name}</button>
+            {/each}
           {/each}
           <button role="menuitem" onclick={() => applyLayout(null)}><em>No layout</em></button>
         </div>
@@ -1438,6 +1496,8 @@
   .heading input { font-size: 12px; padding: 2px 4px; }
   .thumb { padding: 2px; position: relative; background: none; width: 100%; }
   .thumb.picked { outline: 2px dashed var(--accent); outline-offset: 1px; }
+  .menu-group { color: var(--muted); font-size: 11px; text-transform: uppercase; padding: 4px 8px 0; }
+  details.kind summary { cursor: pointer; padding: 3px 0; text-transform: capitalize; }
   .menu-list { max-height: 40vh; overflow-y: auto; padding-left: 12px; display: flex; flex-direction: column; }
   .thumb.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .thumb .num { position: absolute; left: -2px; top: -2px; background: var(--panel); font-size: 11px; padding: 1px 4px; border-radius: 4px; z-index: 1; }
@@ -1464,6 +1524,8 @@
   .props { grid-area: props; overflow-y: auto; padding: 12px; border-left: 1px solid var(--border); }
   .props h3 { margin: 12px 0 6px; font-size: 13px; color: var(--muted); text-transform: uppercase; }
   .props label { display: block; margin-bottom: 6px; color: var(--muted); }
+  .props label.check { display: flex; align-items: center; gap: 6px; }
+  .props label.check input { width: auto; }
   .muted { color: var(--muted); }
   .crop-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; }
   .empty { grid-area: main; display: flex; align-items: center; justify-content: center; color: var(--muted); grid-column: 1 / -1; }

@@ -43,6 +43,16 @@ pub fn copy_slides(
                     for e in &mut layout.elements {
                         assets.remap(e)?;
                     }
+                    // Its theme comes along when the destination lacks one of that name.
+                    if let Some(theme) = layout.parent.as_deref().and_then(|t| src.theme_set(t)) {
+                        if dst.theme_set(&theme.name).is_none() {
+                            let mut theme = theme.clone();
+                            for e in &mut theme.elements {
+                                assets.remap(e)?;
+                            }
+                            dst.themes.push(theme);
+                        }
+                    }
                     dst.layouts.push(layout);
                 }
             }
@@ -64,7 +74,8 @@ pub fn save_layout(deck: &Deck, deck_dir: &Path, name: &str, out_dir: &Path) -> 
         path: out_dir.to_path_buf(),
         source: std::io::Error::new(std::io::ErrorKind::NotFound, format!("no layout named {name}")),
     })?;
-    let mut layout: Layout = layout.clone();
+    // Saved resolved, without its theme: the file stands on its own.
+    let mut layout: Layout = Layout { parent: None, ..deck.resolve(layout) };
     std::fs::create_dir_all(out_dir.join(ASSETS_DIR))
         .map_err(|source| NativeError::Io { path: out_dir.to_path_buf(), source })?;
     let mut assets = AssetCopier::new(deck_dir, out_dir);
@@ -371,6 +382,30 @@ pub fn image_size(bytes: &[u8]) -> Option<(u32, u32)> {
 mod tests {
     use super::*;
     use crate::model::*;
+
+    #[test]
+    fn copied_slides_bring_their_theme() {
+        let tmp = std::env::temp_dir().join(format!("decker-themecopy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let (src_dir, dst_dir) = (tmp.join("src.deck"), tmp.join("dst.deck"));
+        let mut src = Deck::new("src");
+        let logo = native::add_asset(&src_dir, "logo.png", b"logo").unwrap();
+        src.themes.push(ThemeSet {
+            name: "Corp".into(),
+            elements: vec![Element::Image(Image { rect: Rect::default(), src: logo, ..Default::default() })],
+            ..Default::default()
+        });
+        src.layouts.push(Layout { name: "Content".into(), parent: Some("Corp".into()), ..Default::default() });
+        src.slides.push(Slide { layout: Some("Content".into()), ..Default::default() });
+        let mut dst = Deck::new("dst");
+        dst.themes.push(ThemeSet { name: "Mine".into(), ..Default::default() });
+        copy_slides(&src, &src_dir, &[0], &mut dst, &dst_dir, 0).unwrap();
+        assert_eq!(dst.themes.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["Mine", "Corp"], "two themes now");
+        let resolved = dst.resolved_layout("Content").unwrap();
+        let Element::Image(img) = &resolved.elements[0] else { panic!("the theme's logo") };
+        assert_eq!(std::fs::read(dst_dir.join(&img.src)).unwrap(), b"logo", "its image copied too");
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
 
     #[test]
     fn saves_and_loads_a_layout_folder() {
