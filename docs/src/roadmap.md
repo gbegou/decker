@@ -1,7 +1,12 @@
 # Roadmap
 
-2. Python: publish `decker-slides` on PyPI.
-3. Editor: tables; rotation handle; rubber-band selection.
-4. Notes pages in the PDF.
-5. Master text styles, theme colors and tables in the PPTX import; motion paths as steps.
-6. Installers published from CI for Linux and Windows (the viewer's too).
+What is not there yet, roughly in order of usefulness:
+
+1. Editor: tables as a native element; a rotation handle; rubber-band selection; adding a
+   poster frame to a video.
+2. PPTX: master text styles and tables on import; real video embedding and figures as
+   pictures on export; motion paths as build steps.
+3. PDF: notes pages; formulas and figures as selectable text.
+4. Python: `decker-slides` published on PyPI.
+5. A logo and application icons.
+6. End-to-end tests driving the application windows.

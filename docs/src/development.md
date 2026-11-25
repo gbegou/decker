@@ -51,3 +51,16 @@ Xvfb :99 -screen 0 1600x1000x24 &
 ```bash
 DISPLAY=:99 DECKER_OPEN=tests/fixtures/fixture.pptx DECKER_PRESENT=both npm run tauri dev
 ```
+
+## Releases
+
+The `Installers` workflow builds the Windows (NSIS, per user) and Linux (deb, AppImage)
+installers of both applications on every push and keeps them as artifacts of the run.
+Pushing a tag `vX.Y.Z` also publishes them as a GitHub release with generated notes:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+The manual is published by the `Docs` workflow to GitHub Pages, which has to be enabled once
+in the repository's settings (Pages, source "GitHub Actions").
