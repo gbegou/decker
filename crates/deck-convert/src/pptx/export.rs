@@ -383,6 +383,39 @@ fn write_element(
     where_: &str,
     warnings: &mut Vec<String>,
 ) -> Result<()> {
+    let start = part.xml.len();
+    write_element_plain(part, media_count, add, deck_dir, deck, slide_index, element, id, ph, where_, warnings)?;
+    // The rotation the element has from the start goes on its frame, in
+    // 60000ths of a degree.
+    let rotation = element.state_at(0).rotation;
+    if rotation != 0.0 {
+        let rot = format!(r#" rot="{}""#, (rotation * 60_000.0).round() as i64);
+        let written = part.xml.split_off(start);
+        let turned = match (written.find("<a:xfrm"), written.find("<p:xfrm")) {
+            (Some(a), Some(p)) if p < a => written.replacen("<p:xfrm", &format!("<p:xfrm{rot}"), 1),
+            (Some(_), _) => written.replacen("<a:xfrm", &format!("<a:xfrm{rot}"), 1),
+            (None, Some(_)) => written.replacen("<p:xfrm", &format!("<p:xfrm{rot}"), 1),
+            (None, None) => written,
+        };
+        part.xml.push_str(&turned);
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_element_plain(
+    part: &mut Part,
+    media_count: &mut u32,
+    add: &mut dyn FnMut(&str, &[u8]) -> Result<()>,
+    deck_dir: &Path,
+    deck: &Deck,
+    slide_index: Option<usize>,
+    element: &Element,
+    id: usize,
+    ph: Option<&str>,
+    where_: &str,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
     match element {
         Element::Text(t) => {
             let xml = &mut part.xml;
@@ -1019,6 +1052,20 @@ mod tests {
                     stroke,
                     ..Default::default()
                 }),
+                Element::Shape(Shape {
+                    rect: Rect::new(300.0, 200.0, 100.0, 50.0),
+                    fill: Some(Color::BLACK),
+                    steps: vec![
+                        Step {
+                            at: 0,
+                            set: Overrides { rotation: Some(30.0), ..Default::default() },
+                            ..Default::default()
+                        },
+                        Step::disappear(0),
+                        Step::appear(1),
+                    ],
+                    ..Default::default()
+                }),
             ],
             ..Default::default()
         });
@@ -1030,6 +1077,10 @@ mod tests {
         assert_eq!((arrow.kind, arrow.flip, arrow.stroke), (ShapeKind::Arrow, true, stroke));
         let Element::Shape(line) = &back.slides[0].elements[1] else { panic!("line") };
         assert_eq!((line.kind, line.flip), (ShapeKind::Line, false));
+        assert_eq!(back.slides[0].elements[1].state_at(0).rotation, 0.0);
+        let turned = &back.slides[0].elements[2];
+        assert_eq!(turned.state_at(0).rotation, 30.0, "the rotation from the start survives");
+        assert_eq!((turned.state_at(0).opacity, turned.state_at(1).opacity), (0.0, 1.0), "with its appear step");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

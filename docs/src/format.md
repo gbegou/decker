@@ -87,7 +87,9 @@ bottom-left to the top-right, `reverse` puts an arrow's head at its start), `mat
 math source), `outline` (the plan: sections with the slide's own highlighted) and `group`
 (`children` in slide coordinates, `rect` their bounding box; steps on the group animate all of
 them). A run may carry `"math": true` to be rendered as an inline formula.
-Every element may carry `steps`; see [Build steps](steps.md). The deck may carry a
+Every element may carry `steps`; see [Build steps](steps.md). A rotation from the start is
+a step at click 0 that sets `rotation` (degrees clockwise); PowerPoint's frame rotation maps
+to it both ways. The deck may carry a
 `math_preamble` and a `typst/` folder of importable files; see [Math](math.md), a `theme`
 (default font, size, colors and palette, overridable per layout) and `layouts` that slides
 name; see [Layouts](layouts.md).

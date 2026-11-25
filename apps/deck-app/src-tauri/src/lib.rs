@@ -570,6 +570,22 @@ fn arrange(app: AppHandle, state: Shared, indices: Vec<usize>, op: String) -> Re
     Ok(moved)
 }
 
+/// Sets a video's poster from a captured frame (PNG, base64), or clears it.
+#[tauri::command]
+fn set_poster(app: AppHandle, state: Shared, element: usize, data: Option<String>) -> Result<View, String> {
+    use base64::Engine;
+    let bytes =
+        data.map(|d| base64::engine::general_purpose::STANDARD.decode(d.as_bytes())).transpose().map_err(err)?;
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint("set_poster", false);
+        s.set_poster(element, bytes.as_deref())?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
 #[tauri::command]
 fn add_table(app: AppHandle, state: Shared, rows: usize, columns: usize) -> Result<usize, String> {
     let index = {
@@ -1010,6 +1026,7 @@ pub fn run() {
             style_placeholder,
             add_table,
             edit_table,
+            set_poster,
             set_rects,
             arrange,
             set_rotation,

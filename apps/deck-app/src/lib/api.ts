@@ -164,6 +164,8 @@ export const api = {
   addPlaceholder: () => invoke<View>("add_placeholder"),
   addOutline: () => invoke<View>("add_outline"),
   addFigure: () => invoke<View>("add_figure"),
+  /** A video's poster from a captured frame (PNG as base64), or null to remove it. */
+  setPoster: (element: number, data: string | null) => invoke<View>("set_poster", { element, data }),
   /** Adds a table and returns its index. */
   addTable: (rows: number, columns: number) => invoke<number>("add_table", { rows, columns }),
   editTable: (element: number, edit: TableEdit) => invoke<View>("edit_table", { element, edit }),

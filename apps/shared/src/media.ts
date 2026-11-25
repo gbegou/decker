@@ -39,6 +39,8 @@ export function wireMedia(host: HTMLElement, dir: string, mode: MediaMode) {
         // The poster until it plays; without a poster, the GIF itself (looping as the file says).
         el.setAttribute("src", poster ? assetUrl(dir, poster) : assetUrl(dir, rel));
       } else {
+        // Anonymous CORS, so that a frame can be drawn to a canvas for the poster.
+        el.setAttribute("crossorigin", "anonymous");
         el.setAttribute("src", assetUrl(dir, rel));
         if (poster) el.setAttribute("poster", assetUrl(dir, poster));
         (el as HTMLVideoElement).muted = el.dataset.sound !== "1";
@@ -111,4 +113,29 @@ function isShown(el: Element): boolean {
     node = node.parentElement;
   }
   return true;
+}
+
+/**
+ * The frame of `video` at `seconds` as PNG bytes in base64 (without the
+ * data URL prefix). Rejects when the video cannot be decoded or read.
+ */
+export function captureFrame(video: HTMLVideoElement, seconds: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const grab = () => {
+      try {
+        if (!video.videoWidth) throw new Error("the video has no decoded frame (codec not available?)");
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext("2d")!.drawImage(video, 0, 0);
+        resolve(canvas.toDataURL("image/png").split(",")[1]);
+      } catch (e) {
+        reject(e);
+      }
+    };
+    const timer = setTimeout(() => reject(new Error("the video did not seek in time")), 5000);
+    video.addEventListener("seeked", () => { clearTimeout(timer); grab(); }, { once: true });
+    video.pause();
+    video.currentTime = Math.max(0, seconds);
+  });
 }

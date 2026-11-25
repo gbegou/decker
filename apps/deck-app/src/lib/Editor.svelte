@@ -3,7 +3,7 @@
   import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { api, watchView, watchThumbnails, presentationKeys, type View, type Rect, type Crop, type Mask, type TextLayout } from "./api";
-  import { SlideView } from "$shared";
+  import { SlideView, captureFrame } from "$shared";
   import StyleBar from "./StyleBar.svelte";
   import ArrangeBar from "./ArrangeBar.svelte";
   import TablePanel from "./TablePanel.svelte";
@@ -52,6 +52,21 @@
   });
 
   const IMAGE_FILE = /\.(png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|m4v|ogv)$/i;
+
+  /** The poster of the selected video: the frame at `posterAt` seconds, captured from the canvas. */
+  let posterAt = $state(0);
+  function capturePoster(index: number, src: string) {
+    const video = Array.from(canvas?.querySelectorAll<HTMLVideoElement>("video[data-media]") ?? []).find((v) => v.dataset.media === src);
+    if (!video) { status = "The video is not on the canvas"; return; }
+    enqueue(async () => {
+      try {
+        const png = await captureFrame(video, posterAt);
+        await run("Poster set", () => api.setPoster(index, png));
+      } catch (e) {
+        status = `Could not capture the frame: ${e instanceof Error ? e.message : e}`;
+      }
+    });
+  }
 
   /** "+ Video…": a video or GIF file picked from disk. */
   async function addMedia() {
@@ -909,6 +924,11 @@
           <label><input type="radio" name="play" checked={sel.media.play === "button"} onchange={() => run("Play on click", () => api.styleElement(sel!.index, { play: "button" }))} /> play on its button</label>
           <label><input type="checkbox" checked={sel.media.looping} onchange={(e) => run("Loop", () => api.styleElement(sel!.index, { looping: e.currentTarget.checked }))} /> loop (else play once and stop)</label>
           {#if !sel.text.toLowerCase().endsWith(".gif")}
+            <div class="row">
+              <label title="The frame to keep as the poster, in seconds">poster at <input type="number" min="0" step="0.5" bind:value={posterAt} style="width: 64px" /> s</label>
+              <button onclick={() => capturePoster(sel!.index, sel!.text)} title="Keep that frame as the still shown before playback, in thumbnails, PDF and PowerPoint">Use as poster</button>
+              {#if sel.media.poster}<button onclick={() => run("Poster removed", () => api.setPoster(sel!.index, null))}>Remove</button>{/if}
+            </div>
             <label><input type="checkbox" checked={sel.media.sound} onchange={(e) => run("Sound", () => api.styleElement(sel!.index, { sound: e.currentTarget.checked }))} /> sound</label>
           {/if}
           <p class="muted">{sel.text}{sel.media.duration ? ` · ${sel.media.duration.toFixed(1)} s` : ""}. Plays in the presentation windows; the editor shows the first frame. Thumbnails, PDF and PowerPoint exports show the poster.</p>

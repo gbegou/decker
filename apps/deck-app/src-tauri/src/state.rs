@@ -1840,6 +1840,22 @@ impl AppState {
     }
 
     /// Adds an outline ("plan") element to the current slide.
+    /// Sets the poster of the video at `element` from PNG bytes (a frame
+    /// captured in the editor), or removes it with `None`.
+    pub fn set_poster(&mut self, element: usize, png: Option<&[u8]>) -> Result<(), String> {
+        let dir = self.dir.clone();
+        self.touch_target();
+        let Some(Element::Media(m)) = self.elements_mut()?.get_mut(element) else { return Err("not a video".into()) };
+        m.poster = match png {
+            Some(bytes) => {
+                let stem = Path::new(&m.src).file_stem().and_then(|s| s.to_str()).unwrap_or("video").to_string();
+                Some(transfer::add_image(&dir, &format!("{stem}.poster.png"), bytes).map_err(|e| e.to_string())?)
+            }
+            None => None,
+        };
+        Ok(())
+    }
+
     /// Adds a table of `rows` by `columns` with a header row.
     pub fn add_table(&mut self, rows: usize, columns: usize) -> Result<usize, String> {
         self.touch_target();
@@ -2271,6 +2287,24 @@ mod tests {
         s.set_rotation(0, 45.0).unwrap();
         let shape = s.deck.as_ref().unwrap().slides[0].elements[0].clone();
         assert_eq!((shape.state_at(0).rotation, shape.state_at(1).rotation), (0.0, 45.0));
+    }
+
+    #[test]
+    fn a_video_takes_a_poster() {
+        let mut s = AppState::default();
+        s.load(deck(), std::env::temp_dir().join(format!("decker-poster-{}", std::process::id())));
+        let i = s.add_image("clip.mp4", b"video bytes", None).unwrap();
+        s.set_poster(i, Some(b"png")).unwrap();
+        let poster = |s: &AppState| match &s.deck.as_ref().unwrap().slides[0].elements[i] {
+            Element::Media(m) => m.poster.clone(),
+            _ => unreachable!(),
+        };
+        assert_eq!(poster(&s).as_deref(), Some("assets/clip.poster.png"));
+        assert!(s.dir.join("assets/clip.poster.png").is_file());
+        s.set_poster(i, None).unwrap();
+        assert_eq!(poster(&s), None);
+        assert!(s.set_poster(0, None).is_err());
+        let _ = std::fs::remove_dir_all(&s.dir);
     }
 
     #[test]

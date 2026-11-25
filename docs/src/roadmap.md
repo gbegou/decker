@@ -2,8 +2,7 @@
 
 What is not there yet, roughly in order of usefulness:
 
-1. Editor: editing table cells in place; adding a poster frame to a video; rotation kept
-   through PowerPoint.
+1. Editor: editing table cells in place.
 2. PPTX: master text styles on import; merged cells and table styles; real video embedding and figures as
    pictures on export; motion paths as build steps.
 3. PDF: notes pages; formulas and figures as selectable text.

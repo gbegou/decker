@@ -452,6 +452,25 @@ fn import_tree(
             }
             other => report.warnings.push(format!("{part}: element {other} skipped")),
         }
+        // A rotated frame: the element's rotation from the start, kept as
+        // an instant step at click 0.
+        if elements.len() == before + 1 {
+            let frame = node
+                .children()
+                .find(|n| n.has_tag_name((NS_P, "spPr")) || n.has_tag_name((NS_P, "grpSpPr")))
+                .and_then(|p| child(p, NS_A, "xfrm"))
+                .or_else(|| child(node, NS_P, "xfrm"));
+            let degrees =
+                frame.and_then(|x| x.attribute("rot")).and_then(|r| r.parse::<f64>().ok()).map(|r| r / 60_000.0);
+            if let Some(degrees) = degrees.filter(|d| d.abs() > 1e-6) {
+                let turn = Step {
+                    at: 0,
+                    set: Overrides { rotation: Some(((degrees % 360.0) + 360.0) % 360.0), ..Default::default() },
+                    ..Default::default()
+                };
+                steps_mut(&mut elements[before]).insert(0, turn);
+            }
+        }
         // Remember the PowerPoint shape id of each imported element, for
         // the timing tree (a group's id animates the whole group).
         if tag != "grpSp" || elements.len() == before + 1 && matches!(elements.last(), Some(Element::Group(_))) {
