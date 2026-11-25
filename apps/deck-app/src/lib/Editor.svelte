@@ -360,13 +360,16 @@
     if (at === 0) await api.moveSlide(1, 0);
     return at;
   }
-  function onGap(what: "slide" | "section" | "subsection") {
+  function onGap(what: "slide" | "plan" | "section" | "subsection") {
     const at = gapMenu!.at;
     gapMenu = null;
     enqueue(async () => {
-      await run(what === "slide" ? "Added slide" : `Added ${what}`, async () => {
+      await run(what === "slide" ? "Added slide" : what === "plan" ? "Added plan slide" : `Added ${what}`, async () => {
         const k = await slideAt(at);
-        if (what !== "slide") {
+        if (what === "plan") {
+          await api.goto(k);
+          await api.addOutline();
+        } else if (what !== "slide") {
           await api.setSectionOf(k, what === "section" ? "Section" : null, what === "subsection" ? "Subsection" : null);
           renaming = { slide: k, level: what };
           queueMicrotask(() => { renameInput?.focus(); renameInput?.select(); });
@@ -918,12 +921,8 @@
       <button onclick={() => enqueue(() => run("Added table", () => api.addTable(3, 3)).then(selectAdded))} title="A table of 3 by 3 cells with a header row; edit it in the panel">+ Table</button>
       <button onclick={addMedia} title="A video or an animated GIF; images and clips can also be pasted or dropped">+ Video…</button>
       <button onclick={() => run("Added figure", api.addFigure)} title="A Typst figure: CeTZ drawings and plots, edited as source in the panel">+ Figure</button>
-      <button onclick={() => run("Added outline", api.addOutline)} title="The sections, the current one highlighted: a plan slide">+ Plan</button>
       {#if selection.length >= 2}<button onclick={groupSelection} title="Group the selected elements (Ctrl+G)">Group</button>{/if}
       {#if sel?.kind === "group"}<button onclick={ungroupSelection} title="Ungroup (Ctrl+Shift+G)">Ungroup</button>{/if}
-      <button onclick={() => run("Added slide", api.addSlide)}>+ Slide</button>
-      <button onclick={() => run("Duplicated slide", api.duplicateSlide)}>Duplicate</button>
-      <button onclick={() => run("Deleted slide", api.deleteSlide)}>− Slide</button>
       <button onclick={pickDeck} disabled={!view.dir}>Insert from deck…</button>
       {#if view.presenting}
         <button class="primary" onclick={() => api.stopPresentation()}>Stop (Esc)</button>
@@ -1270,6 +1269,7 @@
     <div class="context-menu" role="menu" style="left: {g.x}px; top: {g.y}px">
       <div class="menu-title">{g.at >= view.slide_count ? "At the end" : `Before slide ${g.at + 1}`}</div>
       <button role="menuitem" onclick={() => onGap("slide")}>New slide</button>
+      <button role="menuitem" title="A slide listing the sections, the current one highlighted" onclick={() => onGap("plan")}>New plan slide</button>
       <button role="menuitem" onclick={() => onGap("section")}>New section</button>
       <button role="menuitem" onclick={() => onGap("subsection")}>New subsection</button>
     </div>
@@ -1284,6 +1284,7 @@
     <div class="context-menu" role="menu" style="left: {m.x}px; top: {m.y}px">
       <div class="menu-title">Slide {m.slide + 1}</div>
       <button role="menuitem" onclick={() => onSlide("Added slide", api.addSlide)}>New slide after</button>
+      <button role="menuitem" title="A slide listing the sections, the current one highlighted" onclick={() => onSlide("Added plan slide", async () => { await api.addSlide(); await api.addOutline(); })}>New plan slide after</button>
       <button role="menuitem" onclick={() => onSlide("Duplicated slide", api.duplicateSlide)}>Duplicate</button>
       <button role="menuitem" disabled={view.slide_count <= 1} onclick={() => onSlide("Deleted slide", api.deleteSlide)}>Delete</button>
       <hr />

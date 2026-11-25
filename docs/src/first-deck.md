@@ -20,7 +20,7 @@ side panel's **Layout** selector. See [Layouts and themes](layouts.md) and
 
 ## 3. Bullets and a formula
 
-Click **+ Slide**: the new slide starts from the layout, with a title and a body placeholder.
+Right-click the slide's thumbnail and choose **New slide after**: the new slide starts from the layout, with a title and a body placeholder.
 Double-click the title, type `Waves in a tank`, press Escape. Double-click the body and type:
 
 ```text
@@ -43,8 +43,8 @@ function, and the figure follows. See [Formulas and figures](formulas.md).
 ## 5. Sections
 
 Right-click the space below the thumbnails and choose **New section**; name it `Theory`.
-The section starts with a new slide. On the first slide, add a **+ Plan**: the list of
-sections, the current one highlighted, kept up to date. See
+The section starts with a new slide. Right-click the first thumbnail and choose **New plan
+slide after**: a slide listing the sections, the current one highlighted, kept up to date. See
 [Slides and sections](slides.md).
 
 ## 6. Build steps

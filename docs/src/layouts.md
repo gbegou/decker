@@ -46,7 +46,7 @@ export produces real placeholders and how a slide keeps its link to the layout.
 
 - The right panel shows the slide's layout, with a selector to change it. Changing it keeps
   the slide's elements; placeholders are not re-created.
-- **+ Slide** creates the next slide from the current slide's layout: one text box per
+- **New slide** (right-click a thumbnail) creates the next slide from that slide's layout: one text box per
   placeholder, at the placeholder's position and style, showing the placeholder's name.
 
 ## Creating a layout

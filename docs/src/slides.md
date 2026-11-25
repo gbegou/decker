@@ -8,13 +8,14 @@ The left column lists the slides. Click one to edit it.
 
 - **Reorder** by dragging a thumbnail, or with Ctrl+Up and Ctrl+Down on the current slide.
   Sections move with the slide that starts them.
-- **Right-click a thumbnail** for its menu: new slide after it, duplicate, delete, and start or
+- **Right-click a thumbnail** for its menu: new slide or new plan slide after it, duplicate,
+  delete, and start or
   remove a section or subsection there. A duplicate belongs to its original's section.
-- **Right-click between or below thumbnails** to add a new slide, a new section or a new
-  subsection at that place. A section always starts at a slide, so a new section or
+- **Right-click between or below thumbnails** to add a new slide, a new plan slide, a new
+  section or a new subsection at that place. A section always starts at a slide, so a new section or
   subsection comes with its first slide, its name ready to type.
-- The toolbar's **+ Slide**, **Duplicate** and **− Slide** act on the current slide. A new
-  slide starts from the current slide's [layout](layouts.md): one text box per placeholder.
+- A new slide starts from the [layout](layouts.md) of the slide before it: one text box per
+  placeholder.
 - Page Up and Page Down change slide.
 
 ## Sections
@@ -37,7 +38,8 @@ Sections are used in four places:
 
 ## The plan slide
 
-**+ Plan** adds an outline element to the current slide: the list of sections, numbered, the
+**New plan slide** (right-click a thumbnail, or between thumbnails) adds a slide holding an
+outline: the list of sections, numbered, the
 section the slide belongs to in bold and the others in gray, with the subsections of the
 current section under it (the current subsection in bold). The highlight follows the slide's
 position in the deck, so build the plan slide once, duplicate it and drag a copy to the start

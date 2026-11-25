@@ -7,7 +7,7 @@ The editor is one window in five areas.
 ```text
 ┌────────────────────────────────────────────────────────────────────────────┐
 │ ① New  Open file…  Open .deck folder…  Save  Save as…  Export…   ↶ ↷ ?    │
-│ ② + Text + Shape + Table + Video… + Figure + Plan  + Slide …   Present     │
+│ ② + Text + Shape + Table + Video… + Figure  Insert from deck…  Present     │
 ├──────────┬──────────────────────────────────────────────┬──────────────────┤
 │ ③        │ ④ style bar · arrange bar                    │ ⑤                │
 │ thumb-   │ ┌──────────────────────────────────────────┐ │ properties of    │
@@ -21,11 +21,12 @@ The editor is one window in five areas.
 
 1. **The deck bar**: open, save and export the deck; undo and redo; **?** opens the list of
    [commands and keys](keys.md) (also **F1**).
-2. **The insert bar**: add elements to the slide, add or remove slides, start the
+2. **The insert bar**: add elements to the slide, insert slides from another deck, start the
    presentation. While a layout is being edited, it holds the layout's own commands
    (placeholders, save and load, **Done**).
 3. **The thumbnail pane**: one thumbnail per slide under its section headers. Click to go,
-   drag to reorder, right-click for the slide menu; see [Slides and sections](slides.md).
+   drag to reorder; right-click a thumbnail to add, duplicate or delete slides, or between
+   thumbnails to add a slide, a plan slide or a section; see [Slides and sections](slides.md).
 4. **The canvas**: the current slide, edited directly. Above it, the **style bar** (font,
    size, color, alignment, bullets, fill and outline) and the **arrange bar** (align,
    distribute, mirror, order, stroke) act on the selection; below it, **◀ ▶** show the slide

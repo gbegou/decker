@@ -126,6 +126,21 @@ class Thumbnails(EditorTest):
         self.assertEqual(self.view()["elements"][0]["text"], "Measured speeds")
 
 
+class SlideMenus(EditorTest):
+    def test_a_plan_slide_from_the_thumbnail_menu(self):
+        e = self.e
+        x, y = e.rect(".stack-item[data-index='2'] .thumb")[:2]
+        e.pointer(x + 40, y + 40, button=2)
+        e.s.js("[...document.querySelectorAll('.context-menu button')].find(b => b.textContent.trim() === 'New plan slide after').click(); return true")
+        e.settle(1.5)
+        v = self.view()
+        self.assertEqual((v["slide_count"], v["slide"]), (6, 3), "a new slide after slide 3, shown")
+        self.assertIn("outline", [x["kind"] for x in v["elements"]])
+        self.assertFalse(e.s.js("return [...document.querySelectorAll('header button, .toolbar button')]"
+                                ".some(b => ['+ Plan', '+ Slide', '− Slide'].includes(b.textContent.trim()))"),
+                         "those are in the menus now")
+
+
 class Presenting(EditorTest):
     def env(self):
         return {"DECKER_PRESENT": "both", "DECKER_WINDOWED": "1"}
