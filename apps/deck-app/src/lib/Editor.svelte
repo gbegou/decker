@@ -157,7 +157,7 @@
     const picked = await openDialog({
       multiple: false,
       directory: false,
-      filters: [{ name: "Presentations", extensions: ["pptx", "json"] }],
+      filters: [{ name: "Presentations", extensions: ["pptx", "deckz", "json"] }],
     });
     if (!picked) return;
     // A deck is a folder: opening its deck.json selects the folder.
@@ -171,13 +171,19 @@
   }
 
   async function saveAs() {
-    const picked = await saveDialog({ defaultPath: "talk.deck" });
-    if (picked) await run(`Saved ${picked}`, () => api.save(picked));
+    // A folder name (talk.deck) keeps the deck as a folder; a .deckz name packs it into one file.
+    const picked = await saveDialog({
+      defaultPath: "talk.deck",
+      filters: [{ name: "Deck folder", extensions: ["deck"] }, { name: "Single-file deck", extensions: ["deckz"] }],
+    });
+    if (picked) await run("Saved", async () => { status = `Saved ${await api.save(picked)}`; });
   }
 
   async function save() {
     if (!view?.dir) return saveAs();
-    await run(`Saved ${view.dir}`, () => api.save());
+    let where = view.dir;
+    await run("Saved", async () => { where = await api.save(); });
+    status = `Saved ${where}`;
   }
 
   async function exportPptx() {
@@ -676,7 +682,7 @@
 <div class="editor">
   <header>
     <button onclick={() => run("New deck", api.newDeck)}>New</button>
-    <button onclick={openFile}>Open PPTX…</button>
+    <button onclick={openFile} title="A PowerPoint file, a single-file deck (.deckz) or a deck.json">Open file…</button>
     <button onclick={openFolder}>Open .deck folder…</button>
     <button onclick={save} disabled={!view?.slide_count}>Save</button>
     <button onclick={saveAs} disabled={!view?.slide_count}>Save as…</button>

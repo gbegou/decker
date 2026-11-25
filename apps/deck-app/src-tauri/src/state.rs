@@ -31,6 +31,9 @@ pub struct AppState {
     thumbs: Vec<Option<String>>,
     /// Images as data URIs, by deck-relative path.
     pub assets: HashMap<String, String>,
+    /// The `.deckz` file the deck came from or was last saved to: saving
+    /// packs the working folder back into it.
+    pub archive: Option<PathBuf>,
     /// Snapshots before each edit, oldest first, and the ones undone.
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,

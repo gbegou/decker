@@ -59,7 +59,7 @@ Then, in a new terminal with the environment active, `npm install` and `npm run 
 
 ## Opening a presentation
 
-In the editor, **Open PPTX…** imports a PowerPoint file into a `.deck` folder next to it, and
+In the editor, **Open file…** opens a single-file deck (`.deckz`) or imports a PowerPoint file into a `.deck` folder next to it, and
 **Open .deck folder…** opens a deck saved by decker. **Export PPTX…** writes a PowerPoint file.
 
 Two environment variables help scripts and tests:

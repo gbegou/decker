@@ -2,8 +2,8 @@
   let { onclose }: { onclose: () => void } = $props();
   const sections: [string, [string, string][]][] = [
     ["Deck", [
-      ["New · Open PPTX… · Open .deck folder…", "Start a deck, import a PowerPoint file, open a saved deck"],
-      ["Save · Save as…", "Write the deck folder (deck.json + assets/)"],
+      ["New · Open file… · Open .deck folder…", "Start a deck; import a PowerPoint file or open a single-file deck (.deckz); open a deck folder"],
+      ["Save · Save as…", "Write the deck folder (deck.json + assets/), or a single .deckz file when saved under that extension"],
       ["Export PPTX… · Export PDF…", "PowerPoint file; PDF with bookmarks for sections and slides"],
     ]],
     ["Slides", [

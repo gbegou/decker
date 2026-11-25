@@ -56,6 +56,20 @@ enum Command {
         #[arg(long)]
         steps: bool,
     },
+    /// Pack a deck folder into a single `.deckz` file, to send it.
+    Pack {
+        deck: PathBuf,
+        /// Output file (default: the deck name with a .deckz suffix).
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
+    /// Unpack a `.deckz` file into a deck folder.
+    Unpack {
+        archive: PathBuf,
+        /// Output folder (default: the archive name with a .deck suffix).
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
     /// Print a summary of a deck folder.
     Info { deck: PathBuf },
     /// List the layouts of a deck folder, with their placeholders.
@@ -137,6 +151,16 @@ fn main() -> Result<()> {
                 )?;
                 println!("{}: {} pages written to {}", deck.display(), pages.len(), out.display());
             }
+        }
+        Command::Pack { deck, out } => {
+            let out = out.unwrap_or_else(|| deck.with_extension(deck_convert::archive::EXTENSION));
+            let n = deck_convert::archive::pack(&deck, &out)?;
+            println!("{}: {n} files packed into {}", deck.display(), out.display());
+        }
+        Command::Unpack { archive, out } => {
+            let out = out.unwrap_or_else(|| archive.with_extension("deck"));
+            let n = deck_convert::archive::unpack(&archive, &out)?;
+            println!("{}: {n} files unpacked into {}", archive.display(), out.display());
         }
         Command::Info { deck } => {
             let d = native::load(&deck)?;

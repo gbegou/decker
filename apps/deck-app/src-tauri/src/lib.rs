@@ -61,7 +61,12 @@ fn open(app: AppHandle, state: Shared, path: String) -> Result<View, String> {
     let path = PathBuf::from(path);
     let view = {
         let mut s = state.lock().map_err(err)?;
-        if path.extension().map(|e| e.eq_ignore_ascii_case("pptx")).unwrap_or(false) {
+        s.archive = None;
+        if deck_convert::archive::is_archive(&path) {
+            let (deck, dir) = open_archive(&path)?;
+            s.load(deck, dir);
+            s.archive = Some(path);
+        } else if path.extension().map(|e| e.eq_ignore_ascii_case("pptx")).unwrap_or(false) {
             let dir = path.with_extension("deck");
             if dir.exists() {
                 s.load(deck_core::native::load(&dir).map_err(err)?, dir);
@@ -80,6 +85,16 @@ fn open(app: AppHandle, state: Shared, path: String) -> Result<View, String> {
 }
 
 /// A new empty deck with one slide, not saved until `save_as`.
+/// Unpacks a `.deckz` file into a fresh working folder (in the temporary
+/// directory: the file is the deck, saving packs it again).
+fn open_archive(file: &std::path::Path) -> Result<(Deck, PathBuf), String> {
+    let stem = file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "deck".into());
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!("decker-{}-{nanos}", std::process::id())).join(format!("{stem}.deck"));
+    deck_convert::archive::unpack(file, &dir).map_err(err)?;
+    Ok((deck_core::native::load(&dir).map_err(err)?, dir))
+}
+
 #[tauri::command]
 fn new_deck(app: AppHandle, state: Shared) -> Result<View, String> {
     let view = {
@@ -87,6 +102,7 @@ fn new_deck(app: AppHandle, state: Shared) -> Result<View, String> {
         let mut deck = Deck::new("Untitled");
         deck.slides.push(deck_core::Slide::default());
         s.load(deck, PathBuf::new());
+        s.archive = None;
         s.view()
     };
     edited(&app);
@@ -96,7 +112,24 @@ fn new_deck(app: AppHandle, state: Shared) -> Result<View, String> {
 #[tauri::command]
 fn save(state: Shared, path: Option<String>) -> Result<String, String> {
     let mut s = state.lock().map_err(err)?;
-    let dst = path.map(PathBuf::from).unwrap_or_else(|| s.dir.clone());
+    // Saving to a `.deckz` name: the working folder is saved, then packed
+    // into that file; a plain Save of a deck opened from one does the same.
+    let chosen = path.map(PathBuf::from);
+    let archive = match &chosen {
+        Some(p) if deck_convert::archive::is_archive(p) => Some(p.clone()),
+        Some(_) => None,
+        None => s.archive.clone(),
+    };
+    let dst = match (&chosen, &archive) {
+        (Some(p), None) => p.clone(),
+        // An archive needs a folder to pack: the current one, else a temporary one.
+        _ if !s.dir.as_os_str().is_empty() => s.dir.clone(),
+        (_, Some(a)) => {
+            let stem = a.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "deck".into());
+            std::env::temp_dir().join(format!("decker-{}-save", std::process::id())).join(format!("{stem}.deck"))
+        }
+        _ => PathBuf::new(),
+    };
     if dst.as_os_str().is_empty() {
         return Err("no file name: use Save as".into());
     }
@@ -113,7 +146,14 @@ fn save(state: Shared, path: Option<String>) -> Result<String, String> {
             }
             s.deck = Some(d);
             s.dir = dst;
-            Ok(s.dir.display().to_string())
+            s.archive = archive;
+            match &s.archive {
+                Some(file) => {
+                    deck_convert::archive::pack(&s.dir, file).map_err(err)?;
+                    Ok(file.display().to_string())
+                }
+                None => Ok(s.dir.display().to_string()),
+            }
         }
         Err(e) => {
             s.deck = Some(deck);
@@ -875,7 +915,12 @@ pub fn run() {
     let mut initial = AppState::default();
     if let Ok(path) = std::env::var("DECKER_OPEN") {
         let path = PathBuf::from(path);
-        if path.extension().map(|e| e.eq_ignore_ascii_case("pptx")).unwrap_or(false) {
+        if deck_convert::archive::is_archive(&path) {
+            if let Ok((deck, dir)) = open_archive(&path) {
+                initial.load(deck, dir);
+                initial.archive = Some(path);
+            }
+        } else if path.extension().map(|e| e.eq_ignore_ascii_case("pptx")).unwrap_or(false) {
             let dir = path.with_extension("deck");
             if let Ok((deck, report)) = deck_convert::pptx::import(&path, &dir) {
                 initial.load(deck, dir);

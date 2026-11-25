@@ -11,7 +11,22 @@ talk.deck/
 ```
 
 Coordinates are in points (1/72 inch), origin at the top-left of the slide; a 16:9 slide is
-960 × 540 points. A single-file (zipped) variant is planned: the same layout, archived.
+960 × 540 points.
+
+## The single-file deck
+
+A `.deckz` file is that folder zipped, to send a deck as one file. The editor opens it
+(**Open file…**), works in a temporary folder and packs it again on every save; **Save as…**
+with a `.deckz` name turns a folder deck into one, and with a folder name turns it back.
+From the command line:
+
+```bash
+deck-convert pack talk.deck          # writes talk.deckz
+deck-convert unpack talk.deckz       # writes talk.deck/
+```
+
+The folder remains the format to keep under version control: `deck.json` diffs line by
+line, an archive does not.
 
 A minimal deck:
 
