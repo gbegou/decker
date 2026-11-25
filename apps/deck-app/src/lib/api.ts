@@ -160,10 +160,12 @@ export const api = {
   duplicateSlide: () => invoke<View>("duplicate_slide"),
   moveSlide: (from: number, to: number) => invoke<View>("move_slide", { from, to }),
   editLayout: (name: string | null) => invoke<View>("edit_layout", { name }),
-  newLayout: () => invoke<View>("new_layout"),
+  /** A layout from a preset: title, content, section, two, compare, title-only, blank. */
+  newLayout: (kind = "blank") => invoke<View>("new_layout", { kind }),
   renameLayout: (name: string) => invoke<View>("rename_layout", { name }),
   deleteLayout: () => invoke<View>("delete_layout"),
-  addPlaceholder: () => invoke<View>("add_placeholder"),
+  /** A placeholder named after its kind: title, subtitle or body. */
+  addPlaceholder: (kind: "title" | "subtitle" | "body" = "body") => invoke<View>("add_placeholder", { kind }),
   addOutline: () => invoke<View>("add_outline"),
   addFigure: () => invoke<View>("add_figure"),
   /** A video's poster from a captured frame (PNG as base64), or null to remove it. */

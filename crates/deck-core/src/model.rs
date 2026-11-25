@@ -189,6 +189,58 @@ impl Layout {
 
     /// A new slide: one text box per placeholder, carrying the
     /// placeholder's name, position and default style.
+    /// The preset dispositions offered when creating a layout, as
+    /// `(id, label)`: PowerPoint's usual ones.
+    pub const PRESETS: &'static [(&'static str, &'static str)] = &[
+        ("title", "Title slide"),
+        ("content", "Title and content"),
+        ("section", "Section header"),
+        ("two", "Two contents"),
+        ("compare", "Comparison"),
+        ("title-only", "Title only"),
+        ("blank", "Blank"),
+    ];
+
+    /// A layout named `name` with the placeholders of preset `kind` (see
+    /// [`Layout::PRESETS`]) on a `w` by `h` slide; unknown kinds are blank.
+    pub fn preset(name: &str, kind: &str, w: f64, h: f64) -> Layout {
+        let ph = |name: &str, x: f64, y: f64, pw: f64, ph: f64| Placeholder {
+            name: name.into(),
+            rect: Rect::new(x * w, y * h, pw * w, ph * h),
+            ..Default::default()
+        };
+        let title = |y: f64, hh: f64| Placeholder { size: Some(40.0), bold: true, ..ph("title", 0.06, y, 0.88, hh) };
+        let body = |name: &str, x: f64, y: f64, pw: f64, hh: f64| Placeholder {
+            size: Some(24.0),
+            bullets: true,
+            ..ph(name, x, y, pw, hh)
+        };
+        let placeholders = match kind {
+            "title" => vec![
+                Placeholder { size: Some(48.0), bold: true, align: Align::Center, ..ph("title", 0.1, 0.28, 0.8, 0.2) },
+                Placeholder { size: Some(26.0), align: Align::Center, ..ph("subtitle", 0.15, 0.52, 0.7, 0.14) },
+            ],
+            "content" => vec![title(0.05, 0.15), body("body1", 0.06, 0.24, 0.88, 0.68)],
+            "section" => vec![
+                Placeholder { size: Some(44.0), bold: true, ..ph("title", 0.08, 0.38, 0.84, 0.18) },
+                Placeholder { size: Some(22.0), ..ph("subtitle", 0.08, 0.58, 0.84, 0.12) },
+            ],
+            "two" => {
+                vec![title(0.05, 0.15), body("body1", 0.06, 0.24, 0.42, 0.68), body("body2", 0.52, 0.24, 0.42, 0.68)]
+            }
+            "compare" => vec![
+                title(0.05, 0.15),
+                Placeholder { size: Some(26.0), bold: true, ..ph("heading1", 0.06, 0.24, 0.42, 0.09) },
+                body("body1", 0.06, 0.34, 0.42, 0.58),
+                Placeholder { size: Some(26.0), bold: true, ..ph("heading2", 0.52, 0.24, 0.42, 0.09) },
+                body("body2", 0.52, 0.34, 0.42, 0.58),
+            ],
+            "title-only" => vec![title(0.05, 0.15)],
+            _ => vec![],
+        };
+        Layout { name: name.into(), placeholders, ..Default::default() }
+    }
+
     pub fn new_slide(&self) -> Slide {
         Slide {
             layout: Some(self.name.clone()),
@@ -1347,6 +1399,26 @@ mod tests {
         let json = serde_json::to_string(&Element::Table(t.clone())).unwrap();
         assert!(json.contains("\"type\":\"table\"") && json.contains("\"header\":true"));
         assert_eq!(serde_json::from_str::<Element>(&json).unwrap(), Element::Table(t));
+    }
+
+    #[test]
+    fn presets_name_their_placeholders() {
+        let names = |kind: &str| -> Vec<String> {
+            Layout::preset("L", kind, 960.0, 540.0).placeholders.iter().map(|p| p.name.clone()).collect()
+        };
+        assert_eq!(names("title"), ["title", "subtitle"]);
+        assert_eq!(names("compare"), ["title", "heading1", "body1", "heading2", "body2"]);
+        assert!(names("blank").is_empty() && names("nonsense").is_empty());
+        for (kind, _) in Layout::PRESETS {
+            for p in &Layout::preset("L", kind, 960.0, 540.0).placeholders {
+                assert!(
+                    p.rect.x >= 0.0 && p.rect.x + p.rect.w <= 960.0 && p.rect.y + p.rect.h <= 540.0,
+                    "{kind}: {p:?}"
+                );
+            }
+        }
+        let slide = Layout::preset("L", "two", 960.0, 540.0).new_slide();
+        assert_eq!(slide.elements.len(), 3);
     }
 
     #[test]

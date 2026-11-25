@@ -838,7 +838,12 @@
         <option value="arrow">→ Arrow</option>
       </select>
       <button onclick={() => enqueue(() => run("Added table", () => api.addTable(3, 3)).then(selectAdded))} title="A table of 3 by 3 cells with a header row; edit it in the panel">+ Table</button>
-      <button onclick={() => run("Added placeholder", api.addPlaceholder)}>+ Placeholder</button>
+      <select class="add-shape" title="Add a named placeholder" value="" onchange={(e) => { const k = e.currentTarget.value as "title" | "subtitle" | "body"; e.currentTarget.value = ""; if (k) run("Added placeholder", () => api.addPlaceholder(k)); }}>
+        <option value="">+ Placeholder</option>
+        <option value="title">Title</option>
+        <option value="subtitle">Subtitle</option>
+        <option value="body">Body</option>
+      </select>
       <button onclick={saveLayoutAs} disabled={!view.dir}>Save layout…</button>
       <button onclick={() => run("Layout deleted", api.deleteLayout)}>Delete layout</button>
       <button class="primary" onclick={() => run("Back to slides", () => api.editLayout(null))}>Done</button>
@@ -928,10 +933,18 @@
             {#each view.elements as el (el.index)}
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               {@const turn = el.rotation ? `rotate(${el.rotation} ${el.rect.x + el.rect.w / 2} ${el.rect.y + el.rect.h / 2})` : undefined}
-              <rect class="hit" class:selected={selection.includes(el.index)} transform={turn}
-                    x={el.rect.x} y={el.rect.y} width={el.rect.w} height={el.rect.h}
-                    onpointerdown={(e) => startDrag(e, el.index, "move")}
-                    ondblclick={(e) => { e.stopPropagation(); startEdit(el.index, slidePoint(e)); }} />
+              {#if el.shape === "line" || el.shape === "arrow"}
+                <!-- A line's box can be flat: it is grabbed along the line itself. -->
+                <line class="hit thin" class:selected={selection.includes(el.index)} transform={turn}
+                      x1={el.rect.x} y1={el.flip ? el.rect.y + el.rect.h : el.rect.y}
+                      x2={el.rect.x + el.rect.w} y2={el.flip ? el.rect.y : el.rect.y + el.rect.h}
+                      onpointerdown={(e) => startDrag(e, el.index, "move")} />
+              {:else}
+                <rect class="hit" class:selected={selection.includes(el.index)} transform={turn}
+                      x={el.rect.x} y={el.rect.y} width={el.rect.w} height={el.rect.h}
+                      onpointerdown={(e) => startDrag(e, el.index, "move")}
+                      ondblclick={(e) => { e.stopPropagation(); startEdit(el.index, slidePoint(e)); }} />
+              {/if}
               {#if el.index === selected}
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <rect class="handle" x={el.rect.x + el.rect.w - 6} y={el.rect.y + el.rect.h - 6} width="12" height="12" transform={turn}
@@ -1100,7 +1113,16 @@
         {/if}
         <div class="row">
           {#if view.layout}<button onclick={() => run("Editing layout", () => api.editLayout(view!.layout))}>Edit layout</button>{/if}
-          <button onclick={() => run("New layout", api.newLayout)}>+ New layout</button>
+          <select class="add-shape" title="A new layout from a disposition" value="" onchange={(e) => { const k = e.currentTarget.value; e.currentTarget.value = ""; if (k) run("New layout", () => api.newLayout(k)); }}>
+            <option value="">+ New layout</option>
+            <option value="title">Title slide</option>
+            <option value="content">Title and content</option>
+            <option value="section">Section header</option>
+            <option value="two">Two contents</option>
+            <option value="compare">Comparison</option>
+            <option value="title-only">Title only</option>
+            <option value="blank">Blank</option>
+          </select>
           <button onclick={loadLayoutFrom} disabled={!view.dir}>Load layout…</button>
         </div>
       {/if}
@@ -1307,6 +1329,8 @@
   .hit { fill: transparent; stroke: transparent; stroke-width: 1; cursor: move; }
   .hit:hover { stroke: var(--accent); stroke-dasharray: 4 2; }
   .hit.selected { stroke: var(--accent); stroke-width: 2; }
+  .hit.thin { stroke: transparent; stroke-width: 14px; vector-effect: non-scaling-stroke; pointer-events: stroke; stroke-linecap: round; }
+  .hit.thin:hover, .hit.thin.selected { stroke: var(--accent); stroke-opacity: 0.35; stroke-dasharray: none; }
   .handle { fill: var(--accent); cursor: nwse-resize; }
   .rotate { fill: white; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; cursor: grab; pointer-events: all; }
   .rotate-stem { stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }

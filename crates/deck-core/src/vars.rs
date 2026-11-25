@@ -1,6 +1,12 @@
 //! Variables in layout text: `{{section}}`, `{{subsection}}`, `{{slide}}`,
 //! `{{slides}}`, `{{title}}`, `{{deck}}` and `{{date}}`, substituted when a
 //! slide is rendered.
+//!
+//! A list joins values and quoted text: `{{section, " | ", subsection}}`,
+//! `{{slide, " / ", slides}}`. Text between two values shows only when
+//! both are non-empty, text before the first value only when it is, and
+//! text after the last value only when it is: a missing subsection leaves
+//! no dangling separator.
 
 use crate::model::{Deck, Element, Paragraph};
 
@@ -42,8 +48,7 @@ impl Vars {
             let after = &rest[start + 2..];
             match after.find("}}") {
                 Some(end) => {
-                    let name = after[..end].trim();
-                    match self.value(name) {
+                    match self.expression(&after[..end]) {
                         Some(v) => out.push_str(&v),
                         None => {
                             out.push_str("{{");
@@ -61,6 +66,37 @@ impl Vars {
         }
         out.push_str(rest);
         out
+    }
+
+    /// The value of what is between the braces: a name, or a list of names
+    /// and quoted texts. `None` when a name is unknown or a quote unclosed.
+    fn expression(&self, inside: &str) -> Option<String> {
+        let mut out = String::new();
+        let mut pending = String::new();
+        let mut last_value_empty: Option<bool> = None;
+        for item in split_items(inside)? {
+            match item {
+                Item::Text(t) => pending.push_str(&t),
+                Item::Name(n) => {
+                    let v = self.value(&n)?;
+                    if !v.is_empty() {
+                        // A separator only between two values that are there.
+                        // Text before the first value leads it; later text
+                        // separates it from a value already shown.
+                        if last_value_empty.is_none() || !out.is_empty() {
+                            out.push_str(&pending);
+                        }
+                        out.push_str(&v);
+                    }
+                    pending.clear();
+                    last_value_empty = Some(v.is_empty());
+                }
+            }
+        }
+        if last_value_empty == Some(false) || last_value_empty.is_none() {
+            out.push_str(&pending);
+        }
+        Some(out)
     }
 
     fn value(&self, name: &str) -> Option<String> {
@@ -138,10 +174,87 @@ fn today() -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
+enum Item {
+    Name(String),
+    Text(String),
+}
+
+/// The comma-separated items of a variable: names, and texts in double
+/// quotes (`\"` and `\\` escape inside). `None` on an unclosed quote.
+fn split_items(inside: &str) -> Option<Vec<Item>> {
+    let mut items = vec![];
+    let mut chars = inside.chars().peekable();
+    loop {
+        while chars.peek().is_some_and(|c| c.is_whitespace()) {
+            chars.next();
+        }
+        match chars.peek() {
+            None => break,
+            Some('"') => {
+                chars.next();
+                let mut text = String::new();
+                loop {
+                    match chars.next()? {
+                        '"' => break,
+                        '\\' => text.push(chars.next()?),
+                        c => text.push(c),
+                    }
+                }
+                items.push(Item::Text(text));
+            }
+            Some(_) => {
+                let mut name = String::new();
+                while let Some(&c) = chars.peek() {
+                    if c == ',' {
+                        break;
+                    }
+                    name.push(c);
+                    chars.next();
+                }
+                items.push(Item::Name(name.trim().to_string()));
+            }
+        }
+        while chars.peek().is_some_and(|c| c.is_whitespace()) {
+            chars.next();
+        }
+        match chars.next() {
+            None => break,
+            Some(',') => {}
+            Some(_) => return None,
+        }
+    }
+    Some(items)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::model::*;
+
+    #[test]
+    fn lists_join_values_without_dangling_separators() {
+        let v = Vars {
+            section: "Intro".into(),
+            subsection: String::new(),
+            slide: 3,
+            slides: 12,
+            title: "T".into(),
+            deck: "D".into(),
+            date: "2026-01-01".into(),
+        };
+        assert_eq!(v.substitute(r#"{{slide, " / ", slides}}"#), "3 / 12");
+        assert_eq!(v.substitute(r#"{{section, " | ", subsection}}"#), "Intro", "no subsection, no separator");
+        assert_eq!(v.substitute(r#"{{subsection, " | ", section}}"#), "Intro");
+        assert_eq!(v.substitute(r#"{{section, " · ", subsection, " · ", slide}}"#), "Intro · 3");
+        assert_eq!(v.substitute(r#"{{"Part ", section, "!"}}"#), "Part Intro!");
+        assert_eq!(v.substitute(r#"{{"(", subsection, ")"}}"#), "", "around an empty value: nothing");
+        assert_eq!(v.substitute(r#"{{"say \"hi\", ", deck}}"#), "say \"hi\", D", "escapes and commas in quotes");
+        assert_eq!(
+            v.substitute(r#"{{slide, nope}} {{section, "unclosed}}"#),
+            r#"{{slide, nope}} {{section, "unclosed}}"#
+        );
+        assert_eq!(v.substitute("{{ section }}"), "Intro");
+    }
 
     #[test]
     fn substitutes_known_names_and_keeps_others() {

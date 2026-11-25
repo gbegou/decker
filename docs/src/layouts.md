@@ -50,6 +50,14 @@ export produces real placeholders and how a slide keeps its link to the layout.
   placeholder, at the placeholder's position and style, showing the placeholder's name.
 - **Duplicate** copies the current slide.
 
+## Creating a layout
+
+**+ New layout** offers PowerPoint's usual dispositions: title slide (title and subtitle),
+title and content, section header, two contents, comparison (two headings over two bodies),
+title only, and blank. Their placeholders are named `title`, `subtitle`, `heading1`,
+`body1`… In the layout editor, **+ Placeholder** adds a title, a subtitle or a body, named
+the same way (`subtitle2` for a second one).
+
 ## Editing a layout
 
 **Edit layout**, under the layout selector, shows the layout on the canvas instead of a
@@ -143,3 +151,17 @@ deck-convert layouts talk.deck
 ```
 
 lists a deck's layouts and placeholders.
+
+## Joining variables
+
+A variable can be a list of variables and quoted texts, joined:
+
+```text
+{{section, " | ", subsection}}      Intro | Motivation, or just Intro without a subsection
+{{slide, " / ", slides}}            3 / 12
+{{"Part ", section}}                Part Intro, or nothing outside a section
+```
+
+Text between two variables shows only when both have a value, text before the first only
+when it has one, and text after the last likewise, so a missing subsection leaves no
+dangling separator. Inside quotes, `\"` is a quote and commas are kept.

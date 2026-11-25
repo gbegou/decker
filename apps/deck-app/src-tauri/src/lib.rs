@@ -395,11 +395,11 @@ fn edit_layout(app: AppHandle, state: Shared, name: Option<String>) -> Result<Vi
 }
 
 #[tauri::command]
-fn new_layout(app: AppHandle, state: Shared) -> Result<View, String> {
+fn new_layout(app: AppHandle, state: Shared, kind: Option<String>) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
         s.checkpoint("new_layout", false);
-        s.new_layout()?;
+        s.new_layout(kind.as_deref().unwrap_or("blank"))?;
         s.view()
     };
     edited(&app);
@@ -698,11 +698,11 @@ fn layout_dir(path: &str) -> PathBuf {
 }
 
 #[tauri::command]
-fn add_placeholder(app: AppHandle, state: Shared) -> Result<View, String> {
+fn add_placeholder(app: AppHandle, state: Shared, kind: Option<String>) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
         s.checkpoint("add_placeholder", false);
-        s.add_placeholder()?;
+        s.add_placeholder(kind.as_deref().unwrap_or("body"))?;
         s.view()
     };
     edited(&app);

@@ -944,15 +944,23 @@ impl AppState {
     }
 
     /// A new empty layout, entered for editing. Returns its name.
-    pub fn new_layout(&mut self) -> Result<String, String> {
+    /// A new layout from a preset disposition (see [`Layout::PRESETS`]),
+    /// named after it, entered for editing. Returns its name.
+    pub fn new_layout(&mut self, kind: &str) -> Result<String, String> {
         let deck = self.deck.as_mut().ok_or("no deck")?;
-        let mut n = deck.layouts.len() + 1;
-        let mut name = format!("Layout {n}");
+        let base = Layout::PRESETS
+            .iter()
+            .find(|(id, _)| *id == kind)
+            .map(|(_, label)| label.to_string())
+            .unwrap_or_else(|| "Layout".into());
+        let mut name = base.clone();
+        let mut n = 1;
         while deck.layout(&name).is_some() {
             n += 1;
-            name = format!("Layout {n}");
+            name = format!("{base} {n}");
         }
-        deck.layouts.push(Layout { name: name.clone(), ..Default::default() });
+        let layout = Layout::preset(&name, kind, deck.width, deck.height);
+        deck.layouts.push(layout);
         self.editing_layout = Some(name.clone());
         Ok(name)
     }
@@ -993,21 +1001,44 @@ impl AppState {
     }
 
     /// Adds a placeholder to the layout under edit.
-    pub fn add_placeholder(&mut self) -> Result<(), String> {
+    /// Adds a placeholder of `kind`: `title`, `subtitle` or `body` (a
+    /// later one of a kind is numbered: `subtitle2`, `body2`…).
+    pub fn add_placeholder(&mut self, kind: &str) -> Result<(), String> {
         let (w, h) = self.deck.as_ref().map(|d| (d.width, d.height)).ok_or("no deck")?;
         let layout = self.layout_mut()?;
-        let mut n = layout.placeholders.len() + 1;
-        let mut name = format!("body{n}");
+        let base = match kind {
+            "title" | "subtitle" => kind,
+            _ => "body",
+        };
+        let mut n = 1;
+        let mut name = if base == "body" { "body1".to_string() } else { base.to_string() };
         while layout.placeholder(&name).is_some() {
             n += 1;
-            name = format!("body{n}");
+            name = format!("{base}{n}");
         }
-        layout.placeholders.push(Placeholder {
-            name,
-            rect: Rect::new(w * 0.1, h * 0.3, w * 0.8, h * 0.4),
-            bullets: true,
-            ..Default::default()
-        });
+        let placeholder = match base {
+            "title" => Placeholder {
+                name,
+                rect: Rect::new(w * 0.06, h * 0.05, w * 0.88, h * 0.15),
+                size: Some(40.0),
+                bold: true,
+                ..Default::default()
+            },
+            "subtitle" => Placeholder {
+                name,
+                rect: Rect::new(w * 0.06, h * 0.22, w * 0.88, h * 0.1),
+                size: Some(26.0),
+                ..Default::default()
+            },
+            _ => Placeholder {
+                name,
+                rect: Rect::new(w * 0.1, h * 0.3, w * 0.8, h * 0.4),
+                size: Some(24.0),
+                bullets: true,
+                ..Default::default()
+            },
+        };
+        layout.placeholders.push(placeholder);
         self.touch(None);
         Ok(())
     }
