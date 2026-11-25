@@ -1,5 +1,7 @@
 # decker
 
+<img src="docs/src/images/decker_lockup.svg" alt="decker" width="420">
+
 **D**ecker is an **E**fficient, **C**ross-platform **K**eynote **E**ditor and **R**enderer.
 
 A free, fast, modern alternative to PowerPoint, written in Rust, for Linux and Windows.

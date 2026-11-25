@@ -1,9 +1,8 @@
 """Installs the decker logos from branding/*.svg into the project.
 
-Run after final_icon.py has written the SVGs (it needs assemble.py and
-rsvg-convert):
+Run after decker_logo.py has written the SVGs:
 
-    python3 branding/final_icon.py
+    python3 branding/decker_logo.py branding
     python3 branding/install_icons.py
 
 It rasterizes with the Chromium of Playwright (npm), then:
@@ -45,7 +44,7 @@ const {{ chromium }} = require('playwright');
 def main() -> int:
     missing = [n for n in NEEDED if not (BRAND / n).is_file()]
     if missing:
-        print("missing in branding/: " + ", ".join(missing) + " (run final_icon.py first)", file=sys.stderr)
+        print("missing in branding/: " + ", ".join(missing) + " (run decker_logo.py first)", file=sys.stderr)
         return 1
     with tempfile.TemporaryDirectory() as tmp:
         tmp = pathlib.Path(tmp)

@@ -5,5 +5,4 @@ What is not there yet, roughly in order of usefulness:
 2. PPTX: theme color references; merged cells and table styles; motion paths as build
    steps; video autoplay.
 4. Python: `decker-slides` published on PyPI.
-5. A logo and application icons.
 6. End-to-end tests driving the application windows.

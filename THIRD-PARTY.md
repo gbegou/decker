@@ -15,6 +15,11 @@ The application bundles the following works under their own licenses.
 The font exception of the GPL and the OFL allow embedding these fonts in documents and
 distributing them with the application without affecting the license of decker itself.
 
+## Logo
+
+The wordmark of the logo (`branding/`) is drawn from Montserrat ExtraBold outlines, under the
+SIL Open Font License 1.1, which allows embedding them.
+
 ## Typst packages
 
 | Package | License | Where |
