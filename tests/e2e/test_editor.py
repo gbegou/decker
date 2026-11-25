@@ -16,6 +16,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "docs" / "screenshots"))
+sys.path.insert(0, str(ROOT / "python"))
 import decker_app  # noqa: E402
 import make_demo  # noqa: E402
 
@@ -145,6 +146,44 @@ class Presenting(EditorTest):
         # Title slide beige, then a white slide: no window keeps the beige.
         self.assertEqual(len(fills), 2, "the audience and presenter windows")
         self.assertNotIn("#F3EEE6", fills)
+
+
+class LongDeck(EditorTest):
+    """A deck of 80 slides, as imported decks often are."""
+
+    def setUp(self):
+        import decker
+        real = make_demo.main
+
+        def long(out):
+            real(out)
+            deck = decker.load(out)
+            for _ in range(75):
+                deck.slides[2].duplicate()
+            deck.save(out)
+
+        make_demo.main = long
+        try:
+            super().setUp()
+        finally:
+            make_demo.main = real
+
+    def env(self):
+        return {"DECKER_PRESENT": "both", "DECKER_WINDOWED": "1"}
+
+    def test_the_presenter_keeps_the_current_slide_large(self):
+        s = self.e.s
+        for handle in s.cmd("GET", "/window/handles"):
+            s.cmd("POST", "/window", {"handle": handle})
+            if s.js("return !!document.querySelector('.presenter')"):
+                break
+        else:
+            self.fail("no presenter window")
+        s.cmd("POST", "/window/rect", {"width": 1400, "height": 800, "x": 0, "y": 0})
+        time.sleep(1)
+        widths = s.js("return [document.querySelector('.presenter > .current').getBoundingClientRect().width, window.innerWidth]")
+        # The thumbnail strip used to widen its column and squeeze the slide.
+        self.assertGreater(widths[0], widths[1] * 0.45, widths)
 
 
 if __name__ == "__main__":

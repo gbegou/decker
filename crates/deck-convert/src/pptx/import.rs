@@ -72,6 +72,7 @@ pub fn import(pptx: &Path, out: &Path) -> Result<(Deck, ImportReport)> {
                         layout.name = format!("{base} {n}");
                     }
                     layouts.insert(layout_part.clone(), layout.name.clone());
+                    resolve_shrunk(&mut layout.elements);
                     deck.layouts.push(layout);
                 }
             }
@@ -86,6 +87,7 @@ pub fn import(pptx: &Path, out: &Path) -> Result<(Deck, ImportReport)> {
                 inherit_placeholder(&mut t.paragraphs, ph);
             }
         }
+        resolve_shrunk(&mut slide.elements);
         deck.slides.push(slide);
     }
 
@@ -243,6 +245,50 @@ fn import_layout(pkg: &Package, part: &str, images: &mut ImageStore, report: &mu
 /// Fills what the runs of a placeholder's text leave unset with the
 /// placeholder's style. Deeper bullet levels step down in size the way
 /// PowerPoint's body styles do (32, 28, 24, 20…).
+/// Text PowerPoint shrinks to fit its box (`normAutofit fontScale`): sizes
+/// set on the runs are scaled at once; a run that inherits its size gets
+/// the scale negated, resolved by [`inherit_placeholder`] or, without a
+/// placeholder, by [`resolve_shrunk`] at the default size.
+fn shrink_to_fit(tx_body: Node, paragraphs: &mut [Paragraph]) {
+    let scale = child(tx_body, NS_A, "bodyPr")
+        .and_then(|b| child(b, NS_A, "normAutofit"))
+        .and_then(|a| a.attribute("fontScale"))
+        .and_then(|v| v.parse::<f64>().ok())
+        .map(|v| v / 100_000.0)
+        .filter(|s| *s > 0.0 && *s < 1.0);
+    let Some(scale) = scale else { return };
+    for run in paragraphs.iter_mut().flat_map(|p| p.runs.iter_mut()) {
+        run.size = Some(match run.size {
+            Some(size) => size * scale,
+            None => -scale,
+        });
+    }
+}
+
+/// Resolves the shrink markers [`inherit_placeholder`] left: at the default size.
+fn resolve_shrunk(elements: &mut [Element]) {
+    for e in elements {
+        match e {
+            Element::Text(t) => {
+                for run in t.paragraphs.iter_mut().flat_map(|p| p.runs.iter_mut()) {
+                    if let Some(s) = run.size.filter(|s| *s < 0.0) {
+                        run.size = Some(18.0 * -s);
+                    }
+                }
+            }
+            Element::Shape(sh) => {
+                for run in sh.paragraphs.iter_mut().flat_map(|p| p.runs.iter_mut()) {
+                    if let Some(s) = run.size.filter(|s| *s < 0.0) {
+                        run.size = Some(18.0 * -s);
+                    }
+                }
+            }
+            Element::Group(g) => resolve_shrunk(&mut g.children),
+            _ => {}
+        }
+    }
+}
+
 fn inherit_placeholder(paragraphs: &mut [Paragraph], ph: &Placeholder) {
     for p in paragraphs {
         if p.align == Align::Left {
@@ -251,7 +297,13 @@ fn inherit_placeholder(paragraphs: &mut [Paragraph], ph: &Placeholder) {
         let level = f64::from(p.bullet.unwrap_or(0));
         for run in &mut p.runs {
             if let Some(size) = ph.size {
-                run.size.get_or_insert((size - 4.0 * level).max(size * 0.6).max(12.0));
+                let inherited = (size - 4.0 * level).max(size * 0.6).max(12.0);
+                match run.size {
+                    // Shrunk to fit (see `SHRUNK`): the inherited size, scaled.
+                    Some(s) if s < 0.0 => run.size = Some(inherited * -s),
+                    Some(_) => {}
+                    None => run.size = Some(inherited),
+                }
             }
             run.bold |= ph.bold;
             if run.color.is_none() {
@@ -785,9 +837,12 @@ fn import_shape(
     let geom = sp_pr.and_then(|p| child(p, NS_A, "prstGeom")).and_then(|g| g.attribute("prst")).unwrap_or("rect");
     let ph = placeholder(node);
     let is_body = ph.as_ref().map(|p| p.kind == "body" || p.kind == "obj").unwrap_or(false);
-    let paragraphs = child(node, NS_P, "txBody")
+    let mut paragraphs = child(node, NS_P, "txBody")
         .map(|tb| if is_body { body_paragraphs(tb) } else { paragraphs(tb) })
         .unwrap_or_default();
+    if let Some(tb) = child(node, NS_P, "txBody") {
+        shrink_to_fit(tb, &mut paragraphs);
+    }
     let is_text_box = child(node, NS_P, "nvSpPr")
         .and_then(|n| child(n, NS_P, "cNvSpPr"))
         .and_then(|n| n.attribute("txBox"))
@@ -1447,6 +1502,24 @@ mod tests {
             warning.is_some_and(|w| w.contains("Medium Style 2")),
             "an unknown style is approximated, with a warning"
         );
+    }
+
+    #[test]
+    fn text_shrunk_to_fit_keeps_its_scale() {
+        let xml = format!(
+            r#"<p:txBody xmlns:p="{NS_P}" xmlns:a="{NS_A}"><a:bodyPr><a:normAutofit fontScale="62500" lnSpcReduction="20000"/></a:bodyPr><a:p><a:r><a:rPr sz="2000"/><a:t>set</a:t></a:r><a:r><a:t>inherited</a:t></a:r></a:p></p:txBody>"#
+        );
+        let doc = Document::parse(&xml).unwrap();
+        let mut ps = paragraphs(doc.root_element());
+        shrink_to_fit(doc.root_element(), &mut ps);
+        assert_eq!(ps[0].runs[0].size, Some(12.5), "a size of its own, scaled");
+        let mut placed = ps.clone();
+        inherit_placeholder(&mut placed, &Placeholder { size: Some(40.0), ..Default::default() });
+        assert_eq!(placed[0].runs[1].size, Some(25.0), "the placeholder's size, scaled");
+        let mut loose = vec![Element::Text(TextBox { paragraphs: ps, ..Default::default() })];
+        resolve_shrunk(&mut loose);
+        let Element::Text(t) = &loose[0] else { unreachable!() };
+        assert_eq!(t.paragraphs[0].runs[1].size, Some(11.25), "without a placeholder: the default size, scaled");
     }
 
     #[test]

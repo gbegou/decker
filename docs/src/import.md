@@ -24,6 +24,8 @@ opening of the same file opens that folder. The command line does the same with
   default *Medium Style 2* family; other built-in styles are drawn as Medium Style 2, with a
   warning.
 - Colors given as theme references ("Accent 1, darker 25%"), resolved in the slide's theme.
+- Text that PowerPoint shrinks to fit its box ("shrink text on overflow"), at the size
+  PowerPoint shows it.
 - Embedded videos, with their poster; one started automatically plays when it appears.
 - Groups, with their child-to-slide transform.
 - Animations: entrance and exit effects of the main sequence become build steps; motion

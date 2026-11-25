@@ -182,8 +182,9 @@
 </div>
 
 <style>
-  .presenter { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; padding: 16px; height: 100vh; }
-  .current { display: flex; flex-direction: column; min-height: 0; }
+  /* minmax(0, …): a long thumbnail strip must scroll, not widen its column. */
+  .presenter { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; padding: 16px; height: 100vh; }
+  .current { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
   .current.pointing { cursor: crosshair; }
   /* A flex column with a definite height, so that a page's max-height: 100% fits it. */
   .stage { position: relative; width: 100%; flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: flex-start; }
@@ -191,7 +192,7 @@
   button.on { border-color: var(--accent); color: var(--accent); }
   .ink { position: absolute; pointer-events: none; }
   .ink polyline { fill: none; stroke: #e53935; stroke-width: 3px; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-  .side { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .side { display: flex; flex-direction: column; gap: 12px; min-height: 0; min-width: 0; }
   .label { color: var(--muted); font-size: 12px; text-transform: uppercase; margin-bottom: 6px; display: flex; gap: 6px; align-items: center; }
   .clock { display: flex; align-items: baseline; gap: 16px; }
   .elapsed { font-size: 40px; font-variant-numeric: tabular-nums; }
