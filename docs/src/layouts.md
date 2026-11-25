@@ -1,7 +1,8 @@
 # Themes and layouts
 
 A **theme** is what a family of slides shares: a background, elements drawn on every slide (a
-logo, a footer, a band), a text style (fonts, colors, palette), and the style of each kind of
+logo, a footer, a band), its fonts and colors (default font, size, text color, accent,
+palette), and the style of each kind of
 placeholder (title, subtitle, body). A **layout** belongs to a theme and gives one
 arrangement of placeholders: title slide, title and content, two contents… It keeps **only
 what it changes** of its theme, so a change to the theme reaches every layout that did not
@@ -54,7 +55,7 @@ own elements are its own, not overrides.
 **Edit theme** (next to **Edit layout**, or from the layout editor) shows the theme: its
 background and its elements on the canvas, editable like a layout's. The panel holds the
 **placeholder styles**, one per kind (`title`, `subtitle`, `body`…, a body style serving
-`body1`, `body2`…), the theme's **text style**, and buttons to open each of its layouts. The
+`body1`, `body2`…), the theme's **fonts and colors**, and buttons to open each of its layouts. The
 name field renames the theme, **Delete theme** removes it (its layouts keep their look and
 lose the theme), **Done** returns to the slides. **+ New theme**, under the layout selector,
 starts one with the usual placeholder styles.
@@ -68,20 +69,21 @@ deck's first theme) and takes its placeholder styles. Its placeholders are named
 `subtitle`, `heading1`, `body1`… In the layout editor, **+ Placeholder** adds a title, a
 subtitle or a body, named the same way (`subtitle2` for a second one).
 
-## Text style: fonts and colors
+## Fonts and colors
 
-A text style is a default font, text size, text color, an accent and a palette of swatches.
-The deck has one; a theme may set its own, and a layout its own over the theme's; each
-fills only what it sets, so blank fields inherit (layout, then theme, then deck).
+A theme's fonts and colors are a default font, text size, text color, an accent and a
+palette of swatches. A layout may change any of them for its slides, the others coming from
+its theme; slides without a layout take the deck's first theme's.
 
-- Text, formulas and placeholders that set no font, size or color of their own take the
-  style in force. Changing a theme's font restyles every slide of its layouts. Runs keep an
-  explicit style wherever one was set; the style bar's ⌀ buttons return to the inherited
-  one.
+- Text, formulas and placeholders that set no font, size or color of their own take these.
+  Changing a theme's font restyles every slide of its layouts. Runs keep an explicit style
+  wherever one was set; the style bar's ⌀ buttons return to the inherited one.
 - The accent is the default highlight of the plan slide and the first swatch; the swatches
   appear as round buttons in the style bar.
-- The **Text style** section of the right panel edits the deck's style on a slide, the
-  theme's in the theme editor and the layout's in the layout editor.
+- The **Fonts and colors** section of the right panel edits, on a slide, the fonts and
+  colors of the slide's theme (its name is in the heading: a change restyles every slide of
+  that theme); in the theme editor, the theme's; in the layout editor, the layout's own,
+  blank fields taking the theme's.
 - Fonts: the bundled families are DejaVu Sans (default), Libertinus Serif, New Computer
   Modern and DejaVu Sans Mono. Any `.ttf` or `.otf` file in the deck's `fonts/` folder is
   loaded with the deck and listed by its family name, so a corporate font travels with the
@@ -100,7 +102,7 @@ stands on its own, as a folder:
 
 ```text
 Corp.deck_layout/
-  layout.json   # the layout: background, elements, placeholders, text style
+  layout.json   # the layout: background, elements, placeholders, fonts and colors
   assets/       # its images
 ```
 
@@ -122,7 +124,8 @@ layout is not kept. Slides keep their layout and their placeholder names.
 **Export** writes one PowerPoint layout per decker layout, merged with its theme, under one
 slide master, plus a blank layout for slides without one. Text boxes that fill a
 placeholder are exported as placeholders of that layout, so the deck opens in PowerPoint
-with its layouts in the layout gallery; the deck's text style becomes the PowerPoint theme
+with its layouts in the layout gallery; the fonts and colors of the deck's first theme
+become the PowerPoint theme
 (minor and major font, `dk1` text color, `accent1`–`accent6`).
 
 ```bash
@@ -172,8 +175,10 @@ lists a deck's themes, their layouts, what each layout overrides, and its placeh
 }
 ```
 
-A layout's `parent` names its theme; its `background`, `theme` (its text style) and elements
+A theme's `style` holds its fonts and colors. A layout's `parent` names its theme; its
+`background`, `theme` (the fonts and colors it changes) and elements
 are its own; a placeholder's `own` lists the style properties it sets itself, the others
-coming from the theme's placeholder of the same name or kind. The deck's own text style is
-its top-level `theme`. Decks saved before themes (format version 1) are converted when
-opened: their layouts become one theme named "Theme", with what they share moved into it.
+coming from the theme's placeholder of the same name or kind. Decks of older formats are converted
+when opened: before themes (version 1), their layouts become one theme named "Theme", with
+what they share moved into it; before version 3, the deck-wide fonts and colors (a top-level
+`theme`) are merged into its themes.

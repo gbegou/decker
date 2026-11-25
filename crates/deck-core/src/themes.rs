@@ -259,6 +259,20 @@ impl Deck {
             let names: Vec<String> = self.layouts.iter().map(|l| l.name.clone()).collect();
             self.factor_theme("Theme", &names);
         }
+        // Version 3: the deck's fonts and colors go into its themes (and the
+        // layouts without one), filling what they leave unset.
+        if self.version < FONTS_IN_THEMES_VERSION && self.theme != Theme::default() {
+            if self.themes.is_empty() {
+                self.themes.push(ThemeSet { name: "Theme".into(), ..Default::default() });
+            }
+            let deck_style = std::mem::take(&mut self.theme);
+            for t in &mut self.themes {
+                t.style = t.style.over(&deck_style);
+            }
+            for l in self.layouts.iter_mut().filter(|l| l.parent.is_none()) {
+                l.theme = l.theme.over(&deck_style);
+            }
+        }
         self.version = self.version.max(FORMAT_VERSION);
     }
 
@@ -370,6 +384,30 @@ mod tests {
         assert!(layout.overrides().is_empty());
         let title = deck.resolved_layout("Title").unwrap();
         assert_eq!((title.elements.len(), title.background), (2, Some(Color::WHITE)));
+    }
+
+    #[test]
+    fn the_decks_fonts_and_colors_move_into_its_themes() {
+        let mut deck = two_layouts();
+        deck.theme = Theme { font: Some("Libertinus Serif".into()), size: Some(20.0), ..Default::default() };
+        deck.layouts[0].theme.size = Some(30.0);
+        deck.slides = vec![Slide { layout: Some("Title".into()), ..Default::default() }, Slide::default()];
+        let before: Vec<Theme> = deck.slides.iter().map(|s| deck.theme_of(s)).collect();
+        deck.migrate();
+        assert_eq!(deck.theme, Theme::default(), "nothing left at the deck level");
+        assert_eq!(deck.themes[0].style.font.as_deref(), Some("Libertinus Serif"));
+        let after: Vec<Theme> = deck.slides.iter().map(|s| deck.theme_of(s)).collect();
+        assert_eq!(before, after, "every slide looks the same");
+        assert_eq!(deck.style_theme_of(&deck.slides[1]), Some("Theme"), "a slide without layout: the first theme");
+
+        let mut bare = Deck { version: 2, theme: Theme { size: Some(12.0), ..Default::default() }, ..Deck::new("b") };
+        bare.slides.push(Slide::default());
+        bare.migrate();
+        assert_eq!(
+            (bare.themes.len(), bare.theme_of(&bare.slides[0]).size),
+            (1, Some(12.0)),
+            "a theme is made for them"
+        );
     }
 
     #[test]

@@ -6,10 +6,14 @@ pub use crate::themes::ThemeSet;
 
 /// Version of the `deck.json` schema. Bump it with a migration when the
 /// model changes incompatibly.
-pub const FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION: u32 = 3;
 
 /// The first version with themes holding layouts (see [`crate::themes`]).
 pub const THEMES_VERSION: u32 = 2;
+
+/// The first version with fonts and colors in the themes only (the deck's
+/// own `theme` is merged into them, see [`Deck::migrate`]).
+pub const FONTS_IN_THEMES_VERSION: u32 = 3;
 
 /// Width of a 16:9 slide, in points.
 pub const DEFAULT_WIDTH: f64 = 960.0;
@@ -39,8 +43,9 @@ pub struct Deck {
     /// holds only what it changes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layouts: Vec<Layout>,
-    /// Default font, size and colors; a layout's theme overrides it field
-    /// by field for the slides that use the layout.
+    /// Fonts and colors of decks saved before version 3: merged into the
+    /// themes when the deck is opened, then empty. Fonts and colors now
+    /// belong to the themes (and a layout's overrides).
     #[serde(default, skip_serializing_if = "is_default")]
     pub theme: Theme,
     pub slides: Vec<Slide>,
@@ -137,14 +142,31 @@ impl Deck {
     /// over the deck's.
     pub fn theme_of(&self, slide: &Slide) -> Theme {
         match self.layout_of(slide) {
-            Some(l) => l.theme.over(&self.theme),
-            None => self.theme.clone(),
+            Some(l) if l.parent.is_some() => l.theme.over(&self.theme),
+            // A layout without a theme, or none: over the deck's first theme.
+            Some(l) => l.theme.over(&self.first_style()).over(&self.theme),
+            None => self.first_style().over(&self.theme),
         }
+    }
+
+    /// The fonts and colors of the deck's first theme (slides without a
+    /// layout use them).
+    pub fn first_style(&self) -> Theme {
+        self.themes.first().map(|t| t.style.clone()).unwrap_or_default()
+    }
+
+    /// The theme whose fonts and colors a slide uses: its layout's, else
+    /// the first one.
+    pub fn style_theme_of(&self, slide: &Slide) -> Option<&str> {
+        let parent = slide.layout.as_deref().and_then(|n| self.layout(n)).and_then(|l| l.parent.as_deref());
+        parent.filter(|p| self.theme_set(p).is_some()).or_else(|| self.themes.first().map(|t| t.name.as_str()))
     }
 
     /// The text style in force on a layout (its own, its theme's, the deck's).
     pub fn theme_of_layout(&self, layout: &Layout) -> Theme {
-        self.resolve(layout).theme.over(&self.theme)
+        let style = self.resolve(layout).theme;
+        let style = if layout.parent.is_some() { style } else { style.over(&self.first_style()) };
+        style.over(&self.theme)
     }
 
     /// Sections and subsections in slide order, each with the index of
@@ -1409,7 +1431,7 @@ mod tests {
         let json = serde_json::to_string_pretty(&deck).unwrap();
         let back: Deck = serde_json::from_str(&json).unwrap();
         assert_eq!(back, deck);
-        assert!(json.contains("\"version\": 2"));
+        assert!(json.contains("\"version\": 3"));
         assert!(json.contains("\"type\": \"text\""));
     }
 

@@ -162,7 +162,8 @@ pub fn export_with(deck: &Deck, deck_dir: &Path, pptx: &Path, math: &dyn MathRen
     }
     add(&format!("ppt/slideLayouts/slideLayout{n_layouts}.xml"), blank_layout_xml().as_bytes())?;
     add(&format!("ppt/slideLayouts/_rels/slideLayout{n_layouts}.xml.rels"), format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{NS_REL}"><Relationship Id="rId1" Type="{REL_MASTER}" Target="../slideMasters/slideMaster1.xml"/></Relationships>"#).as_bytes())?;
-    add("ppt/theme/theme1.xml", theme_xml(&deck.theme).as_bytes())?;
+    // One PowerPoint theme: the fonts and colors of the deck's first theme.
+    add("ppt/theme/theme1.xml", theme_xml(&deck.first_style().over(&deck.theme)).as_bytes())?;
     if has_notes {
         add("ppt/notesMasters/notesMaster1.xml", notes_master_xml().as_bytes())?;
         add("ppt/notesMasters/_rels/notesMaster1.xml.rels", format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{NS_REL}"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>"#).as_bytes())?;

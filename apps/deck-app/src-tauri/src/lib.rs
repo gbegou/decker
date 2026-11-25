@@ -100,6 +100,8 @@ fn new_deck(app: AppHandle, state: Shared) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
         let mut deck = Deck::new("Untitled");
+        // Fonts and colors live in a theme: a new deck starts with one.
+        deck.themes.push(deck_core::ThemeSet { name: "Theme".into(), ..Default::default() });
         deck.slides.push(deck_core::Slide::default());
         s.load(deck, PathBuf::new());
         s.archive = None;

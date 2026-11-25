@@ -82,7 +82,7 @@ export interface ThemeChange {
   font?: string; size?: number; color?: string; accent?: string; palette?: string[];
 }
 /** `own`: what the edited deck or layout sets; `effective`: with the deck's fallback. */
-export interface ThemeInfo { own: Theme; effective: Theme; fonts: string[] }
+export interface ThemeInfo { own: Theme; effective: Theme; fonts: string[]; /** On a slide: the theme its fonts and colors come from. */ of_theme?: string | null }
 
 export interface View {
   title: string;

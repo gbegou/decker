@@ -12,7 +12,7 @@ opening of the same file opens that folder. The command line does the same with
   differences as overrides. Placeholders keep the master's text styles (size, bold, color, alignment, bullets); slide text takes what its runs
   leave unset from its placeholder, one size step down per bullet level. Placeholders without
   an explicit position inherit it from the layout, then the master. The master's theme fonts
-  and colors become the theme's text style.
+  and colors become the theme's fonts and colors.
 - Text: paragraphs with alignment and bullet level, runs with bold, italic, size, color and
   font.
 - Pictures (PNG, JPEG, GIF, BMP, SVG, WebP), copied into `assets/`, with their crop, their

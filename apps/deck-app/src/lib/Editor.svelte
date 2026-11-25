@@ -1270,21 +1270,21 @@
           <button onclick={loadLayoutFrom} disabled={!view.dir}>Load layout…</button>
         </div>
       {/if}
-      <h3>Text style{view.editing_theme !== null ? " of this theme" : view.editing_layout !== null ? " of this layout" : " of the deck"}</h3>
+      <h3>Fonts and colors{view.editing_theme !== null ? " of this theme" : view.editing_layout !== null ? " of this layout" : view.theme.of_theme ? ` of theme “${view.theme.of_theme}”` : ""}</h3>
       <p class="muted">
         {#if view.editing_theme !== null}
-          Default font, size and colors of the slides of this theme's layouts; blank fields take the deck's.
+          The default font, size and colors of the slides of this theme's layouts.
         {:else if view.editing_layout !== null}
-          Default font, size and colors of the slides using this layout; blank fields take its theme's.
+          Blank fields take the theme's; a value set here is this layout's own (⌀ goes back to the theme's).
         {:else}
-          Default font, size and colors of text that sets none; a layout's theme overrides them.
-          Fonts in the deck's <code>fonts/</code> folder are listed here.
+          Text that sets none of its own takes these. They belong to the slide's theme: a change here
+          restyles every slide of that theme. Fonts in the deck's <code>fonts/</code> folder are listed here.
         {/if}
       </p>
       <div class="theme">
         <label>font
           <select value={view.theme.own.font ?? ""} onchange={(e) => run("Theme font", () => api.setTheme({ font: e.currentTarget.value }))}>
-            <option value="">{editingTemplate && view.theme.effective.font ? `deck (${view.theme.effective.font})` : "DejaVu Sans"}</option>
+            <option value="">{view.editing_layout !== null && view.theme.effective.font ? `theme (${view.theme.effective.font})` : "DejaVu Sans"}</option>
             {#each view.theme.fonts as f}<option value={f}>{f}</option>{/each}
           </select>
         </label>
@@ -1294,11 +1294,11 @@
         </label>
         <label>text
           <input type="color" value={view.theme.effective.color ?? "#000000"} onchange={(e) => run("Theme text color", () => api.setTheme({ color: e.currentTarget.value }))} />
-          <button title="Inherit" onclick={() => run("Theme text color reset", () => api.setTheme({ color: "" }))}>⌀</button>
+          <button title="Back to the inherited color" onclick={() => run("Theme text color reset", () => api.setTheme({ color: "" }))}>⌀</button>
         </label>
         <label>accent
           <input type="color" value={view.theme.effective.accent ?? "#000000"} onchange={(e) => run("Theme accent", () => api.setTheme({ accent: e.currentTarget.value }))} />
-          <button title="Inherit" onclick={() => run("Theme accent reset", () => api.setTheme({ accent: "" }))}>⌀</button>
+          <button title="Back to the inherited accent" onclick={() => run("Theme accent reset", () => api.setTheme({ accent: "" }))}>⌀</button>
         </label>
         <div class="palette">palette
           {#each view.theme.own.palette ?? [] as c, i}
@@ -1309,8 +1309,8 @@
             </span>
           {/each}
           <button title="Add a swatch" onclick={() => run("Palette", () => api.setTheme({ palette: [...(view!.theme.own.palette ?? []), view!.theme.effective.accent ?? "#4472C4"] }))}>+</button>
-          {#if editingTemplate && !(view.theme.own.palette ?? []).length && (view.theme.effective.palette ?? []).length}
-            <span class="muted">(deck's)</span>
+          {#if view.editing_layout !== null && !(view.theme.own.palette ?? []).length && (view.theme.effective.palette ?? []).length}
+            <span class="muted">(theme's)</span>
           {/if}
         </div>
       </div>

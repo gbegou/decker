@@ -58,13 +58,13 @@ The same list as the editor's help (**F1** or **?**). Generated from the editor'
 | Key or control | Does |
 | --- | --- |
 | Layout selector · Edit layout · + New layout | The slide's layout (grouped by theme); open the layout editor; create one in the slide's theme |
-| Edit theme · + New theme | Open the theme of the slide's layout: background, shared elements, placeholder styles, text style; start a new theme |
+| Edit theme · + New theme | Open the theme of the slide's layout: background, shared elements, placeholder styles, fonts and colors; start a new theme |
 | theme · ↺ · ⇪ (placeholder style) | The value comes from the theme; set by the layout: back to the theme's, or make it the theme's |
 | Reset to theme · hide the theme's elements | Drop all of a layout's overrides; leave out the theme's logo, footer… |
 | Select a placeholder | Its default text style in the panel: size, bold, color, font, alignment, bullets |
 | + Placeholder · Save layout… · Load layout… | Slots new slides start from; save as .deck_layout; load one |
 | `{{section}}` `{{subsection}}` `{{slide}}` `{{slides}}` `{{title}}` `{{deck}}` `{{date}}` | Variables in layout texts, filled per slide |
-| Theme (panel) | Default font, size, text color, accent and palette of the deck, or of the layout under edit; fonts/ in the deck adds fonts |
+| Fonts and colors (panel) | Default font, size, text color, accent and palette of the slide's theme, of the theme or of the layout under edit; fonts/ in the deck adds fonts |
 
 ## Macros
 

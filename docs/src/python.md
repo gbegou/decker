@@ -11,7 +11,7 @@ Python it finds on the machine, and without Python everything else works.
 import decker
 
 deck = decker.new("Quarterly review")
-deck.theme["font"] = "Libertinus Serif"
+deck.theme["font"] = "Libertinus Serif"   # the fonts and colors of the first theme
 deck.layouts.append({"name": "Corp", "placeholders": [
     {"name": "title", "rect": {"x": 40, "y": 30, "w": 880, "h": 80}, "size": 40, "bold": True}]})
 

@@ -32,7 +32,8 @@ deck-convert pdf talk.deck --notes      # the handout
 ## PowerPoint
 
 **Export PPTX…** writes a package with one master, one PowerPoint layout per decker
-[layout](layouts.md) plus a blank one, the deck's theme (fonts, text color, accents) and
+[layout](layouts.md) plus a blank one, the fonts and colors of the deck's first theme (fonts, text color,
+accents) and
 the speaker notes. On the slides:
 
 - text boxes, bound to their layout placeholders when they fill one;

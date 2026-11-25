@@ -3,7 +3,7 @@
 Text boxes are typeset by Typst, embedded in the application: line breaking at the box width,
 bold, italic, size, color and font per run, alignment, bullets by level, and inline formulas.
 The editor, the projector, the thumbnails and the PDF therefore show the same lines. Text
-defaults to the [theme](layouts.md#text-style-fonts-and-colors)'s font and size,
+defaults to the [theme](layouts.md#fonts-and-colors)'s font and size,
 DejaVu Sans at 18 pt when none is set.
 
 ## Typing in place

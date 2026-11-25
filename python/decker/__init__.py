@@ -37,7 +37,7 @@ from typing import Any, Iterator
 
 __all__ = ["Deck", "Slide", "Element", "Rect", "Series", "load", "new", "current", "VERSION"]
 
-VERSION = 2
+VERSION = 3
 
 
 class Rect:
@@ -419,7 +419,12 @@ class Deck:
 
     @property
     def theme(self) -> dict:
-        return self.data.setdefault("theme", {})
+        """The fonts and colors of the deck's first theme (``font``, ``size``,
+        ``color``, ``accent``, ``palette``), made if the deck has none; a
+        theme's are ``theme["style"]`` in :attr:`themes`."""
+        if not self.themes:
+            self.themes.append({"name": "Theme"})
+        return self.themes[0].setdefault("style", {})
 
     @property
     def slide(self) -> Slide:
@@ -601,7 +606,8 @@ def _image_size(path: Path) -> tuple[int, int] | tuple[None, None]:
 
 def new(title: str = "Untitled", width: float = 960, height: float = 540) -> Deck:
     """An empty deck (16:9 at 960×540 points by default)."""
-    return Deck({"version": VERSION, "title": title, "width": float(width), "height": float(height), "slides": []})
+    return Deck({"version": VERSION, "title": title, "width": float(width), "height": float(height),
+                 "themes": [{"name": "Theme"}], "slides": []})
 
 
 def load(path: "str | os.PathLike") -> Deck:

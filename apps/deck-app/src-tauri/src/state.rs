@@ -115,6 +115,8 @@ pub struct ThemeChange {
 /// layout) sets itself, `effective` what the slide actually gets.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ThemeInfo {
+    /// The theme a slide's fonts and colors come from (on a slide).
+    pub of_theme: Option<String>,
     pub own: Theme,
     pub effective: Theme,
     /// Font families the typesetter knows, bundled and from `fonts/`.
@@ -889,7 +891,16 @@ impl AppState {
             layout_groups: layout_groups(deck),
             layout_meta: None,
             theme_placeholders: vec![],
-            theme: ThemeInfo { own: deck.theme.clone(), effective: deck.theme_of(slide), fonts: self.math.fonts() },
+            theme: ThemeInfo {
+                own: deck
+                    .style_theme_of(slide)
+                    .and_then(|t| deck.theme_set(t))
+                    .map(|t| t.style.clone())
+                    .unwrap_or_default(),
+                effective: deck.theme_of(slide),
+                fonts: self.math.fonts(),
+                of_theme: deck.style_theme_of(slide).map(str::to_string),
+            },
             can_undo,
             can_redo,
         }
@@ -1012,6 +1023,7 @@ impl AppState {
             }),
             theme_placeholders: vec![],
             theme: ThemeInfo {
+                of_theme: layout.parent.clone(),
                 own: layout.theme.clone(),
                 effective: deck.theme_of_layout(layout),
                 fonts: self.math.fonts(),
@@ -1041,7 +1053,15 @@ impl AppState {
         } else if self.editing_layout.is_some() {
             &mut self.layout_mut()?.theme
         } else {
-            &mut self.deck.as_mut().ok_or("no deck")?.theme
+            // On a slide: the fonts and colors of the slide's theme (a deck
+            // without themes gets one).
+            let deck = self.deck.as_mut().ok_or("no deck")?;
+            if deck.themes.is_empty() {
+                deck.themes.push(ThemeSet { name: "Theme".into(), ..Default::default() });
+            }
+            let slide = deck.slides.get(self.slide).ok_or("no slide")?;
+            let name = deck.style_theme_of(slide).unwrap_or_default().to_string();
+            &mut deck.themes.iter_mut().find(|t| t.name == name).ok_or("no theme")?.style
         };
         if let Some(f) = &change.font {
             theme.font = if f.is_empty() { None } else { Some(f.clone()) };
@@ -2621,6 +2641,29 @@ fn layout_groups(deck: &Deck) -> Vec<LayoutGroup> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fonts_and_colors_on_a_slide_are_its_themes() {
+        let mut deck = Deck::new("t");
+        deck.themes = vec![
+            ThemeSet { name: "A".into(), ..Default::default() },
+            ThemeSet { name: "B".into(), ..Default::default() },
+        ];
+        deck.layouts.push(Layout { name: "L".into(), parent: Some("B".into()), ..Default::default() });
+        deck.slides = vec![Slide { layout: Some("L".into()), ..Default::default() }, Slide::default()];
+        let mut s = AppState::default();
+        s.load(deck, std::path::PathBuf::new());
+        s.set_theme(&ThemeChange { font: Some("Libertinus Serif".into()), ..Default::default() }).unwrap();
+        let d = s.deck.as_ref().unwrap();
+        assert_eq!(
+            (d.themes[0].style.font.as_deref(), d.themes[1].style.font.as_deref()),
+            (None, Some("Libertinus Serif"))
+        );
+        assert_eq!(s.view().theme.of_theme.as_deref(), Some("B"));
+        s.goto(1, 0);
+        s.set_theme(&ThemeChange { size: Some(30.0), ..Default::default() }).unwrap();
+        assert_eq!(s.deck.as_ref().unwrap().themes[0].style.size, Some(30.0), "no layout: the first theme");
+    }
+
     #[test]
     fn layouts_override_their_theme_and_come_back_to_it() {
         let mut deck = Deck { version: 1, ..Deck::new("t") };
