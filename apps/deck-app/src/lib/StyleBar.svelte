@@ -86,6 +86,8 @@
   {:else if element.kind === "math"}
     <label>size <input type="number" min="0" max="200" value={element.size} class="narrow" onchange={(e) => elementStyle({ size: +e.currentTarget.value || 0 }, "Size")} /></label>
     <label>color <input type="color" value={hex(element.fill, "#000000")} onchange={(e) => elementStyle({ fill: e.currentTarget.value }, "Color")} /></label>
+  {:else if element.kind === "table"}
+    <label>text size <input type="number" min="0" max="200" value={element.size} class="narrow" onchange={(e) => elementStyle({ size: +e.currentTarget.value || 0 }, "Size")} /></label>
   {:else if element.kind === "outline"}
     <label>size <input type="number" min="0" max="200" value={element.size} class="narrow" onchange={(e) => elementStyle({ size: +e.currentTarget.value || 0 }, "Size")} /></label>
     <label>others <input type="color" value={hex(element.fill, "#888888")} onchange={(e) => elementStyle({ fill: e.currentTarget.value }, "Color")} /></label>

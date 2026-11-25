@@ -67,6 +67,11 @@ class DeckTests(unittest.TestCase):
         b = s.add_bars(["a", "b#"], {"2024": [1, 2], "2025": [2, 3]}, x=0, y=0, w=10, h=10, ylabel="n")
         self.assertIn('plot.add-bar(((0, 1, 2), (1, 2, 3),), y-key: (1, 2,), mode: "clustered", labels: ([2024], [2025],), bar-width: 0.8)', b.text)
         self.assertIn("x-ticks: ((0, [a]), (1, [b\\#]),)", b.text)
+        t = s.add_table([["Name", "Value"], ["pi", 3.14], ["none"]], 0, 0, 400, 90, columns=[2, 1])
+        self.assertEqual(t.kind, "table")
+        self.assertEqual(t.data["rows"][1][1], {"paragraphs": [{"runs": [{"text": "3.14"}]}]})
+        self.assertEqual(t.data["rows"][2], [{"paragraphs": [{"runs": [{"text": "none"}]}]}, {}])
+        self.assertEqual((t.data["header"], t.data["columns"], t.data["stroke"]["width"]), (True, [2.0, 1.0], 0.75))
         g = s.add_figure("#draw.circle((0,0))", 0, 0, 10, 10)
         g.text = "x"
         self.assertEqual(g.data["source"], "x")

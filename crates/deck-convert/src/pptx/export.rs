@@ -490,6 +490,35 @@ fn write_element(
                 tx_body(&[p])
             );
         }
+        Element::Table(t) => {
+            let columns = t.column_count().max(1);
+            let mut xml = format!(
+                r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="{id}" name="Table {id}"/><p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>{}<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr{}/><a:tblGrid>"#,
+                xfrm(&t.rect).replace("a:xfrm", "p:xfrm"),
+                if t.header { r#" firstRow="1""# } else { "" }
+            );
+            for j in 0..columns {
+                let _ = write!(xml, r#"<a:gridCol w="{}"/>"#, emu(t.cell_rect(&t.rect, 0, j).w));
+            }
+            xml.push_str("</a:tblGrid>");
+            for (i, row) in t.rows.iter().enumerate() {
+                let _ = write!(xml, r#"<a:tr h="{}">"#, emu(t.cell_rect(&t.rect, i, 0).h));
+                for j in 0..columns {
+                    let cell = row.get(j).cloned().unwrap_or_default();
+                    let body = tx_body(&cell.paragraphs).replace("p:txBody", "a:txBody");
+                    let fill = match cell.fill {
+                        Some(c) => {
+                            format!(r#"<a:tcPr><a:solidFill><a:srgbClr val="{}"/></a:solidFill></a:tcPr>"#, hex(c))
+                        }
+                        None => "<a:tcPr/>".to_string(),
+                    };
+                    let _ = write!(xml, "<a:tc>{body}{fill}</a:tc>");
+                }
+                xml.push_str("</a:tr>");
+            }
+            xml.push_str("</a:tbl></a:graphicData></a:graphic></p:graphicFrame>");
+            part.xml.push_str(&xml);
+        }
         Element::Figure(f) => {
             // The figure's source, as a text box; PowerPoint cannot run Typst.
             warnings.push(format!("{where_}: figure exported as its Typst source"));
@@ -1001,6 +1030,36 @@ mod tests {
         assert_eq!((arrow.kind, arrow.flip, arrow.stroke), (ShapeKind::Arrow, true, stroke));
         let Element::Shape(line) = &back.slides[0].elements[1] else { panic!("line") };
         assert_eq!((line.kind, line.flip), (ShapeKind::Line, false));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn tables_round_trip() {
+        let dir = std::env::temp_dir().join(format!("decker-table-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut t = deck_core::Table::new(Rect::new(40.0, 100.0, 600.0, 120.0), 3, 2);
+        t.columns = vec![1.0, 2.0];
+        t.rows[0][0] = deck_core::Cell::plain("Name");
+        t.rows[0][1] = deck_core::Cell::plain("Value");
+        t.rows[1][0] = deck_core::Cell::plain("pi");
+        t.rows[1][1] = deck_core::Cell { fill: Some(Color::rgb(0xFF, 0xEE, 0xDD)), ..deck_core::Cell::plain("3.14") };
+        t.steps = vec![Step::disappear(0), Step::appear(1)];
+        let mut deck = Deck::new("tables");
+        deck.slides.push(Slide { elements: vec![Element::Table(t)], ..Default::default() });
+        let pptx = dir.join("t.pptx");
+        let warnings = export(&deck, &dir, &pptx).unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let (back, report) = super::super::import(&pptx, &dir.join("back.deck")).unwrap();
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        let Element::Table(b) = &back.slides[0].elements[0] else { panic!("a table") };
+        assert_eq!((b.rows.len(), b.column_count(), b.header), (3, 2, true));
+        assert_eq!(b.rect, Rect::new(40.0, 100.0, 600.0, 120.0));
+        assert!((b.columns[1] / b.columns[0] - 2.0).abs() < 1e-6, "{:?}", b.columns);
+        assert_eq!((b.rows[0][1].text(), b.rows[1][1].text()), ("Value".to_string(), "3.14".to_string()));
+        assert_eq!(b.rows[1][1].fill, Some(Color::rgb(0xFF, 0xEE, 0xDD)));
+        assert_eq!(b.rows[2][0].text(), "");
+        assert_eq!(b.steps.len(), 2, "the table's animation comes back");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

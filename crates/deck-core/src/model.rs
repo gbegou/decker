@@ -310,6 +310,8 @@ pub enum Element {
     Media(Media),
     /// A figure: Typst markup (CeTZ drawings and plots included).
     Figure(Figure),
+    /// A table of text cells.
+    Table(Table),
     Shape(Shape),
     Math(MathBlock),
     /// The deck's sections, with the slide's own section highlighted: a
@@ -326,6 +328,7 @@ impl Element {
             Element::Image(i) => &i.rect,
             Element::Media(m) => &m.rect,
             Element::Figure(f) => &f.rect,
+            Element::Table(t) => &t.rect,
             Element::Shape(s) => &s.rect,
             Element::Math(m) => &m.rect,
             Element::Outline(o) => &o.rect,
@@ -339,6 +342,7 @@ impl Element {
             Element::Image(i) => &mut i.rect,
             Element::Media(m) => &mut m.rect,
             Element::Figure(f) => &mut f.rect,
+            Element::Table(t) => &mut t.rect,
             Element::Shape(s) => &mut s.rect,
             Element::Math(m) => &mut m.rect,
             Element::Outline(o) => &mut o.rect,
@@ -399,6 +403,7 @@ impl Element {
             Element::Image(i) => &i.steps,
             Element::Media(m) => &m.steps,
             Element::Figure(f) => &f.steps,
+            Element::Table(t) => &t.steps,
             Element::Shape(s) => &s.steps,
             Element::Math(m) => &m.steps,
             Element::Outline(o) => &o.steps,
@@ -412,6 +417,7 @@ impl Element {
             Element::Image(i) => &mut i.steps,
             Element::Media(m) => &mut m.steps,
             Element::Figure(f) => &mut f.steps,
+            Element::Table(t) => &mut t.steps,
             Element::Shape(s) => &mut s.steps,
             Element::Math(m) => &mut m.steps,
             Element::Outline(o) => &mut o.steps,
@@ -932,6 +938,98 @@ pub struct Figure {
     pub source: String,
 }
 
+/// A table: rows of cells holding paragraphs, in a grid that fills the
+/// box. Rows share the height equally; columns follow `columns`
+/// (relative widths, equal when empty).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Table {
+    pub rect: Rect,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<Step>,
+    pub rows: Vec<Vec<Cell>>,
+    /// Relative column widths; empty for equal columns.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub columns: Vec<f64>,
+    /// The first row is a header: bold, on the theme's accent.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub header: bool,
+    /// The grid lines; none for a table without rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stroke: Option<Stroke>,
+    /// Text size of the cells that set none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<f64>,
+}
+
+/// One cell of a table.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Cell {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paragraphs: Vec<Paragraph>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<Color>,
+}
+
+impl Cell {
+    pub fn plain(text: &str) -> Self {
+        Self { paragraphs: text.split('\n').map(Paragraph::plain).collect(), fill: None }
+    }
+
+    pub fn text(&self) -> String {
+        self.paragraphs.iter().map(Paragraph::text).collect::<Vec<_>>().join("\n")
+    }
+}
+
+impl Table {
+    /// A table of `rows` by `columns` empty cells with a header row and thin rules.
+    pub fn new(rect: Rect, rows: usize, columns: usize) -> Self {
+        Self {
+            rect,
+            rows: vec![vec![Cell::default(); columns.max(1)]; rows.max(1)],
+            header: true,
+            stroke: Some(Stroke { color: Color::rgb(0x99, 0x99, 0x99), width: 0.75 }),
+            ..Default::default()
+        }
+    }
+
+    /// The number of columns: the longest row.
+    pub fn column_count(&self) -> usize {
+        self.rows.iter().map(Vec::len).max().unwrap_or(0)
+    }
+
+    /// The box of the cell at `row`, `column` when the table fills `rect`.
+    pub fn cell_rect(&self, rect: &Rect, row: usize, column: usize) -> Rect {
+        let n = self.column_count().max(1);
+        let weight = |c: usize| self.columns.get(c).copied().filter(|w| *w > 0.0).unwrap_or(1.0);
+        let total: f64 = (0..n).map(weight).sum();
+        let before: f64 = (0..column.min(n)).map(weight).sum();
+        // A row is as tall as its tallest cell: one share of the height per line.
+        let lines = |r: usize| {
+            self.rows
+                .get(r)
+                .map(|cells| cells.iter().map(|c| c.paragraphs.len()).max().unwrap_or(1))
+                .unwrap_or(1)
+                .max(1) as f64
+        };
+        let all: f64 = (0..self.rows.len()).map(lines).sum::<f64>().max(1.0);
+        let above: f64 = (0..row.min(self.rows.len())).map(lines).sum();
+        Rect::new(
+            rect.x + rect.w * before / total,
+            rect.y + rect.h * above / all,
+            rect.w * weight(column) / total,
+            rect.h * lines(row) / all,
+        )
+    }
+
+    /// Makes every row as long as the longest.
+    pub fn square(&mut self) {
+        let n = self.column_count();
+        for row in &mut self.rows {
+            row.resize(n, Cell::default());
+        }
+    }
+}
+
 /// When a media element starts playing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1210,6 +1308,24 @@ mod tests {
         assert_eq!(g.children[0].rect().x, 90.0);
         assert_eq!(g.children[1].rect().x, 0.0);
         assert_eq!(g.children[1].rect().y, 40.0);
+    }
+
+    #[test]
+    fn tables_lay_cells_on_a_grid() {
+        let mut t = Table::new(Rect::new(100.0, 50.0, 400.0, 90.0), 3, 2);
+        t.columns = vec![1.0, 3.0];
+        assert_eq!(t.cell_rect(&t.rect, 0, 0), Rect::new(100.0, 50.0, 100.0, 30.0));
+        assert_eq!(t.cell_rect(&t.rect, 2, 1), Rect::new(200.0, 110.0, 300.0, 30.0));
+        t.rows[0][1] = Cell::plain("head\ntwo lines");
+        assert_eq!(t.rows[0][1].text(), "head\ntwo lines");
+        assert_eq!(t.cell_rect(&t.rect, 0, 0).h, 45.0, "a two-line row takes two shares of four");
+        assert_eq!(t.cell_rect(&t.rect, 2, 0), Rect::new(100.0, 117.5, 100.0, 22.5));
+        t.rows[1].push(Cell::default());
+        t.square();
+        assert!(t.rows.iter().all(|r| r.len() == 3));
+        let json = serde_json::to_string(&Element::Table(t.clone())).unwrap();
+        assert!(json.contains("\"type\":\"table\"") && json.contains("\"header\":true"));
+        assert_eq!(serde_json::from_str::<Element>(&json).unwrap(), Element::Table(t));
     }
 
     #[test]

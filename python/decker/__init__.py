@@ -319,6 +319,25 @@ class Slide:
         return self.add_figure(_plot_source(body, "", ylabel, title, "inner-north-east" if len(names) > 1 else None,
                                             None, None, None, None, size, False, extra), x, y, w, h)
 
+    def add_table(self, rows: "list[list[Any]]", x: float, y: float, w: float, h: float, *, header: bool = True,
+                  columns: "list[float] | None" = None, size: float | None = None, rules: str | None = "#999999") -> Element:
+        """A table from rows of values (converted with ``str``); the first row is the header by default.
+
+        ``columns`` are relative widths; ``rules`` is the color of the grid lines, ``None`` for none.
+        """
+        n = max((len(r) for r in rows), default=0)
+        cells = [[_cell(r[j]) if j < len(r) else {} for j in range(n)] for r in rows]
+        e: dict[str, Any] = {"type": "table", "rect": _rect(x, y, w, h), "rows": cells}
+        if header:
+            e["header"] = True
+        if columns:
+            e["columns"] = [float(c) for c in columns]
+        if size is not None:
+            e["size"] = float(size)
+        if rules:
+            e["stroke"] = {"color": rules, "width": 0.75}
+        return self.add(e)
+
     def add_outline(self, x: float, y: float, w: float, h: float, *, size: float | None = None) -> Element:
         """The plan: the deck's sections with this slide's own highlighted."""
         e: dict[str, Any] = {"type": "outline", "rect": _rect(x, y, w, h)}
@@ -512,6 +531,11 @@ def _typst_text(s: str) -> str:
             out += "\\"
         out += c
     return out
+
+
+def _cell(value: Any) -> dict:
+    text = "" if value is None else str(value)
+    return {"paragraphs": [{"runs": [{"text": line}]} for line in text.split("\n")]} if text else {}
 
 
 def _rect(x: float, y: float, w: float, h: float) -> dict:

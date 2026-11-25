@@ -220,6 +220,7 @@ fn element_body(out: &mut String, ctx: &Ctx, element: &Element, step: u32, index
             }
             Element::Math(m) => math_body(out, r, m, &deck.math_preamble, math, defaults),
             Element::Figure(f) => figure_body(out, r, f, &deck.math_preamble, math, defaults),
+            Element::Table(t) => table_body(out, r, t, deck, ctx),
             Element::Group(g) => {
                 // The group's movement and scaling at this step, as a transform
                 // of the children drawn at their base positions.
@@ -453,6 +454,67 @@ fn math_body(
         fmt(size),
         escape(&m.source)
     );
+}
+
+/// A table: cell fills (the header on the theme's accent), the cells'
+/// texts typeset in their boxes, then the grid lines over them.
+fn table_body(out: &mut String, r: &Rect, t: &Table, deck: &Deck, ctx: &Ctx) {
+    let columns = t.column_count();
+    if t.rows.is_empty() || columns == 0 {
+        return;
+    }
+    let theme = ctx.slide_index.and_then(|i| deck.slides.get(i)).map(|s| deck.theme_of(s)).unwrap_or_default();
+    let accent = theme.accent.unwrap_or(Color::rgb(0x3F, 0x74, 0xE0));
+    let mut defaults = ctx.defaults.clone();
+    defaults.size = t.size.or(defaults.size);
+    for (i, row) in t.rows.iter().enumerate() {
+        let header = t.header && i == 0;
+        for (j, cell) in row.iter().enumerate() {
+            let c = t.cell_rect(r, i, j);
+            if let Some(fill) = cell.fill.or(header.then_some(accent)) {
+                let _ = write!(
+                    out,
+                    r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}"/>"#,
+                    fmt(c.x),
+                    fmt(c.y),
+                    fmt(c.w),
+                    fmt(c.h),
+                    fill.to_hex()
+                );
+            }
+            if header {
+                // The header row: bold, white unless the runs say otherwise.
+                let bold: Vec<Paragraph> = cell
+                    .paragraphs
+                    .iter()
+                    .map(|p| Paragraph {
+                        runs: p
+                            .runs
+                            .iter()
+                            .map(|run| Run { bold: true, color: run.color.or(Some(Color::WHITE)), ..run.clone() })
+                            .collect(),
+                        ..p.clone()
+                    })
+                    .collect();
+                text_body(out, &c, &bold, &deck.math_preamble, ctx.math, &defaults);
+            } else {
+                text_body(out, &c, &cell.paragraphs, &deck.math_preamble, ctx.math, &defaults);
+            }
+        }
+    }
+    if let Some(s) = t.stroke {
+        let mut d = String::new();
+        for i in 0..=t.rows.len() {
+            let y = if i == t.rows.len() { r.y + r.h } else { t.cell_rect(r, i, 0).y };
+            let _ = write!(d, "M{} {}H{}", fmt(r.x), fmt(y), fmt(r.x + r.w));
+        }
+        for j in 0..=columns {
+            let x = if j == columns { r.x + r.w } else { t.cell_rect(r, 0, j).x };
+            let _ = write!(d, "M{} {}V{}", fmt(x), fmt(r.y), fmt(r.y + r.h));
+        }
+        let _ =
+            write!(out, r#"<path d="{d}" fill="none" stroke="{}" stroke-width="{}"/>"#, s.color.to_hex(), fmt(s.width));
+    }
 }
 
 /// A figure: its typeset page, as wide as the box, scaled down to fit the
@@ -974,5 +1036,23 @@ mod tests {
         let json = serde_json::to_string(&deck).unwrap();
         assert!(json.contains("\"arrow\"") && json.contains("\"flip\":true"));
         assert_eq!(serde_json::from_str::<Deck>(&json).unwrap(), deck);
+    }
+
+    #[test]
+    fn tables_draw_header_cells_and_rules() {
+        let mut deck = Deck::new("t");
+        let mut t = Table::new(Rect::new(0.0, 0.0, 200.0, 60.0), 2, 2);
+        t.rows[0][0] = Cell::plain("Name");
+        t.rows[1][1] = Cell::plain("42");
+        t.rows[1][0].fill = Some(Color::rgb(1, 2, 3));
+        deck.slides.push(Slide { elements: vec![Element::Table(t)], ..Default::default() });
+        let svg = render_slide(&deck, &deck.slides[0]);
+        assert!(
+            svg.contains(r##"<rect x="0" y="0" width="100" height="30" fill="#3F74E0"/>"##),
+            "the header on the accent: {svg}"
+        );
+        assert!(svg.contains(r##"<rect x="0" y="30" width="100" height="30" fill="#010203"/>"##));
+        assert!(svg.contains("Name") && svg.contains("42"));
+        assert!(svg.contains(r#"<path d="M0 0H200M0 30H200M0 60H200M0 0V60M100 0V60M200 0V60""#), "{svg}");
     }
 }

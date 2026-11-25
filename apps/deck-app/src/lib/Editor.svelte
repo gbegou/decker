@@ -6,6 +6,7 @@
   import { SlideView } from "$shared";
   import StyleBar from "./StyleBar.svelte";
   import ArrangeBar from "./ArrangeBar.svelte";
+  import TablePanel from "./TablePanel.svelte";
   import Help from "./Help.svelte";
   import Steps from "./Steps.svelte";
 
@@ -339,7 +340,7 @@
   async function startEdit(index: number, at?: { x: number; y: number }) {
     if (!view) return;
     const el = view.elements[index];
-    if (el.kind === "image" || el.kind === "math" || el.kind === "placeholder" || el.kind === "outline") return;
+    if (el.kind === "image" || el.kind === "math" || el.kind === "placeholder" || el.kind === "outline" || el.kind === "table" || el.kind === "media" || el.kind === "figure") return;
     selected = index;
     const layout = await api.textLayout(index);
     if (!layout) { status = "Text editing in place needs the Typst feature"; return; }
@@ -704,6 +705,7 @@
         <option value="line">╱ Line</option>
         <option value="arrow">→ Arrow</option>
       </select>
+      <button onclick={() => enqueue(() => run("Added table", () => api.addTable(3, 3)).then(selectAdded))} title="A table of 3 by 3 cells with a header row; edit it in the panel">+ Table</button>
       <button onclick={() => run("Added placeholder", api.addPlaceholder)}>+ Placeholder</button>
       <button onclick={saveLayoutAs} disabled={!view.dir}>Save layout…</button>
       <button onclick={() => run("Layout deleted", api.deleteLayout)}>Delete layout</button>
@@ -717,6 +719,7 @@
         <option value="line">╱ Line</option>
         <option value="arrow">→ Arrow</option>
       </select>
+      <button onclick={() => enqueue(() => run("Added table", () => api.addTable(3, 3)).then(selectAdded))} title="A table of 3 by 3 cells with a header row; edit it in the panel">+ Table</button>
       <button onclick={addMedia} title="A video or an animated GIF; images and clips can also be pasted or dropped">+ Video…</button>
       <button onclick={() => run("Added figure", api.addFigure)} title="A Typst figure: CeTZ drawings and plots, edited as source in the panel">+ Figure</button>
       <button onclick={() => run("Added outline", api.addOutline)} title="The sections, the current one highlighted: a plan slide">+ Plan</button>
@@ -896,6 +899,8 @@
             </div>
             <p class="muted">New slides made from this layout start with this style; existing slides keep theirs.</p>
           {/if}
+        {:else if sel.kind === "table" && sel.table}
+          <TablePanel element={sel} onrun={(label, f) => enqueue(async () => { await run(label, f); })} />
         {:else if sel.kind !== "image" && sel.kind !== "media"}
           <label>{sel.kind === "math" ? "formula" : sel.kind === "figure" ? "Typst source" : "text"}
             <textarea rows={sel.kind === "figure" ? 12 : 6} class:code={sel.kind === "figure" || sel.kind === "math"} value={sel.text} onchange={(e) => api.setText(sel!.index, e.currentTarget.value)}></textarea>

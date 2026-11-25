@@ -79,7 +79,9 @@ PowerPoint's crop and "crop to shape".
 
 Element types are `text`, `image`, `media` (a video or animated GIF: `src`, optional
 `poster`, `play` = `on_appear` or `button`, `loop`, `sound`, `duration` in seconds for a
-GIF), `figure` (Typst markup with the bundled CeTZ packages, `source`), `shape`
+GIF), `figure` (Typst markup with the bundled CeTZ packages, `source`), `table` (`rows` of
+cells with `paragraphs` and an optional `fill`, relative `columns` widths, `header`, `stroke`
+for the rules, `size`), `shape`
 (`rectangle`, `ellipse`, `line`, `arrow`; `flip` turns a line or arrow to run from the
 bottom-left to the top-right, `reverse` puts an arrow's head at its start), `math` (Typst
 math source), `outline` (the plan: sections with the slide's own highlighted) and `group`

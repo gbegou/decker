@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use deck_core::text::{ParagraphChange, StyleChange, StyleInfo};
 use deck_core::{Crop, Deck, Mask, Rect};
-use state::{AppState, ElementStyle, PlaceholderStyle, TextLayout, ThemeChange, View};
+use state::{AppState, ElementStyle, PlaceholderStyle, TableEdit, TextLayout, ThemeChange, View};
 
 type Shared<'a> = State<'a, Mutex<AppState>>;
 
@@ -558,6 +558,34 @@ fn arrange(app: AppHandle, state: Shared, indices: Vec<usize>, op: String) -> Re
 }
 
 #[tauri::command]
+fn add_table(app: AppHandle, state: Shared, rows: usize, columns: usize) -> Result<usize, String> {
+    let index = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint("add_table", false);
+        s.add_table(rows, columns)?
+    };
+    edited(&app);
+    Ok(index)
+}
+
+#[tauri::command]
+fn edit_table(app: AppHandle, state: Shared, element: usize, edit: TableEdit) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        // Typing in one cell is one undo step; structural edits are their own.
+        let (kind, merge) = match &edit {
+            TableEdit::Cell { row, column, .. } => (format!("table_cell:{element}:{row}:{column}"), true),
+            _ => ("edit_table".to_string(), false),
+        };
+        s.checkpoint(&kind, merge);
+        s.edit_table(element, &edit)?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+#[tauri::command]
 fn add_shape(app: AppHandle, state: Shared, kind: String) -> Result<usize, String> {
     let index = {
         let mut s = state.lock().map_err(err)?;
@@ -967,6 +995,8 @@ pub fn run() {
             add_figure,
             add_shape,
             style_placeholder,
+            add_table,
+            edit_table,
             set_rects,
             arrange,
             group_elements,

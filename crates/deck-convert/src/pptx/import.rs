@@ -432,7 +432,10 @@ fn import_tree(
                 }
             }
             "nvGrpSpPr" | "grpSpPr" => {}
-            "graphicFrame" => report.warnings.push(format!("{part}: table, chart or diagram skipped")),
+            "graphicFrame" => match import_table(node, offset) {
+                Some(table) => elements.push(Element::Table(table)),
+                None => report.warnings.push(format!("{part}: chart or diagram skipped")),
+            },
             "cxnSp" => {
                 if let Some(rect) = xfrm(node).map(|r| shift(r, offset)) {
                     let sp_pr = child(node, NS_P, "spPr");
@@ -540,6 +543,7 @@ fn steps_mut(e: &mut Element) -> &mut Vec<Step> {
         Element::Image(i) => &mut i.steps,
         Element::Media(m) => &mut m.steps,
         Element::Figure(f) => &mut f.steps,
+        Element::Table(t) => &mut t.steps,
         Element::Shape(s) => &mut s.steps,
         Element::Math(m) => &mut m.steps,
         Element::Outline(o) => &mut o.steps,
@@ -655,6 +659,53 @@ fn line_ends(node: Node, kind: ShapeKind) -> (ShapeKind, bool, bool) {
     // A head at the start only is a reversed arrow; flipH also swaps the ends.
     let reverse = (ended("headEnd") && !ended("tailEnd")) != on("flipH");
     (kind, on("flipV") != on("flipH"), kind == ShapeKind::Arrow && reverse)
+}
+
+/// A `<p:graphicFrame>` holding an `<a:tbl>`: the grid's relative column
+/// widths, the cells' paragraphs and solid fills, `firstRow` as header.
+fn import_table(node: Node, offset: Rect) -> Option<deck_core::Table> {
+    let tbl = node.descendants().find(|n| n.has_tag_name((NS_A, "tbl")))?;
+    let x = child(node, NS_P, "xfrm")?;
+    let (off, ext) = (child(x, NS_A, "off")?, child(x, NS_A, "ext")?);
+    let rect = shift(
+        Rect { x: emu_attr(off, "x")?, y: emu_attr(off, "y")?, w: emu_attr(ext, "cx")?, h: emu_attr(ext, "cy")? },
+        offset,
+    );
+    let columns: Vec<f64> = child(tbl, NS_A, "tblGrid")
+        .map(|g| g.children().filter(|n| n.has_tag_name((NS_A, "gridCol"))).filter_map(|c| emu_attr(c, "w")).collect())
+        .unwrap_or_default();
+    let rows: Vec<Vec<deck_core::Cell>> = tbl
+        .children()
+        .filter(|n| n.has_tag_name((NS_A, "tr")))
+        .map(|tr| {
+            tr.children()
+                .filter(|n| n.has_tag_name((NS_A, "tc")))
+                .map(|tc| deck_core::Cell {
+                    paragraphs: child(tc, NS_A, "txBody").map(paragraphs).unwrap_or_default(),
+                    fill: child(tc, NS_A, "tcPr").and_then(solid_fill),
+                })
+                .collect()
+        })
+        .collect();
+    if rows.is_empty() {
+        return None;
+    }
+    let header = child(tbl, NS_A, "tblPr")
+        .and_then(|p| p.attribute("firstRow"))
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false);
+    // Equal widths are the default: keep `columns` only when they differ.
+    let even = columns.windows(2).all(|w| (w[0] - w[1]).abs() < 0.01);
+    let mut table = deck_core::Table {
+        rect,
+        rows,
+        columns: if even { vec![] } else { columns },
+        header,
+        stroke: Some(Stroke { color: Color::rgb(0x99, 0x99, 0x99), width: 0.75 }),
+        ..Default::default()
+    };
+    table.square();
+    Some(table)
 }
 
 fn shape_name(node: Node) -> String {

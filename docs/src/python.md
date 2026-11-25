@@ -56,6 +56,12 @@ s.add_bars(["Q1", "Q2", "Q3"], {"2024": [3, 4, 5], "2025": [4, 5, 6]},
 s.add_figure("#import \"@preview/cetz:0.5.2\": canvas, draw\n#canvas({ draw.circle((0, 0)) })", 700, 100, 200, 200)
 ```
 
+Tables come from rows of values:
+
+```python
+s.add_table([["Run", "Speed"], ["A", 3.2], ["B", 4.1]], 80, 140, 600, 120, columns=[1, 2], size=20)
+```
+
 A `Series` takes `ys` with optional `xs` (or a list of `(x, y)` pairs), a legend `label`, a
 `mark` (`o`, `x`, `+`, `*`, `None`) and a `style` (`line`, `scatter`, `bars`). Labels and
 titles accept Typst markup. For anything else, write the Typst source yourself with
@@ -94,7 +100,7 @@ application; `DECKER_PYTHONPATH` overrides where it is looked for.
 |---|---|
 | `decker` | `new(title, width, height)`, `load(path)`, `current()` |
 | `Deck` | `title`, `width`, `height`, `slides`, `slide`, `layouts`, `theme`, `add_slide(layout=, at=, section=, subsection=)`, `layout(name)`, `add_asset(path)`, `save(path=)`, `commit()`, `discard()` |
-| `Slide` | `index`, `elements`, `selected`, `layout`, `section`, `subsection`, `notes`, `background`, `add_text(...)`, `add_math(...)`, `add_shape(kind, ...)`, `add_image(path, x, y, w=, h=)`, `add_video(path, ..., play=, loop=, sound=)`, `add_figure(source, ...)`, `add_plot(*series, ...)`, `add_bars(labels, values, ...)`, `add_outline(...)`, `add(dict)`, `duplicate()`, `remove()` |
+| `Slide` | `index`, `elements`, `selected`, `layout`, `section`, `subsection`, `notes`, `background`, `add_text(...)`, `add_math(...)`, `add_shape(kind, ...)`, `add_image(path, x, y, w=, h=)`, `add_video(path, ..., play=, loop=, sound=)`, `add_figure(source, ...)`, `add_table(rows, ..., header=, columns=, size=, rules=)`, `add_plot(*series, ...)`, `add_bars(labels, values, ...)`, `add_outline(...)`, `add(dict)`, `duplicate()`, `remove()` |
 | `Series` | `Series(ys, xs=None, label=, mark=, style=)` |
 | `Element` | `kind`, `rect` (`x`, `y`, `w`, `h`, `move(dx, dy)`), `text`, `style(bold=, italic=, size=, color=, font=)`, `steps`, `appear(at)`, `disappear(at)`, `move_to(at, x=, y=, w=, h=)`, `remove()`, `data` |
 

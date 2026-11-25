@@ -281,6 +281,65 @@ pub struct ElementInfo {
     /// Placeholders: their default text style.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub placeholder: Option<Placeholder>,
+    /// Tables: the cells' texts by row, and the settings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub table: Option<TableInfo>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TableInfo {
+    pub cells: Vec<Vec<String>>,
+    pub fills: Vec<Vec<Option<Color>>>,
+    pub header: bool,
+    pub columns: Vec<f64>,
+}
+
+fn table_info(e: &Element) -> Option<TableInfo> {
+    let Element::Table(t) = e else { return None };
+    Some(TableInfo {
+        cells: t.rows.iter().map(|r| r.iter().map(deck_core::Cell::text).collect()).collect(),
+        fills: t.rows.iter().map(|r| r.iter().map(|c| c.fill).collect()).collect(),
+        header: t.header,
+        columns: t.columns.clone(),
+    })
+}
+
+/// An edit of a table (see [`AppState::edit_table`]).
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum TableEdit {
+    /// Sets a cell's text (one paragraph per line, keeping the first run's style).
+    Cell {
+        row: usize,
+        column: usize,
+        text: String,
+    },
+    /// A cell's fill: `""` clears it.
+    Fill {
+        row: usize,
+        column: usize,
+        color: String,
+    },
+    /// Inserts an empty row or column before `at` (at the end when past it).
+    AddRow {
+        at: usize,
+    },
+    AddColumn {
+        at: usize,
+    },
+    RemoveRow {
+        at: usize,
+    },
+    RemoveColumn {
+        at: usize,
+    },
+    Header {
+        on: bool,
+    },
+    /// Relative column widths; empty for equal columns.
+    Columns {
+        widths: Vec<f64>,
+    },
 }
 
 fn shape_info(e: &Element) -> (Option<&'static str>, bool) {
@@ -326,6 +385,7 @@ fn element_style_info(e: &Element) -> (Option<Color>, Option<Stroke>, Option<Col
         Element::Shape(s) => (s.fill, s.stroke, None, None),
         Element::Math(m) => (m.color, None, None, None),
         Element::Outline(o) => (o.color, None, o.highlight, Some(o.subsections)),
+        Element::Table(t) => (None, t.stroke, None, None),
         Element::Image(_) | Element::Media(_) | Element::Figure(_) | Element::Group(_) => (None, None, None, None),
     }
 }
@@ -636,6 +696,7 @@ impl AppState {
                         Element::Image(_) => "image",
                         Element::Media(_) => "media",
                         Element::Figure(_) => "figure",
+                        Element::Table(_) => "table",
                         Element::Shape(_) => "shape",
                         Element::Math(_) => "math",
                         Element::Outline(_) => "outline",
@@ -650,6 +711,7 @@ impl AppState {
                         Element::Image(i) => i.src.clone(),
                         Element::Media(m) => m.src.clone(),
                         Element::Figure(f) => f.source.clone(),
+                        Element::Table(t) => format!("{} x {}", t.rows.len(), t.column_count()),
                         Element::Outline(_) => String::new(),
                         Element::Group(g) => format!("{} elements", g.children.len()),
                     },
@@ -659,6 +721,7 @@ impl AppState {
                         Element::Shape(s) => s.paragraphs.first().and_then(|p| p.runs.first()).and_then(|r| r.size),
                         Element::Math(m) => m.size,
                         Element::Outline(o) => o.size,
+                        Element::Table(t) => t.size,
                         Element::Image(_) | Element::Media(_) | Element::Figure(_) | Element::Group(_) => None,
                     }
                     .unwrap_or(svg::DEFAULT_FONT_SIZE),
@@ -673,6 +736,7 @@ impl AppState {
                     shape: shape_info(e).0,
                     flip: shape_info(e).1,
                     placeholder: None,
+                    table: table_info(e),
                 })
                 .collect(),
             presenting: self.presenting,
@@ -712,6 +776,7 @@ impl AppState {
                     Element::Image(_) => "image",
                     Element::Media(_) => "media",
                     Element::Figure(_) => "figure",
+                    Element::Table(_) => "table",
                     Element::Shape(_) => "shape",
                     Element::Math(_) => "math",
                     Element::Outline(_) => "outline",
@@ -725,6 +790,7 @@ impl AppState {
                     Element::Image(i) => i.src.clone(),
                     Element::Media(m) => m.src.clone(),
                     Element::Figure(f) => f.source.clone(),
+                    Element::Table(t) => format!("{} x {}", t.rows.len(), t.column_count()),
                     Element::Outline(_) => String::new(),
                     Element::Group(g) => format!("{} elements", g.children.len()),
                 },
@@ -741,6 +807,7 @@ impl AppState {
                 shape: shape_info(e).0,
                 flip: shape_info(e).1,
                 placeholder: None,
+                table: table_info(e),
             })
             .collect();
         for (k, ph) in layout.placeholders.iter().enumerate() {
@@ -762,6 +829,7 @@ impl AppState {
                 shape: None,
                 flip: false,
                 placeholder: Some(ph.clone()),
+                table: None,
             });
         }
         let starts = deck
@@ -1145,6 +1213,7 @@ impl AppState {
             Element::Shape(s) => s.paragraphs = paragraphs(&s.paragraphs),
             Element::Math(m) => m.source = text.to_string(),
             Element::Figure(f) => f.source = text.to_string(),
+            Element::Table(_) => return Err("edit a table's cells in the panel".into()),
             Element::Image(_) | Element::Media(_) => return Err("an image has no text".into()),
             Element::Outline(_) => return Err("the outline is computed from the sections".into()),
             Element::Group(_) => return Err("ungroup to edit the texts of a group".into()),
@@ -1583,6 +1652,12 @@ impl AppState {
                     m.sound = snd;
                 }
             }
+            Element::Table(t) => {
+                apply_stroke(&mut t.stroke);
+                if let Some(size) = change.size {
+                    t.size = if size > 0.0 { Some(size) } else { None };
+                }
+            }
             Element::Image(_) | Element::Figure(_) | Element::Group(_) => {
                 return Err("select one element to style it".into())
             }
@@ -1736,6 +1811,94 @@ impl AppState {
     }
 
     /// Adds an outline ("plan") element to the current slide.
+    /// Adds a table of `rows` by `columns` with a header row.
+    pub fn add_table(&mut self, rows: usize, columns: usize) -> Result<usize, String> {
+        self.touch_target();
+        let (w, h) = self.deck.as_ref().map(|d| (d.width, d.height)).ok_or("no deck")?;
+        let rows = rows.clamp(1, 30);
+        let height = (rows as f64 * 36.0).min(h * 0.7);
+        let mut table =
+            deck_core::Table::new(Rect::new(w * 0.15, (h - height) / 2.0, w * 0.7, height), rows, columns.clamp(1, 12));
+        for (j, cell) in table.rows[0].iter_mut().enumerate() {
+            *cell = deck_core::Cell::plain(&format!("Column {}", j + 1));
+        }
+        let elements = self.elements_mut()?;
+        elements.push(Element::Table(table));
+        Ok(elements.len() - 1)
+    }
+
+    /// Edits the table at `element`.
+    pub fn edit_table(&mut self, element: usize, edit: &TableEdit) -> Result<(), String> {
+        self.touch_target();
+        let Some(Element::Table(t)) = self.elements_mut()?.get_mut(element) else { return Err("not a table".into()) };
+        t.square();
+        let columns = t.column_count();
+        match edit {
+            TableEdit::Cell { row, column, text } => {
+                let cell = t.rows.get_mut(*row).and_then(|r| r.get_mut(*column)).ok_or("no such cell")?;
+                // Keep the style of the cell's first run for the new text.
+                let style = cell.paragraphs.first().and_then(|p| p.runs.first()).cloned().unwrap_or_default();
+                let align = cell.paragraphs.first().map(|p| p.align).unwrap_or_default();
+                cell.paragraphs = if text.is_empty() {
+                    vec![]
+                } else {
+                    text.split('\n')
+                        .map(|line| Paragraph {
+                            runs: vec![deck_core::Run { text: line.to_string(), math: false, ..style.clone() }],
+                            align,
+                            bullet: None,
+                        })
+                        .collect()
+                };
+            }
+            TableEdit::Fill { row, column, color } => {
+                let cell = t.rows.get_mut(*row).and_then(|r| r.get_mut(*column)).ok_or("no such cell")?;
+                cell.fill =
+                    if color.is_empty() { None } else { Some(Color::from_hex(color).map_err(|e| e.to_string())?) };
+            }
+            TableEdit::AddRow { at } => {
+                let at = (*at).min(t.rows.len());
+                t.rows.insert(at, vec![deck_core::Cell::default(); columns]);
+                // Rows keep their height: the table grows.
+                t.rect.h *= t.rows.len() as f64 / (t.rows.len() - 1) as f64;
+            }
+            TableEdit::RemoveRow { at } => {
+                if t.rows.len() <= 1 || *at >= t.rows.len() {
+                    return Err("a table keeps at least one row".into());
+                }
+                t.rows.remove(*at);
+                t.rect.h *= t.rows.len() as f64 / (t.rows.len() + 1) as f64;
+            }
+            TableEdit::AddColumn { at } => {
+                let at = (*at).min(columns);
+                for row in &mut t.rows {
+                    row.insert(at, deck_core::Cell::default());
+                }
+                if !t.columns.is_empty() {
+                    t.columns.resize(columns, 1.0);
+                    t.columns.insert(at, 1.0);
+                }
+            }
+            TableEdit::RemoveColumn { at } => {
+                if columns <= 1 || *at >= columns {
+                    return Err("a table keeps at least one column".into());
+                }
+                for row in &mut t.rows {
+                    row.remove(*at);
+                }
+                if *at < t.columns.len() {
+                    t.columns.remove(*at);
+                }
+            }
+            TableEdit::Header { on } => t.header = *on,
+            TableEdit::Columns { widths } => {
+                t.columns =
+                    if widths.iter().all(|w| *w > 0.0) && widths.len() == columns { widths.clone() } else { vec![] }
+            }
+        }
+        Ok(())
+    }
+
     /// Adds a figure with a sample CeTZ plot, to edit.
     pub fn add_figure(&mut self) -> Result<(), String> {
         self.touch_target();
@@ -2027,6 +2190,39 @@ mod tests {
         assert_eq!(xs(&s), [170.0, 170.0, 0.0]);
         s.set_rects(&[(0, Rect::new(1.0, 2.0, 3.0, 4.0)), (1, Rect::new(5.0, 6.0, 7.0, 8.0))]).unwrap();
         assert_eq!(xs(&s)[..2], [1.0, 5.0]);
+    }
+
+    #[test]
+    fn tables_are_added_and_edited() {
+        let mut s = AppState::default();
+        s.load(deck(), PathBuf::new());
+        let i = s.add_table(3, 2).unwrap();
+        let table = |s: &AppState| match &s.deck.as_ref().unwrap().slides[0].elements[i] {
+            Element::Table(t) => t.clone(),
+            _ => unreachable!(),
+        };
+        assert_eq!(table(&s).rows[0][1].text(), "Column 2");
+        s.edit_table(i, &TableEdit::Cell { row: 1, column: 0, text: "a\nb".into() }).unwrap();
+        assert_eq!(table(&s).rows[1][0].paragraphs.len(), 2);
+        let h = table(&s).rect.h;
+        s.edit_table(i, &TableEdit::AddRow { at: 1 }).unwrap();
+        s.edit_table(i, &TableEdit::AddColumn { at: 99 }).unwrap();
+        let t = table(&s);
+        assert_eq!((t.rows.len(), t.column_count()), (4, 3));
+        assert!((t.rect.h - h * 4.0 / 3.0).abs() < 1e-9, "rows keep their height");
+        assert_eq!(t.rows[2][0].text(), "a\nb", "the edited row moved down");
+        s.edit_table(i, &TableEdit::Fill { row: 2, column: 0, color: "#102030".into() }).unwrap();
+        s.edit_table(i, &TableEdit::RemoveColumn { at: 1 }).unwrap();
+        s.edit_table(i, &TableEdit::RemoveRow { at: 0 }).unwrap();
+        s.edit_table(i, &TableEdit::Header { on: false }).unwrap();
+        let t = table(&s);
+        assert_eq!((t.rows.len(), t.column_count(), t.header), (3, 2, false));
+        assert_eq!(t.rows[1][0].fill, Some(Color::rgb(0x10, 0x20, 0x30)));
+        let view = s.view();
+        let info = view.elements[i].table.as_ref().unwrap();
+        assert_eq!(info.cells[1][0], "a\nb");
+        assert_eq!(view.elements[i].kind, "table");
+        assert!(s.edit_table(0, &TableEdit::Header { on: true }).is_err());
     }
 
     #[test]

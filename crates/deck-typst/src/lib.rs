@@ -269,6 +269,17 @@ fn text_layer_element(out: &mut String, e: &Element, step: u32, offset: (f64, f6
     let paragraphs = match e {
         Element::Text(t) => &t.paragraphs,
         Element::Shape(s) => &s.paragraphs,
+        Element::Table(t) => {
+            for (i, row) in t.rows.iter().enumerate() {
+                for (j, cell) in row.iter().enumerate() {
+                    let mut d = defaults.clone();
+                    d.size = t.size.or(d.size);
+                    let cell_box = TextBoxLike { rect: t.cell_rect(&state.rect, i, j), paragraphs: &cell.paragraphs };
+                    place_text(out, &cell_box, offset, &d);
+                }
+            }
+            return;
+        }
         Element::Group(g) => {
             // A group's step moves its children along with it.
             let moved = (offset.0 + state.rect.x - g.rect.x, offset.1 + state.rect.y - g.rect.y);
@@ -279,6 +290,17 @@ fn text_layer_element(out: &mut String, e: &Element, step: u32, offset: (f64, f6
         }
         _ => return,
     };
+    place_text(out, &TextBoxLike { rect: state.rect, paragraphs }, offset, defaults);
+}
+
+/// A box of paragraphs to place in the text layer.
+struct TextBoxLike<'a> {
+    rect: deck_core::Rect,
+    paragraphs: &'a [Paragraph],
+}
+
+fn place_text(out: &mut String, text_box: &TextBoxLike, offset: (f64, f64), defaults: &TextDefaults) {
+    let paragraphs = text_box.paragraphs;
     if paragraphs.iter().all(|p| p.text().trim().is_empty()) {
         return;
     }
@@ -288,7 +310,7 @@ fn text_layer_element(out: &mut String, e: &Element, step: u32, offset: (f64, f6
         .map(|p| Paragraph { runs: p.runs.iter().map(|r| Run { color: None, ..r.clone() }).collect(), ..p.clone() })
         .collect();
     let pad = deck_core::svg::PADDING;
-    let r = state.rect;
+    let r = text_box.rect;
     let _ = std::fmt::Write::write_fmt(
         out,
         format_args!(

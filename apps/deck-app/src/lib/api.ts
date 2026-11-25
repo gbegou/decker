@@ -10,7 +10,7 @@ export type Mask = { kind: "rectangle" } | { kind: "ellipse" } | { kind: "rounde
 
 export interface ElementInfo {
   index: number;
-  kind: "text" | "image" | "media" | "figure" | "shape" | "math" | "placeholder" | "outline" | "group";
+  kind: "text" | "image" | "media" | "figure" | "table" | "shape" | "math" | "placeholder" | "outline" | "group";
   rect: Rect;
   text: string;
   last_step: number;
@@ -28,7 +28,16 @@ export interface ElementInfo {
   flip: boolean;
   /** Placeholders: their default text style. */
   placeholder?: PlaceholderStyle & { name: string };
+  /** Tables: the cells' texts and fills by row, and the settings. */
+  table?: { cells: string[][]; fills: (string | null)[][]; header: boolean; columns: number[] };
 }
+/** An edit of a table: one cell, the grid, the header, the column widths. */
+export type TableEdit =
+  | { op: "cell"; row: number; column: number; text: string }
+  | { op: "fill"; row: number; column: number; color: string }
+  | { op: "add_row" | "add_column" | "remove_row" | "remove_column"; at: number }
+  | { op: "header"; on: boolean }
+  | { op: "columns"; widths: number[] };
 export interface PlaceholderStyle {
   size?: number; bold?: boolean; color?: string; font?: string; align?: Align; bullets?: boolean;
 }
@@ -151,6 +160,9 @@ export const api = {
   addPlaceholder: () => invoke<View>("add_placeholder"),
   addOutline: () => invoke<View>("add_outline"),
   addFigure: () => invoke<View>("add_figure"),
+  /** Adds a table and returns its index. */
+  addTable: (rows: number, columns: number) => invoke<number>("add_table", { rows, columns }),
+  editTable: (element: number, edit: TableEdit) => invoke<View>("edit_table", { element, edit }),
   /** Adds a shape and returns its index. */
   addShape: (kind: "rectangle" | "ellipse" | "line" | "arrow") => invoke<number>("add_shape", { kind }),
   stylePlaceholder: (element: number, change: PlaceholderStyle) => invoke<View>("style_placeholder", { element, change }),

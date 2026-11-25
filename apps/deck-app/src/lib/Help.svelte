@@ -19,6 +19,7 @@
       ["Drag", "Moves the whole selection; edges and centers snap to the slide and to other elements, with a guide line (hold Alt to move freely)"],
       ["Arrange bar", "Align to the selection (or to the slide for one element), distribute with equal gaps, mirror, bring forward or send back, stroke color and width"],
       ["Group · Ungroup (Ctrl+G · Ctrl+Shift+G)", "Several elements become one, moved, resized and animated together"],
+      ["+ Table", "A table with a header row; its cells, rows, columns, widths and fills are edited in the panel, the rules in the arrange bar"],
       ["+ Shape", "A rectangle, an ellipse, a line or an arrow in the theme's accent color; the style bar sets fill, outline and, for lines, the direction"],
       ["+ Text · + Plan · + Figure", "A text box; the sections list with the current one highlighted; a Typst figure (CeTZ plots and drawings) edited as source"],
       ["Ctrl+Z · Ctrl+Y (or Ctrl+Shift+Z)", "Undo and redo any edit of the deck; a run of typing in one box is one step"],

@@ -15,7 +15,7 @@
 
   const indices = $derived(elements.map((e) => e.index));
   const one = $derived(elements.length === 1 ? elements[0] : null);
-  const stroked = $derived(elements.filter((e) => e.kind === "shape" || e.kind === "text"));
+  const stroked = $derived(elements.filter((e) => e.kind === "shape" || e.kind === "text" || e.kind === "table"));
 
   function arrange(op: string, label: string) {
     onrun(label, async () => { onmoved(await api.arrange(indices, op)); });

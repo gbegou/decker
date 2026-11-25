@@ -116,6 +116,12 @@ Two environment variables help scripts and tests:
   Saving removes from `assets/` the files no element uses any more.
 - **+ Shape** adds a rectangle, an ellipse, a line or an arrow in the theme's accent color;
   the style bar sets its fill and outline.
+- **+ Table** adds a table with a header row. Its panel shows the cells as a grid of fields
+  (one line per paragraph), adds or removes rows and columns around the cell that has the
+  focus, toggles the header, sets a cell's fill and the relative column widths. Rows are as
+  tall as their line count asks; the table's box sets the overall size, the style bar its
+  text size, the arrange bar its rules. Tables go to PowerPoint and back as real tables, and
+  their text is selectable in the PDF.
 - Dragging moves the whole selection. Its edges and center snap to the slide's edges and
   center and to those of the other elements, with a dashed guide where it snapped; hold Alt
   to move freely.
