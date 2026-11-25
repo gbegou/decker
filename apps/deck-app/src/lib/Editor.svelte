@@ -443,7 +443,12 @@
     const table = view.elements[editing.index]?.table;
     if (!table) return;
     const columns = table.rects[0]?.length ?? 1, count = table.rects.length * columns;
-    const k = (editingCell.row * columns + editingCell.column + (back ? count - 1 : 1)) % count;
+    // Cells covered by a merge are skipped.
+    let k = editingCell.row * columns + editingCell.column;
+    for (let n = 0; n < count; n++) {
+      k = (k + (back ? count - 1 : 1)) % count;
+      if (table.spans[Math.floor(k / columns)]?.[k % columns]?.[0] !== 0) break;
+    }
     editingCell = { row: Math.floor(k / columns), column: k % columns };
     await api.focusCell(editing.index, editingCell.row, editingCell.column);
     const layout = await api.textLayout(editing.index);

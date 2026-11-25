@@ -162,6 +162,7 @@ fn import_layout(pkg: &Package, part: &str, images: &mut ImageStore, report: &mu
     };
     layout.background =
         background(doc.root_element()).or_else(|| master.as_ref().and_then(|m| background(m.root_element())));
+    use_scheme(pkg, master_part.as_deref(), master.as_ref());
     if let Some(mp) = master_part.as_deref() {
         if let Ok(Some(theme_part)) = pkg.rel_by_type(mp, REL_THEME) {
             if let Ok(xml) = pkg.xml(&theme_part) {
@@ -321,6 +322,7 @@ fn import_slide(
     let master_xml = master_part.as_deref().map(|p| pkg.xml(p)).transpose()?;
     let master = master_xml.as_deref().map(Document::parse).transpose()?;
 
+    use_scheme(pkg, master_part.as_deref(), master.as_ref());
     let mut slide = Slide::default();
     let csld = child(doc.root_element(), NS_P, "cSld").ok_or_else(|| anyhow!("no cSld"))?;
     slide.name = csld.attribute("name").unwrap_or_default().to_string();
@@ -782,9 +784,20 @@ fn import_table(node: Node, offset: Rect) -> Option<deck_core::Table> {
         .map(|tr| {
             tr.children()
                 .filter(|n| n.has_tag_name((NS_A, "tc")))
-                .map(|tc| deck_core::Cell {
-                    paragraphs: child(tc, NS_A, "txBody").map(paragraphs).unwrap_or_default(),
-                    fill: child(tc, NS_A, "tcPr").and_then(solid_fill),
+                .map(|tc| {
+                    let span = |name: &str| tc.attribute(name).and_then(|v| v.parse().ok()).unwrap_or(1usize).max(1);
+                    // Covered cells (`hMerge`, `vMerge`) keep no text of their own.
+                    let covered = tc.attribute("hMerge").is_some() || tc.attribute("vMerge").is_some();
+                    deck_core::Cell {
+                        paragraphs: if covered {
+                            vec![]
+                        } else {
+                            child(tc, NS_A, "txBody").map(paragraphs).unwrap_or_default()
+                        },
+                        fill: child(tc, NS_A, "tcPr").and_then(solid_fill),
+                        colspan: span("gridSpan"),
+                        rowspan: span("rowSpan"),
+                    }
                 })
                 .collect()
         })
@@ -887,7 +900,7 @@ fn import_theme(xml: &str) -> deck_core::Theme {
     let Ok(doc) = Document::parse(xml) else { return Default::default() };
     let Some(elements) = child(doc.root_element(), NS_A, "themeElements") else { return Default::default() };
     let scheme = child(elements, NS_A, "clrScheme");
-    let color = |tag: &str| scheme.and_then(|s| child(s, NS_A, tag)).and_then(srgb);
+    let color = |tag: &str| scheme.and_then(|s| child(s, NS_A, tag)).and_then(literal);
     let palette: Vec<Color> = (1..=6).filter_map(|i| color(&format!("accent{i}"))).collect();
     let font = child(elements, NS_A, "fontScheme")
         .and_then(|f| child(f, NS_A, "minorFont"))
@@ -903,8 +916,153 @@ fn solid_fill(node: Node) -> Option<Color> {
     srgb(fill)
 }
 
+thread_local! {
+    /// The color scheme of the master being imported, by scheme name, with
+    /// the master's mapping applied (`tx1`, `bg1`... to `dk1`, `lt1`...).
+    static SCHEME: std::cell::RefCell<HashMap<String, Color>> = Default::default();
+}
+
+/// Makes the theme of `master` the one [`srgb`] resolves scheme colors in.
+fn use_scheme(pkg: &Package, master_part: Option<&str>, master: Option<&Document>) {
+    let mut map = HashMap::new();
+    let theme = master_part.and_then(|mp| pkg.rel_by_type(mp, REL_THEME).ok().flatten()).and_then(|t| pkg.xml(&t).ok());
+    if let Some(doc) = theme.as_deref().and_then(|x| Document::parse(x).ok()) {
+        let scheme = child(doc.root_element(), NS_A, "themeElements").and_then(|e| child(e, NS_A, "clrScheme"));
+        for c in scheme.into_iter().flat_map(|s| s.children().filter(Node::is_element)) {
+            // The scheme itself is plain colors (or system colors).
+            if let Some(color) = literal(c) {
+                map.insert(c.tag_name().name().to_string(), color);
+            }
+        }
+        let clr_map = master.and_then(|m| child(m.root_element(), NS_P, "clrMap"));
+        let alias = |name: &str, default: &str| clr_map.and_then(|m| m.attribute(name)).unwrap_or(default).to_string();
+        for (name, default) in [("tx1", "dk1"), ("bg1", "lt1"), ("tx2", "dk2"), ("bg2", "lt2")] {
+            if let Some(c) = map.get(&alias(name, default)).copied() {
+                map.insert(name.to_string(), c);
+            }
+        }
+    }
+    SCHEME.with(|s| *s.borrow_mut() = map);
+}
+
+/// A plain color (`srgbClr`, `sysClr`) directly under `node`, unmodified.
+fn literal(node: Node) -> Option<Color> {
+    node.children().filter(Node::is_element).find_map(|c| match c.tag_name().name() {
+        "srgbClr" => c.attribute("val").and_then(|v| Color::from_hex(v).ok()),
+        "sysClr" => c.attribute("lastClr").and_then(|v| Color::from_hex(v).ok()),
+        _ => None,
+    })
+}
+
+/// The color under `node`: `srgbClr`, `sysClr`, `schemeClr` (in the
+/// current theme) or `prstClr`, with PowerPoint's adjustments applied
+/// (`lumMod`, `lumOff`, `tint`, `shade`).
 fn srgb(node: Node) -> Option<Color> {
-    child(node, NS_A, "srgbClr").and_then(|c| c.attribute("val")).and_then(|v| Color::from_hex(v).ok())
+    let c = node
+        .children()
+        .filter(Node::is_element)
+        .find(|c| matches!(c.tag_name().name(), "srgbClr" | "sysClr" | "schemeClr" | "prstClr"))?;
+    let base = match c.tag_name().name() {
+        "schemeClr" => {
+            let name = c.attribute("val")?;
+            SCHEME.with(|s| s.borrow().get(name).copied())?
+        }
+        "prstClr" => match c.attribute("val")? {
+            "black" => Color::BLACK,
+            "white" => Color::WHITE,
+            "red" => Color::from_hex("FF0000").ok()?,
+            "green" => Color::from_hex("008000").ok()?,
+            "blue" => Color::from_hex("0000FF").ok()?,
+            "yellow" => Color::from_hex("FFFF00").ok()?,
+            "gray" | "grey" => Color::from_hex("808080").ok()?,
+            _ => return None,
+        },
+        _ => literal(node)?,
+    };
+    Some(adjust(base, c))
+}
+
+/// Applies the adjustments under a color element (percentages in 1/1000).
+fn adjust(color: Color, node: Node) -> Color {
+    let pct = |n: Node| n.attribute("val").and_then(|v| v.parse::<f64>().ok()).map(|v| v / 100_000.0);
+    let (mut h, mut s, mut l) = to_hsl(color);
+    let mut rgb = [color.r as f64, color.g as f64, color.b as f64];
+    let mut hsl_dirty = false;
+    for m in node.children().filter(Node::is_element) {
+        let Some(v) = pct(m) else { continue };
+        match m.tag_name().name() {
+            "lumMod" => {
+                l *= v;
+                hsl_dirty = true;
+            }
+            "lumOff" => {
+                l += v;
+                hsl_dirty = true;
+            }
+            "satMod" => {
+                s *= v;
+                hsl_dirty = true;
+            }
+            "tint" | "shade" => {
+                if hsl_dirty {
+                    let c = from_hsl(h, s, l);
+                    rgb = [c.r as f64, c.g as f64, c.b as f64];
+                    hsl_dirty = false;
+                }
+                for x in &mut rgb {
+                    *x = if m.tag_name().name() == "tint" { 255.0 - (255.0 - *x) * v } else { *x * v };
+                }
+                (h, s, l) = to_hsl(Color { r: rgb[0].round() as u8, g: rgb[1].round() as u8, b: rgb[2].round() as u8 });
+            }
+            _ => {}
+        }
+    }
+    if hsl_dirty {
+        return from_hsl(h, s.clamp(0.0, 1.0), l.clamp(0.0, 1.0));
+    }
+    Color {
+        r: rgb[0].round().clamp(0.0, 255.0) as u8,
+        g: rgb[1].round().clamp(0.0, 255.0) as u8,
+        b: rgb[2].round().clamp(0.0, 255.0) as u8,
+    }
+}
+
+fn to_hsl(c: Color) -> (f64, f64, f64) {
+    let (r, g, b) = (c.r as f64 / 255.0, c.g as f64 / 255.0, c.b as f64 / 255.0);
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    let l = (max + min) / 2.0;
+    if max == min {
+        return (0.0, 0.0, l);
+    }
+    let d = max - min;
+    let s = if l > 0.5 { d / (2.0 - max - min) } else { d / (max + min) };
+    let h = if max == r {
+        (g - b) / d + if g < b { 6.0 } else { 0.0 }
+    } else if max == g {
+        (b - r) / d + 2.0
+    } else {
+        (r - g) / d + 4.0
+    };
+    (h / 6.0, s, l)
+}
+
+fn from_hsl(h: f64, s: f64, l: f64) -> Color {
+    let channel = |t: f64| {
+        let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
+        let p = 2.0 * l - q;
+        let t = t.rem_euclid(1.0);
+        let v = if t < 1.0 / 6.0 {
+            p + (q - p) * 6.0 * t
+        } else if t < 0.5 {
+            q
+        } else if t < 2.0 / 3.0 {
+            p + (q - p) * (2.0 / 3.0 - t) * 6.0
+        } else {
+            p
+        };
+        (v * 255.0).round().clamp(0.0, 255.0) as u8
+    };
+    Color { r: channel(h + 1.0 / 3.0), g: channel(h), b: channel(h - 1.0 / 3.0) }
 }
 
 fn stroke(sp_pr: Node) -> Option<Stroke> {
@@ -1011,6 +1169,40 @@ fn emu_attr(node: Node, attr: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn color_in(xml: &str) -> Option<Color> {
+        let text = format!(r#"<f xmlns:a="{NS_A}">{xml}</f>"#);
+        let doc = Document::parse(&text).unwrap();
+        srgb(doc.root_element())
+    }
+
+    #[test]
+    fn scheme_colors_and_their_shades() {
+        SCHEME.with(|s| {
+            let mut s = s.borrow_mut();
+            s.insert("accent1".into(), Color::from_hex("4472C4").unwrap());
+            s.insert("tx1".into(), Color::BLACK);
+        });
+        let hex = |xml: &str| color_in(xml).map(|c| c.to_hex());
+        assert_eq!(hex(r#"<a:schemeClr val="accent1"/>"#).as_deref(), Some("#4472C4"));
+        assert_eq!(hex(r#"<a:schemeClr val="tx1"/>"#).as_deref(), Some("#000000"));
+        // PowerPoint's "Darker 25%", "Lighter 40%" and a 50% shade of Blue, Accent 1.
+        assert_eq!(
+            hex(r#"<a:schemeClr val="accent1"><a:lumMod val="75000"/></a:schemeClr>"#).as_deref(),
+            Some("#2F5597")
+        );
+        assert_eq!(
+            hex(r#"<a:schemeClr val="accent1"><a:lumMod val="60000"/><a:lumOff val="40000"/></a:schemeClr>"#)
+                .as_deref(),
+            Some("#8FAADC")
+        );
+        assert_eq!(
+            hex(r#"<a:schemeClr val="accent1"><a:shade val="50000"/></a:schemeClr>"#).as_deref(),
+            Some("#223962")
+        );
+        assert_eq!(hex(r#"<a:sysClr val="windowText" lastClr="000000"/>"#).as_deref(), Some("#000000"));
+        assert_eq!(hex(r#"<a:schemeClr val="accent6"/>"#), None, "not in the scheme");
+    }
 
     fn fixture() -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/fixture.pptx")

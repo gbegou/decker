@@ -1014,17 +1014,38 @@ pub struct Table {
 }
 
 /// One cell of a table.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Cell {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paragraphs: Vec<Paragraph>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill: Option<Color>,
+    /// Merged cells: this cell spans `colspan` columns and `rowspan` rows
+    /// (1 when unmerged). The cells it covers stay in the grid, empty and
+    /// not drawn, as in PowerPoint.
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub colspan: usize,
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub rowspan: usize,
+}
+
+fn one() -> usize {
+    1
+}
+
+fn is_one(n: &usize) -> bool {
+    *n <= 1
+}
+
+impl Default for Cell {
+    fn default() -> Self {
+        Self { paragraphs: vec![], fill: None, colspan: 1, rowspan: 1 }
+    }
 }
 
 impl Cell {
     pub fn plain(text: &str) -> Self {
-        Self { paragraphs: text.split('\n').map(Paragraph::plain).collect(), fill: None }
+        Self { paragraphs: text.split('\n').map(Paragraph::plain).collect(), ..Default::default() }
     }
 
     pub fn text(&self) -> String {
@@ -1092,6 +1113,88 @@ impl Table {
                 ..p.clone()
             })
             .collect()
+    }
+
+    /// The cell drawn at `row`, `column`: the merged cell covering it, or
+    /// itself.
+    pub fn owner(&self, row: usize, column: usize) -> (usize, usize) {
+        for (i, cells) in self.rows.iter().enumerate().take(row + 1) {
+            for (j, c) in cells.iter().enumerate().take(column + 1) {
+                if (i, j) != (row, column) && i + c.rowspan.max(1) > row && j + c.colspan.max(1) > column {
+                    return (i, j);
+                }
+            }
+        }
+        (row, column)
+    }
+
+    /// Whether the cell at `row`, `column` is covered by a merged cell.
+    pub fn covered(&self, row: usize, column: usize) -> bool {
+        self.owner(row, column) != (row, column)
+    }
+
+    /// The box of the cell at `row`, `column` with its merged neighbours.
+    pub fn span_rect(&self, rect: &Rect, row: usize, column: usize) -> Rect {
+        let first = self.cell_rect(rect, row, column);
+        let Some(c) = self.rows.get(row).and_then(|r| r.get(column)) else { return first };
+        let last_row = (row + c.rowspan.max(1) - 1).min(self.rows.len().saturating_sub(1));
+        let last_column = (column + c.colspan.max(1) - 1).min(self.column_count().saturating_sub(1));
+        let last = self.cell_rect(rect, last_row, last_column);
+        Rect::new(first.x, first.y, last.x + last.w - first.x, last.y + last.h - first.y)
+    }
+
+    /// Merges the cells from `(r0, c0)` to `(r1, c1)` (inclusive, any
+    /// order) into the top-left one, its text followed by the others';
+    /// merged cells inside are split first.
+    pub fn merge(&mut self, (r0, c0): (usize, usize), (r1, c1): (usize, usize)) {
+        self.square();
+        let (top, bottom) = (r0.min(r1), r0.max(r1).min(self.rows.len().saturating_sub(1)));
+        let (left, right) = (c0.min(c1), c0.max(c1).min(self.column_count().saturating_sub(1)));
+        if self.rows.is_empty() || (top, left) == (bottom, right) {
+            return;
+        }
+        let mut gathered = vec![];
+        for i in top..=bottom {
+            for j in left..=right {
+                let c = &mut self.rows[i][j];
+                c.colspan = 1;
+                c.rowspan = 1;
+                if (i, j) != (top, left) && !c.text().trim().is_empty() {
+                    gathered.append(&mut c.paragraphs);
+                }
+                if (i, j) != (top, left) {
+                    c.paragraphs.clear();
+                }
+            }
+        }
+        let owner = &mut self.rows[top][left];
+        owner.paragraphs.append(&mut gathered);
+        owner.colspan = right - left + 1;
+        owner.rowspan = bottom - top + 1;
+    }
+
+    /// Splits the merged cell covering `row`, `column` back into cells.
+    pub fn split(&mut self, row: usize, column: usize) {
+        let (i, j) = self.owner(row, column);
+        if let Some(c) = self.rows.get_mut(i).and_then(|r| r.get_mut(j)) {
+            c.colspan = 1;
+            c.rowspan = 1;
+        }
+    }
+
+    /// Splits the merged cells spanning row `row` (`Some`) or column
+    /// `column`: before a row or column is inserted or removed there.
+    pub fn split_through(&mut self, row: Option<usize>, column: Option<usize>) {
+        for i in 0..self.rows.len() {
+            for j in 0..self.rows[i].len() {
+                let c = &self.rows[i][j];
+                let through = row.is_some_and(|r| i <= r && r < i + c.rowspan.max(1) && c.rowspan > 1)
+                    || column.is_some_and(|k| j <= k && k < j + c.colspan.max(1) && c.colspan > 1);
+                if through {
+                    self.split(i, j);
+                }
+            }
+        }
     }
 
     /// Makes every row as long as the longest.
@@ -1217,6 +1320,27 @@ fn is_default<T: Default + PartialEq>(v: &T) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn merged_cells() {
+        let mut t = Table::new(Rect::new(0.0, 0.0, 300.0, 90.0), 3, 3);
+        t.rows[0][1] = Cell::plain("b");
+        t.rows[1][0] = Cell::plain("d");
+        t.merge((1, 1), (0, 0));
+        assert_eq!((t.rows[0][0].colspan, t.rows[0][0].rowspan), (2, 2));
+        assert_eq!(t.rows[0][0].text(), "b\nd", "the texts are gathered in the top-left cell");
+        assert_eq!(t.owner(1, 1), (0, 0));
+        assert!(t.covered(0, 1) && !t.covered(0, 2) && !t.covered(2, 0));
+        let (a, b) = (t.cell_rect(&t.rect, 0, 0), t.cell_rect(&t.rect, 1, 1));
+        assert_eq!(t.span_rect(&t.rect, 0, 0), Rect::new(0.0, 0.0, 200.0, b.y + b.h - a.y));
+        t.split_through(None, Some(2));
+        assert_eq!(t.rows[0][0].colspan, 2, "a column outside the merge leaves it");
+        t.split_through(Some(1), None);
+        assert!(!t.covered(1, 1), "a row through the merge splits it");
+        t.merge((2, 1), (2, 2));
+        t.split(2, 2);
+        assert_eq!(t.rows[2][1].colspan, 1, "splitting a covered cell splits its owner");
+    }
+
     use super::*;
 
     #[test]

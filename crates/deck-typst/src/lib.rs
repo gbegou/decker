@@ -335,9 +335,12 @@ fn text_layer_element(
         Element::Table(t) => {
             for (i, row) in t.rows.iter().enumerate() {
                 for (j, cell) in row.iter().enumerate() {
+                    if t.covered(i, j) {
+                        continue;
+                    }
                     let mut d = defaults.clone();
                     d.size = t.size.or(d.size);
-                    let cell_box = TextBoxLike { rect: t.cell_rect(&state.rect, i, j), paragraphs: &cell.paragraphs };
+                    let cell_box = TextBoxLike { rect: t.span_rect(&state.rect, i, j), paragraphs: &cell.paragraphs };
                     place_text(out, &cell_box, offset, &d);
                 }
             }

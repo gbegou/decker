@@ -31,7 +31,7 @@ export interface ElementInfo {
   /** Placeholders: their default text style. */
   placeholder?: PlaceholderStyle & { name: string };
   /** Tables: the cells' texts and fills by row, and the settings. */
-  table?: { cells: string[][]; fills: (string | null)[][]; header: boolean; columns: number[]; rects: Rect[][] };
+  table?: { cells: string[][]; fills: (string | null)[][]; header: boolean; columns: number[]; rects: Rect[][]; spans: [number, number][][] };
 }
 /** An edit of a table: one cell, the grid, the header, the column widths. */
 export type TableEdit =
@@ -39,7 +39,9 @@ export type TableEdit =
   | { op: "fill"; row: number; column: number; color: string }
   | { op: "add_row" | "add_column" | "remove_row" | "remove_column"; at: number }
   | { op: "header"; on: boolean }
-  | { op: "columns"; widths: number[] };
+  | { op: "columns"; widths: number[] }
+  | { op: "merge"; from: [number, number]; to: [number, number] }
+  | { op: "split"; row: number; column: number };
 export interface PlaceholderStyle {
   size?: number; bold?: boolean; color?: string; font?: string; align?: Align; bullets?: boolean;
 }

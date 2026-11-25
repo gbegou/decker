@@ -504,7 +504,10 @@ fn table_body(out: &mut String, r: &Rect, t: &Table, deck: &Deck, ctx: &Ctx) {
     for (i, row) in t.rows.iter().enumerate() {
         let header = t.header && i == 0;
         for (j, cell) in row.iter().enumerate() {
-            let c = t.cell_rect(r, i, j);
+            if t.covered(i, j) {
+                continue;
+            }
+            let c = t.span_rect(r, i, j);
             if let Some(fill) = cell.fill.or(header.then_some(accent)) {
                 let _ = write!(
                     out,
@@ -520,14 +523,16 @@ fn table_body(out: &mut String, r: &Rect, t: &Table, deck: &Deck, ctx: &Ctx) {
         }
     }
     if let Some(s) = t.stroke {
+        // Each drawn cell's outline, so that merged cells have no rule inside.
         let mut d = String::new();
-        for i in 0..=t.rows.len() {
-            let y = if i == t.rows.len() { r.y + r.h } else { t.cell_rect(r, i, 0).y };
-            let _ = write!(d, "M{} {}H{}", fmt(r.x), fmt(y), fmt(r.x + r.w));
-        }
-        for j in 0..=columns {
-            let x = if j == columns { r.x + r.w } else { t.cell_rect(r, 0, j).x };
-            let _ = write!(d, "M{} {}V{}", fmt(x), fmt(r.y), fmt(r.y + r.h));
+        for (i, row) in t.rows.iter().enumerate() {
+            for j in 0..row.len() {
+                if t.covered(i, j) {
+                    continue;
+                }
+                let c = t.span_rect(r, i, j);
+                let _ = write!(d, "M{} {}H{}V{}H{}Z", fmt(c.x), fmt(c.y), fmt(c.x + c.w), fmt(c.y + c.h), fmt(c.x));
+            }
         }
         let _ =
             write!(out, r#"<path d="{d}" fill="none" stroke="{}" stroke-width="{}"/>"#, s.color.to_hex(), fmt(s.width));
@@ -1073,6 +1078,9 @@ mod tests {
         );
         assert!(svg.contains(r##"<rect x="0" y="30" width="100" height="30" fill="#010203"/>"##));
         assert!(svg.contains("Name") && svg.contains("42"));
-        assert!(svg.contains(r#"<path d="M0 0H200M0 30H200M0 60H200M0 0V60M100 0V60M200 0V60""#), "{svg}");
+        assert!(
+            svg.contains(r#"<path d="M0 0H100V30H0ZM100 0H200V30H100ZM0 30H100V60H0ZM100 30H200V60H100Z""#),
+            "{svg}"
+        );
     }
 }

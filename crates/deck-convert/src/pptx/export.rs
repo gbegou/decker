@@ -594,7 +594,22 @@ fn write_element_plain(
                         }
                         None => "<a:tcPr/>".to_string(),
                     };
-                    let _ = write!(xml, "<a:tc>{body}{fill}</a:tc>");
+                    // A merged cell spans; the cells it covers say so.
+                    let mut attrs = String::new();
+                    if cell.colspan > 1 {
+                        let _ = write!(attrs, r#" gridSpan="{}""#, cell.colspan);
+                    }
+                    if cell.rowspan > 1 {
+                        let _ = write!(attrs, r#" rowSpan="{}""#, cell.rowspan);
+                    }
+                    let (oi, oj) = t.owner(i, j);
+                    if oj < j {
+                        attrs.push_str(r#" hMerge="1""#);
+                    }
+                    if oi < i {
+                        attrs.push_str(r#" vMerge="1""#);
+                    }
+                    let _ = write!(xml, "<a:tc{attrs}>{body}{fill}</a:tc>");
                 }
                 xml.push_str("</a:tr>");
             }
@@ -1221,6 +1236,8 @@ mod tests {
         t.rows[0][1] = deck_core::Cell::plain("Value");
         t.rows[1][0] = deck_core::Cell::plain("pi");
         t.rows[1][1] = deck_core::Cell { fill: Some(Color::rgb(0xFF, 0xEE, 0xDD)), ..deck_core::Cell::plain("3.14") };
+        t.rows[2][1] = deck_core::Cell::plain("merged");
+        t.merge((2, 0), (2, 1));
         t.steps = vec![Step::disappear(0), Step::appear(1)];
         let mut deck = Deck::new("tables");
         deck.slides.push(Slide { elements: vec![Element::Table(t)], ..Default::default() });
@@ -1235,7 +1252,8 @@ mod tests {
         assert!((b.columns[1] / b.columns[0] - 2.0).abs() < 1e-6, "{:?}", b.columns);
         assert_eq!((b.rows[0][1].text(), b.rows[1][1].text()), ("Value".to_string(), "3.14".to_string()));
         assert_eq!(b.rows[1][1].fill, Some(Color::rgb(0xFF, 0xEE, 0xDD)));
-        assert_eq!(b.rows[2][0].text(), "");
+        assert_eq!((b.rows[2][0].text(), b.rows[2][0].colspan), ("merged".to_string(), 2), "merged cells survive");
+        assert!(b.covered(2, 1));
         assert_eq!(b.steps.len(), 2, "the table's animation comes back");
         std::fs::remove_dir_all(&dir).unwrap();
     }

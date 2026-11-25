@@ -34,8 +34,8 @@ Typst (`--no-default-features`); install a release build.
 ## Importing and exporting
 
 **An imported PowerPoint looks different.** Read the import warnings in the side panel;
-[Importing PowerPoint](import.md) lists what is kept and what is not (theme color references,
-merged cells, motion paths).
+[Importing PowerPoint](import.md) lists what is kept and what is not (gradients, table styles,
+motion paths).
 
 **The PDF export fails on a formula.** The export retries without selectable formulas and
 figures rather than failing; if it still fails, look for a slide whose figure shows as an error

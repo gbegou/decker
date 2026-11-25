@@ -11,6 +11,8 @@
   let at = $state({ row: 0, column: 0 });
   const row = $derived(Math.min(at.row, table.cells.length - 1));
   const column = $derived(Math.min(at.column, columns - 1));
+  /** The focused cell's span, `[colspan, rowspan]`. */
+  const span = $derived(table.spans[row]?.[column] ?? [1, 1]);
 
   function edit(e: TableEdit, label: string) {
     onrun(label, () => api.editTable(element.index, e));
@@ -21,10 +23,13 @@
 <div class="grid" style="grid-template-columns: repeat({columns}, minmax(0, 1fr))">
   {#each table.cells as cells, i}
     {#each cells as text, j}
-      <textarea rows="1" class:head={table.header && i === 0} class:at={i === row && j === column} value={text}
+      {@const [cs, rs] = table.spans[i]?.[j] ?? [1, 1]}
+      {#if cs > 0}
+      <textarea style:grid-column="{j + 1} / span {cs}" style:grid-row="{i + 1} / span {rs}" rows="1" class:head={table.header && i === 0} class:at={i === row && j === column} value={text}
                 style={table.fills[i]?.[j] ? `border-left: 4px solid ${table.fills[i][j]}` : ""}
                 onfocus={() => (at = { row: i, column: j })}
                 onchange={(e) => edit({ op: "cell", row: i, column: j, text: e.currentTarget.value }, "Cell")}></textarea>
+      {/if}
     {/each}
   {/each}
 </div>
@@ -37,6 +42,14 @@
   <button title="Insert a column left of the focused cell" onclick={() => edit({ op: "add_column", at: column }, "Column added")}>+ col ←</button>
   <button title="Insert a column right of the focused cell" onclick={() => edit({ op: "add_column", at: column + 1 }, "Column added")}>+ col →</button>
   <button title="Remove the focused cell's column" disabled={columns <= 1} onclick={() => edit({ op: "remove_column", at: column }, "Column removed")}>− col</button>
+</div>
+<div class="row">
+  <button title="Merge the focused cell with the cell to its right" disabled={column + span[0] >= columns}
+          onclick={() => edit({ op: "merge", from: [row, column], to: [row + span[1] - 1, column + span[0]] }, "Cells merged")}>Merge →</button>
+  <button title="Merge the focused cell with the cell below" disabled={row + span[1] >= table.cells.length}
+          onclick={() => edit({ op: "merge", from: [row, column], to: [row + span[1], column + span[0] - 1] }, "Cells merged")}>Merge ↓</button>
+  <button title="Split the focused merged cell" disabled={span[0] <= 1 && span[1] <= 1}
+          onclick={() => edit({ op: "split", row, column }, "Cell split")}>Split</button>
 </div>
 <div class="row opts">
   <label><input type="checkbox" checked={table.header} onchange={(e) => edit({ op: "header", on: e.currentTarget.checked }, "Header")} /> header row</label>

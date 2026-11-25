@@ -302,14 +302,37 @@ pub struct TableInfo {
     pub fills: Vec<Vec<Option<Color>>>,
     pub header: bool,
     pub columns: Vec<f64>,
-    /// The cells' boxes on the slide, to find the cell under a click.
+    /// The cells' boxes on the slide, to find the cell under a click; a
+    /// merged cell's box spans its neighbours, a covered cell's is empty.
     pub rects: Vec<Vec<Rect>>,
+    /// `(colspan, rowspan)` per cell; `(0, 0)` for a covered cell.
+    pub spans: Vec<Vec<(usize, usize)>>,
 }
 
 fn table_info(e: &Element, shown: &Rect) -> Option<TableInfo> {
     let Element::Table(t) = e else { return None };
     Some(TableInfo {
-        rects: (0..t.rows.len()).map(|i| (0..t.rows[i].len()).map(|j| t.cell_rect(shown, i, j)).collect()).collect(),
+        rects: (0..t.rows.len())
+            .map(|i| {
+                (0..t.rows[i].len())
+                    .map(|j| {
+                        if t.covered(i, j) {
+                            let r = t.cell_rect(shown, i, j);
+                            Rect::new(r.x, r.y, 0.0, 0.0)
+                        } else {
+                            t.span_rect(shown, i, j)
+                        }
+                    })
+                    .collect()
+            })
+            .collect(),
+        spans: (0..t.rows.len())
+            .map(|i| {
+                (0..t.rows[i].len())
+                    .map(|j| if t.covered(i, j) { (0, 0) } else { (t.rows[i][j].colspan, t.rows[i][j].rowspan) })
+                    .collect()
+            })
+            .collect(),
         cells: t.rows.iter().map(|r| r.iter().map(deck_core::Cell::text).collect()).collect(),
         fills: t.rows.iter().map(|r| r.iter().map(|c| c.fill).collect()).collect(),
         header: t.header,
@@ -352,6 +375,16 @@ pub enum TableEdit {
     /// Relative column widths; empty for equal columns.
     Columns {
         widths: Vec<f64>,
+    },
+    /// Merges the cells from one corner to the other (inclusive).
+    Merge {
+        from: (usize, usize),
+        to: (usize, usize),
+    },
+    /// Splits the merged cell covering this one.
+    Split {
+        row: usize,
+        column: usize,
     },
 }
 
@@ -1351,7 +1384,7 @@ impl AppState {
                 Some((el, row, column)) if el == element && row < t.rows.len() && column < t.column_count() => {
                     size = t.size;
                     cell_paragraphs = t.display_paragraphs(row, column);
-                    (t.cell_rect(&shown(e), row, column), &cell_paragraphs)
+                    (t.span_rect(&shown(e), row, column), &cell_paragraphs)
                 }
                 _ => return Err("pick a cell of the table first".into()),
             },
@@ -2001,6 +2034,8 @@ impl AppState {
         if row >= t.rows.len() || column >= t.column_count() {
             return Err("no such cell".into());
         }
+        // A cell under a merge is typed into through the merged cell.
+        let (row, column) = t.owner(row, column);
         self.cell = Some((element, row, column));
         Ok(())
     }
@@ -2036,6 +2071,7 @@ impl AppState {
             }
             TableEdit::AddRow { at } => {
                 let at = (*at).min(t.rows.len());
+                t.split_through(Some(at), None);
                 t.rows.insert(at, vec![deck_core::Cell::default(); columns]);
                 // Rows keep their height: the table grows.
                 t.rect.h *= t.rows.len() as f64 / (t.rows.len() - 1) as f64;
@@ -2044,11 +2080,13 @@ impl AppState {
                 if t.rows.len() <= 1 || *at >= t.rows.len() {
                     return Err("a table keeps at least one row".into());
                 }
+                t.split_through(Some(*at), None);
                 t.rows.remove(*at);
                 t.rect.h *= t.rows.len() as f64 / (t.rows.len() + 1) as f64;
             }
             TableEdit::AddColumn { at } => {
                 let at = (*at).min(columns);
+                t.split_through(None, Some(at));
                 for row in &mut t.rows {
                     row.insert(at, deck_core::Cell::default());
                 }
@@ -2061,6 +2099,7 @@ impl AppState {
                 if columns <= 1 || *at >= columns {
                     return Err("a table keeps at least one column".into());
                 }
+                t.split_through(None, Some(*at));
                 for row in &mut t.rows {
                     row.remove(*at);
                 }
@@ -2069,6 +2108,8 @@ impl AppState {
                 }
             }
             TableEdit::Header { on } => t.header = *on,
+            TableEdit::Merge { from, to } => t.merge(*from, *to),
+            TableEdit::Split { row, column } => t.split(*row, *column),
             TableEdit::Columns { widths } => {
                 t.columns =
                     if widths.iter().all(|w| *w > 0.0) && widths.len() == columns { widths.clone() } else { vec![] }
