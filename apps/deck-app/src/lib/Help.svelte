@@ -8,6 +8,7 @@
     ]],
     ["Slides", [
       ["Click a thumbnail", "Go to that slide"],
+      ["Right-click a thumbnail", "New slide after, duplicate, delete, move up or down, start or remove a section or subsection"],
       ["Drag a thumbnail · Ctrl+Up / Ctrl+Down", "Reorder slides; sections travel with their first slide"],
       ["+ Slide · Duplicate · − Slide", "New slide from the current layout; copy; remove"],
       ["Page Up / Page Down", "Previous or next slide"],

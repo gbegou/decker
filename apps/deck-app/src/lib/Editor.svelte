@@ -306,6 +306,28 @@
   let renaming = $state<{ slide: number; level: "section" | "subsection" } | null>(null);
   let renameInput = $state<HTMLInputElement>();
 
+  // ----- The thumbnail pane's right-click menu
+  let slideMenu = $state<{ slide: number; x: number; y: number } | null>(null);
+  function openSlideMenu(e: MouseEvent, slide: number) {
+    e.preventDefault();
+    // Kept inside the window: the menu is about 300 px tall.
+    slideMenu = { slide, x: e.clientX, y: Math.min(e.clientY, window.innerHeight - 310) };
+  }
+  /** Runs a slide action on the slide the menu was opened on. */
+  function onSlide(label: string, f: () => Promise<unknown>) {
+    const slide = slideMenu!.slide;
+    slideMenu = null;
+    enqueue(() => run(label, async () => { await api.goto(slide); await f(); }));
+  }
+  function removeHeading(slide: number, level: "section" | "subsection") {
+    const st = view!.starts[slide];
+    slideMenu = null;
+    // A section removed takes its subsection start along only when the slide starts no subsection of its own.
+    const section = level === "section" ? null : st.section;
+    const subsection = level === "subsection" ? null : st.subsection;
+    enqueue(async () => { await run(`${level === "section" ? "Section" : "Subsection"} removed`, () => api.setSectionOf(slide, section, subsection)); });
+  }
+
   function startHeading(slide: number, level: "section" | "subsection") {
     if (!view) return;
     const st = view.starts[slide];
@@ -854,7 +876,7 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div class="stack-item" class:drop-before={dropAt === i} class:drop-after={dropAt === i + 1 && i === thumbnails.length - 1} class:dragging={dragging === i}
              draggable="true" ondragstart={(e) => dragStart(e, i)} ondragover={(e) => dragOver(e, i)} ondragend={dragEnd} ondrop={(e) => { e.preventDefault(); dragEnd(); }}>
-          <button class="thumb" class:current={i === view.slide} onclick={() => api.goto(i)}>
+          <button class="thumb" class:current={i === view.slide} onclick={() => api.goto(i)} oncontextmenu={(e) => openSlideMenu(e, i)}>
             <span class="num">{i + 1}</span>
             <SlideView svg={thumb} width={view.width} height={view.height} />
           </button>
@@ -1144,6 +1166,34 @@
   <footer>{status}</footer>
   {#if help}<Help onclose={() => (help = false)} />{/if}
 
+  {#if slideMenu && view}
+    {@const m = slideMenu}
+    {@const st = view.starts[m.slide] ?? { section: null, subsection: null }}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div class="menu-backdrop" onclick={() => (slideMenu = null)} oncontextmenu={(e) => { e.preventDefault(); slideMenu = null; }}></div>
+    <div class="context-menu" role="menu" style="left: {m.x}px; top: {m.y}px">
+      <div class="menu-title">Slide {m.slide + 1}</div>
+      <button role="menuitem" onclick={() => onSlide("Added slide", api.addSlide)}>New slide after</button>
+      <button role="menuitem" onclick={() => onSlide("Duplicated slide", api.duplicateSlide)}>Duplicate</button>
+      <button role="menuitem" disabled={view.slide_count <= 1} onclick={() => onSlide("Deleted slide", api.deleteSlide)}>Delete</button>
+      <hr />
+      <button role="menuitem" disabled={m.slide === 0} onclick={() => { const k = m.slide; slideMenu = null; enqueue(async () => { await run("Moved slide", () => api.moveSlide(k, k - 1)); }); }}>Move up</button>
+      <button role="menuitem" disabled={m.slide >= view.slide_count - 1} onclick={() => { const k = m.slide; slideMenu = null; enqueue(async () => { await run("Moved slide", () => api.moveSlide(k, k + 1)); }); }}>Move down</button>
+      <hr />
+      {#if st.section === null}
+        <button role="menuitem" onclick={() => { const k = m.slide; slideMenu = null; startHeading(k, "section"); }}>Start a section here</button>
+      {:else}
+        <button role="menuitem" onclick={() => removeHeading(m.slide, "section")}>Remove section “{st.section}”</button>
+      {/if}
+      {#if st.subsection === null}
+        <button role="menuitem" onclick={() => { const k = m.slide; slideMenu = null; startHeading(k, "subsection"); }}>Start a subsection here</button>
+      {:else}
+        <button role="menuitem" onclick={() => removeHeading(m.slide, "subsection")}>Remove subsection “{st.subsection}”</button>
+      {/if}
+    </div>
+  {/if}
+
   {#if pdfDialog}
     <div class="modal">
       <div class="dialog small">
@@ -1197,6 +1247,13 @@
   .layout-name { width: 160px; padding: 3px 6px; }
   .row { display: flex; gap: 6px; margin-top: 6px; }
   .macros { display: flex; flex-wrap: wrap; gap: 6px; }
+  .menu-backdrop { position: fixed; inset: 0; z-index: 40; }
+  .context-menu { position: fixed; z-index: 41; min-width: 220px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.45); display: flex; flex-direction: column; }
+  .context-menu button { text-align: left; border: none; background: none; padding: 6px 10px; border-radius: 5px; }
+  .context-menu button:hover:not(:disabled) { background: var(--accent); color: white; }
+  .context-menu button:disabled { opacity: 0.4; cursor: default; }
+  .context-menu hr { border: none; border-top: 1px solid var(--border); margin: 4px 2px; }
+  .menu-title { font-size: 11px; color: var(--muted); text-transform: uppercase; padding: 4px 10px 2px; }
   .bars { flex: none; height: 100px; overflow: hidden; border-bottom: 1px solid var(--border); }
   .bars-hint { padding: 10px 16px; color: var(--muted); font-size: 12px; }
   .dialog.small { width: min(520px, 90vw); }

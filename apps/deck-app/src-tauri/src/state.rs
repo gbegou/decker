@@ -1361,7 +1361,10 @@ impl AppState {
     pub fn duplicate_slide(&mut self) -> Result<(), String> {
         self.touch(None);
         let deck = self.deck.as_mut().ok_or("no deck")?;
-        let copy = deck.slides.get(self.slide).cloned().ok_or("no slide")?;
+        let mut copy = deck.slides.get(self.slide).cloned().ok_or("no slide")?;
+        // The copy belongs to the original's section; it starts none of its own.
+        copy.section = None;
+        copy.subsection = None;
         deck.slides.insert(self.slide + 1, copy);
         self.slide += 1;
         self.step = 0;
@@ -2389,6 +2392,20 @@ mod tests {
         assert_eq!(poster(&s), None);
         assert!(s.set_poster(0, None).is_err());
         let _ = std::fs::remove_dir_all(&s.dir);
+    }
+
+    #[test]
+    fn a_duplicate_starts_no_section() {
+        let mut d = deck();
+        d.slides[0].section = Some("Intro".into());
+        d.slides[0].subsection = Some("Start".into());
+        let mut s = AppState::default();
+        s.load(d, PathBuf::new());
+        s.duplicate_slide().unwrap();
+        let slides = &s.deck.as_ref().unwrap().slides;
+        assert_eq!((slides[1].section.as_deref(), slides[1].subsection.as_deref()), (None, None));
+        assert_eq!(slides[0].section.as_deref(), Some("Intro"));
+        assert_eq!(s.deck.as_ref().unwrap().position(1).0, Some("Intro"));
     }
 
     #[test]
