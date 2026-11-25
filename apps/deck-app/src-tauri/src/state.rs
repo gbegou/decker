@@ -1593,6 +1593,129 @@ impl AppState {
         Ok(())
     }
 
+    /// Moves several elements in one edit (a multi-selection dragged).
+    pub fn set_rects(&mut self, rects: &[(usize, Rect)]) -> Result<(), String> {
+        for (index, rect) in rects {
+            self.set_rect(*index, *rect)?;
+        }
+        Ok(())
+    }
+
+    /// Arranges the elements at `indices`: `align_left`, `align_center`,
+    /// `align_right`, `align_top`, `align_middle`, `align_bottom` (to the
+    /// selection's bounds, or to the slide for one element);
+    /// `distribute_h`, `distribute_v` (equal gaps, three or more);
+    /// `mirror_h`, `mirror_v` (each element in place, and their positions
+    /// within the selection's bounds); `front`, `back`, `forward`,
+    /// `backward` (drawing order). Returns the indices after the
+    /// operation, for the selection to follow a reordering.
+    pub fn arrange(&mut self, indices: &[usize], op: &str) -> Result<Vec<usize>, String> {
+        self.touch_target();
+        let (sw, sh) = self.deck.as_ref().map(|d| (d.width, d.height)).ok_or("no deck")?;
+        let elements = self.elements_mut()?;
+        let mut picked: Vec<usize> = indices.iter().copied().filter(|&i| i < elements.len()).collect();
+        picked.sort_unstable();
+        picked.dedup();
+        if picked.is_empty() {
+            return Err("nothing selected".into());
+        }
+        let rects: Vec<Rect> = picked.iter().map(|&i| *elements[i].rect()).collect();
+        let bounds = if picked.len() == 1 && !op.starts_with("mirror") {
+            Rect::new(0.0, 0.0, sw, sh)
+        } else {
+            let x0 = rects.iter().map(|r| r.x).fold(f64::INFINITY, f64::min);
+            let y0 = rects.iter().map(|r| r.y).fold(f64::INFINITY, f64::min);
+            let x1 = rects.iter().map(|r| r.x + r.w).fold(f64::NEG_INFINITY, f64::max);
+            let y1 = rects.iter().map(|r| r.y + r.h).fold(f64::NEG_INFINITY, f64::max);
+            Rect::new(x0, y0, x1 - x0, y1 - y0)
+        };
+        match op {
+            "align_left" | "align_center" | "align_right" | "align_top" | "align_middle" | "align_bottom" => {
+                for (&i, r) in picked.iter().zip(&rects) {
+                    let mut r = *r;
+                    match op {
+                        "align_left" => r.x = bounds.x,
+                        "align_center" => r.x = bounds.x + (bounds.w - r.w) / 2.0,
+                        "align_right" => r.x = bounds.x + bounds.w - r.w,
+                        "align_top" => r.y = bounds.y,
+                        "align_middle" => r.y = bounds.y + (bounds.h - r.h) / 2.0,
+                        _ => r.y = bounds.y + bounds.h - r.h,
+                    }
+                    elements[i].set_rect(r);
+                }
+            }
+            "distribute_h" | "distribute_v" => {
+                if picked.len() < 3 {
+                    return Err("select three or more elements to distribute them".into());
+                }
+                let horizontal = op == "distribute_h";
+                let mut order: Vec<usize> = (0..picked.len()).collect();
+                order.sort_by(|&a, &b| {
+                    let (ra, rb) = (&rects[a], &rects[b]);
+                    let (ka, kb) = if horizontal { (ra.x, rb.x) } else { (ra.y, rb.y) };
+                    ka.partial_cmp(&kb).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                let total: f64 = rects.iter().map(|r| if horizontal { r.w } else { r.h }).sum();
+                let span = if horizontal { bounds.w } else { bounds.h };
+                let gap = (span - total) / (picked.len() - 1) as f64;
+                let mut at = if horizontal { bounds.x } else { bounds.y };
+                for k in order {
+                    let mut r = rects[k];
+                    if horizontal {
+                        r.x = at;
+                        at += r.w + gap;
+                    } else {
+                        r.y = at;
+                        at += r.h + gap;
+                    }
+                    elements[picked[k]].set_rect(r);
+                }
+            }
+            "mirror_h" | "mirror_v" => {
+                let horizontal = op == "mirror_h";
+                for (&i, r) in picked.iter().zip(&rects) {
+                    let mut r = *r;
+                    if horizontal {
+                        r.x = bounds.x + (bounds.x + bounds.w) - (r.x + r.w);
+                    } else {
+                        r.y = bounds.y + (bounds.y + bounds.h) - (r.y + r.h);
+                    }
+                    elements[i].set_rect(r);
+                    elements[i].mirror(horizontal);
+                }
+            }
+            "front" | "back" | "forward" | "backward" => {
+                let n = elements.len();
+                let mut order: Vec<usize> = (0..n).collect();
+                let is_picked = |i: usize| picked.binary_search(&i).is_ok();
+                match op {
+                    "front" => order.sort_by_key(|&i| is_picked(i)),
+                    "back" => order.sort_by_key(|&i| !is_picked(i)),
+                    "forward" => {
+                        for k in (0..n.saturating_sub(1)).rev() {
+                            if is_picked(order[k]) && !is_picked(order[k + 1]) {
+                                order.swap(k, k + 1);
+                            }
+                        }
+                    }
+                    _ => {
+                        for k in 1..n {
+                            if is_picked(order[k]) && !is_picked(order[k - 1]) {
+                                order.swap(k, k - 1);
+                            }
+                        }
+                    }
+                }
+                let old = std::mem::take(elements);
+                let mut slots: Vec<Option<Element>> = old.into_iter().map(Some).collect();
+                *elements = order.iter().map(|&i| slots[i].take().expect("each index once")).collect();
+                return Ok(order.iter().enumerate().filter(|(_, &i)| is_picked(i)).map(|(k, _)| k).collect());
+            }
+            other => return Err(format!("unknown arrangement {other}")),
+        }
+        Ok(picked)
+    }
+
     /// Groups the elements at `indices` of the current slide or layout.
     pub fn group(&mut self, indices: &[usize]) -> Result<usize, String> {
         self.touch_target();
@@ -1858,6 +1981,46 @@ mod tests {
         let idx = s.add_image("clip.mp4", b"not really a video", None).unwrap();
         assert!(matches!(&s.deck.as_ref().unwrap().slides[0].elements[idx], Element::Media(m) if m.poster.is_none()));
         let _ = std::fs::remove_dir_all(&s.dir);
+    }
+
+    #[test]
+    fn arrange_aligns_distributes_mirrors_and_reorders() {
+        let mut s = AppState::default();
+        let mut d = Deck::new("t");
+        let boxes = [(0.0, 0.0, 10.0), (50.0, 20.0, 20.0), (170.0, 60.0, 30.0)];
+        d.slides.push(Slide {
+            elements: boxes
+                .iter()
+                .map(|&(x, y, w)| Element::Shape(Shape { rect: Rect::new(x, y, w, 10.0), ..Default::default() }))
+                .collect(),
+            ..Default::default()
+        });
+        s.load(d, PathBuf::new());
+        let xs = |s: &AppState| -> Vec<f64> {
+            s.deck.as_ref().unwrap().slides[0].elements.iter().map(|e| e.rect().x).collect()
+        };
+        let ys = |s: &AppState| -> Vec<f64> {
+            s.deck.as_ref().unwrap().slides[0].elements.iter().map(|e| e.rect().y).collect()
+        };
+        s.arrange(&[0, 1, 2], "distribute_h").unwrap();
+        assert_eq!(xs(&s), [0.0, 80.0, 170.0], "gaps of 70 between widths 10, 20, 30 over 200");
+        s.arrange(&[0, 1, 2], "align_top").unwrap();
+        assert_eq!(ys(&s), [0.0, 0.0, 0.0]);
+        s.arrange(&[0, 2], "align_right").unwrap();
+        assert_eq!(xs(&s), [190.0, 80.0, 170.0]);
+        s.arrange(&[1], "align_center").unwrap();
+        assert_eq!(xs(&s)[1], 470.0, "one element aligns to the slide");
+        s.arrange(&[0, 2], "mirror_h").unwrap();
+        assert_eq!(xs(&s), [170.0, 470.0, 170.0], "positions mirror within the selection's bounds (170..200)");
+        assert!(s.arrange(&[0, 1], "distribute_v").is_err());
+        s.arrange(&[1], "align_left").unwrap();
+        assert_eq!(s.arrange(&[0], "front").unwrap(), [2]);
+        assert_eq!(xs(&s), [0.0, 170.0, 170.0]);
+        assert_eq!(s.arrange(&[2], "backward").unwrap(), [1]);
+        assert_eq!(s.arrange(&[1, 2], "back").unwrap(), [0, 1]);
+        assert_eq!(xs(&s), [170.0, 170.0, 0.0]);
+        s.set_rects(&[(0, Rect::new(1.0, 2.0, 3.0, 4.0)), (1, Rect::new(5.0, 6.0, 7.0, 8.0))]).unwrap();
+        assert_eq!(xs(&s)[..2], [1.0, 5.0]);
     }
 
     #[test]

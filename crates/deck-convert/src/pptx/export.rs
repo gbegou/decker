@@ -415,7 +415,8 @@ fn write_element(
             }
             let mut outline = line(s.stroke);
             if s.kind == ShapeKind::Arrow {
-                outline = outline.replacen("</a:ln>", r#"<a:tailEnd type="triangle"/></a:ln>"#, 1);
+                let end = if s.reverse { "headEnd" } else { "tailEnd" };
+                outline = outline.replacen("</a:ln>", &format!(r#"<a:{end} type="triangle"/></a:ln>"#), 1);
             }
             let _ = write!(
                 xml,
@@ -560,7 +561,15 @@ fn write_element(
             let _ = write!(
                 part.xml,
                 r#"<p:pic><p:nvPicPr><p:cNvPr id="{id}" name="Picture {id}"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rId{rel}"/>{src_rect}<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>{}{geom}</p:spPr></p:pic>"#,
-                xfrm(&img.rect)
+                xfrm(&img.rect).replacen(
+                    "<a:xfrm>",
+                    &format!(
+                        "<a:xfrm{}{}>",
+                        if img.mirror_h { r#" flipH="1""# } else { "" },
+                        if img.mirror_v { r#" flipV="1""# } else { "" }
+                    ),
+                    1
+                )
             );
         }
     }
@@ -829,7 +838,7 @@ mod tests {
                     stroke: Some(Stroke { color: Color::BLACK, width: 2.0 }),
                     paragraphs: vec![Paragraph::plain("in")],
                     steps: vec![Step::disappear(2)],
-                    flip: false,
+                    ..Default::default()
                 }),
                 Element::Math(MathBlock {
                     rect: Rect::new(300.0, 300.0, 200.0, 60.0),

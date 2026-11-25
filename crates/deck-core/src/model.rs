@@ -356,6 +356,42 @@ impl Element {
         }
     }
 
+    /// Mirrors the element in place, about the vertical axis through its
+    /// center (`horizontal`: left and right swap) or the horizontal one.
+    /// Lines and arrows change direction, images are drawn mirrored, a
+    /// group mirrors its children's positions too; text stays readable.
+    pub fn mirror(&mut self, horizontal: bool) {
+        match self {
+            Element::Shape(s) if matches!(s.kind, ShapeKind::Line | ShapeKind::Arrow) => {
+                s.flip = !s.flip;
+                if horizontal {
+                    s.reverse = !s.reverse;
+                }
+            }
+            Element::Image(i) => {
+                if horizontal {
+                    i.mirror_h = !i.mirror_h;
+                } else {
+                    i.mirror_v = !i.mirror_v;
+                }
+            }
+            Element::Group(g) => {
+                let b = g.rect;
+                for c in &mut g.children {
+                    let mut r = *c.rect();
+                    if horizontal {
+                        r.x = b.x + (b.x + b.w) - (r.x + r.w);
+                    } else {
+                        r.y = b.y + (b.y + b.h) - (r.y + r.h);
+                    }
+                    c.set_rect(r);
+                    c.mirror(horizontal);
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// The build steps of the element, empty when it is static.
     pub fn steps(&self) -> &[Step] {
         match self {
@@ -845,6 +881,11 @@ pub struct Image {
     /// The shape the image is clipped to, within `rect`.
     #[serde(default, skip_serializing_if = "is_default")]
     pub mask: Mask,
+    /// Drawn mirrored left to right, top to bottom.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub mirror_h: bool,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub mirror_v: bool,
 }
 
 /// A video (`mp4`, `webm`…) or an animated GIF in the deck's `assets/`.
@@ -994,6 +1035,9 @@ pub struct Shape {
     /// Lines and arrows: run from the bottom-left to the top-right.
     #[serde(default, skip_serializing_if = "is_default")]
     pub flip: bool,
+    /// Arrows: the head is at the start (the left end) instead of the end.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub reverse: bool,
 }
 
 fn is_default<T: Default + PartialEq>(v: &T) -> bool {
@@ -1143,6 +1187,29 @@ mod tests {
         )
         .unwrap();
         assert!(gif.is_gif() && gif.looping && gif.play == Play::Button && gif.duration == Some(1.5));
+    }
+
+    #[test]
+    fn mirroring_turns_lines_images_and_groups() {
+        let arrow = Shape { rect: Rect::new(0.0, 0.0, 10.0, 10.0), kind: ShapeKind::Arrow, ..Default::default() };
+        let mut e = Element::Shape(arrow);
+        e.mirror(true);
+        assert!(matches!(&e, Element::Shape(s) if s.flip && s.reverse), "left and right swap: the head changes end");
+        e.mirror(false);
+        assert!(matches!(&e, Element::Shape(s) if !s.flip && s.reverse));
+        let mut img = Element::Image(Image::default());
+        img.mirror(true);
+        img.mirror(false);
+        assert!(matches!(&img, Element::Image(i) if i.mirror_h && i.mirror_v));
+        let mut g = Element::Group(Group::of(vec![
+            Element::Text(TextBox::plain(Rect::new(0.0, 0.0, 10.0, 10.0), "a")),
+            Element::Text(TextBox::plain(Rect::new(90.0, 40.0, 10.0, 10.0), "b")),
+        ]));
+        g.mirror(true);
+        let Element::Group(g) = &g else { unreachable!() };
+        assert_eq!(g.children[0].rect().x, 90.0);
+        assert_eq!(g.children[1].rect().x, 0.0);
+        assert_eq!(g.children[1].rect().y, 40.0);
     }
 
     #[test]

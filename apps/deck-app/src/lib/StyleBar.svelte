@@ -83,9 +83,6 @@
     <input type="number" title="Outline width in points" min="0.25" max="20" step="0.25" value={element.stroke?.width ?? ""} placeholder="w"
            class="narrow" onchange={(e) => elementStyle({ stroke_width: +e.currentTarget.value }, "Outline width")} />
     <button title="No outline" onclick={() => elementStyle({ stroke: "" }, "Outline removed")}>⌀</button>
-    {#if element.shape === "line" || element.shape === "arrow"}
-      <button class:on={element.flip} title="Flip: run from the bottom-left to the top-right" onclick={() => elementStyle({ flip: !element.flip }, "Flipped")}>⤢</button>
-    {/if}
   {:else if element.kind === "math"}
     <label>size <input type="number" min="0" max="200" value={element.size} class="narrow" onchange={(e) => elementStyle({ size: +e.currentTarget.value || 0 }, "Size")} /></label>
     <label>color <input type="color" value={hex(element.fill, "#000000")} onchange={(e) => elementStyle({ fill: e.currentTarget.value }, "Color")} /></label>

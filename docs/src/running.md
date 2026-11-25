@@ -115,7 +115,16 @@ Two environment variables help scripts and tests:
   properties of the element, so two copies of one picture can be cropped differently.
   Saving removes from `assets/` the files no element uses any more.
 - **+ Shape** adds a rectangle, an ellipse, a line or an arrow in the theme's accent color;
-  the style bar sets its fill and outline, and flips the direction of a line or arrow.
+  the style bar sets its fill and outline.
+- Dragging moves the whole selection. Its edges and center snap to the slide's edges and
+  center and to those of the other elements, with a dashed guide where it snapped; hold Alt
+  to move freely.
+- The **arrange bar**, under the style bar, acts on the selection: align left, center, right,
+  top, middle or bottom (to the selection's bounds, or to the slide when one element is
+  selected), distribute three or more with equal gaps, mirror left to right or top to bottom
+  (lines and arrows turn, pictures are drawn mirrored, groups mirror their content, text
+  stays readable), bring forward or send back in the drawing order, and set the stroke color
+  and width of shapes and text boxes.
 - While editing a text, the mouse works as in any editor: click places the caret, dragging
   selects, a double click selects the word and a triple click the paragraph.
 - **+ Text**, **+ Slide**, **Duplicate** and **− Slide** do what they say; a new slide starts

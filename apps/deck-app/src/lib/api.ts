@@ -130,6 +130,10 @@ export const api = {
     invoke<View>("navigate", { action }),
   goto: (slide: number, step = 0) => invoke<View>("goto", { slide, step }),
   setRect: (element: number, rect: Rect) => invoke<View>("set_rect", { element, rect }),
+  /** Moves several elements as one undo step. */
+  setRects: (rects: [number, Rect][]) => invoke<View>("set_rects", { rects }),
+  /** Aligns, distributes, mirrors or reorders elements; returns their indices afterwards. */
+  arrange: (indices: number[], op: string) => invoke<number[]>("arrange", { indices, op }),
   setText: (element: number, text: string) => invoke<View>("set_text", { element, text }),
   setNotes: (notes: string) => invoke<View>("set_notes", { notes }),
   setImage: (element: number, crop: Crop, mask: Mask) => invoke<View>("set_image", { element, crop, mask }),

@@ -5,6 +5,7 @@
   import { api, watchView, watchThumbnails, presentationKeys, type View, type Rect, type Crop, type Mask, type TextLayout } from "./api";
   import { SlideView } from "$shared";
   import StyleBar from "./StyleBar.svelte";
+  import ArrangeBar from "./ArrangeBar.svelte";
   import Help from "./Help.svelte";
   import Steps from "./Steps.svelte";
 
@@ -303,7 +304,11 @@
 
   // Dragging an element on the canvas. Canvas pixels map to slide points
   // through the rendered width.
-  let drag: { index: number; startX: number; startY: number; rect: Rect; mode: "move" | "resize" } | null = null;
+  // A drag moves every selected element together (or resizes the one
+  // whose handle is held); `rects` are their boxes when it started.
+  let drag: { index: number; startX: number; startY: number; rects: Map<number, Rect>; mode: "move" | "resize" } | null = null;
+  /** Guide lines shown while a drag snaps: slide coordinates. */
+  let guides = $state<{ v: number[]; h: number[] }>({ v: [], h: [] });
 
   // In-place text editing with a caret drawn in the overlay. The caret is
   // a flat character index into the element's text; Rust applies edits and
@@ -511,29 +516,75 @@
       e.stopPropagation();
       return;
     }
-    also = [];
-    selected = index;
-    drag = { index, startX: e.clientX, startY: e.clientY, rect: { ...view.elements[index].rect }, mode };
+    // Dragging an element of the multi-selection moves them all; any other element becomes the selection.
+    const moving = mode === "move" && selection.includes(index) ? selection : [index];
+    if (moving.length === 1) { also = []; selected = index; }
+    drag = { index, startX: e.clientX, startY: e.clientY, rects: new Map(moving.map((i) => [i, { ...view!.elements[i].rect }])), mode };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     e.stopPropagation();
   }
 
+  /**
+   * The offset that brings one of `edges` onto the nearest of `targets`
+   * when within `reach`, with the target it lands on.
+   */
+  function snap(edges: number[], targets: number[], reach: number): { by: number; at: number | null } {
+    let best = { by: 0, at: null as number | null }, bestD = reach;
+    for (const e of edges) for (const t of targets) {
+      const d = Math.abs(t - e);
+      if (d < bestD) { bestD = d; best = { by: t - e, at: t }; }
+    }
+    return best;
+  }
+
   function moveDrag(e: PointerEvent) {
     if (!drag || !view) return;
-    const dx = (e.clientX - drag.startX) / scale();
-    const dy = (e.clientY - drag.startY) / scale();
-    const r = drag.rect;
-    const next = drag.mode === "move"
-      ? { ...r, x: r.x + dx, y: r.y + dy }
-      : { ...r, w: Math.max(10, r.w + dx), h: Math.max(10, r.h + dy) };
-    view.elements[drag.index].rect = next;
+    let dx = (e.clientX - drag.startX) / scale();
+    let dy = (e.clientY - drag.startY) / scale();
+    const moving = drag.rects;
+    // What a drag snaps to: the slide's edges and center, and the edges
+    // and centers of the elements that stay put. Alt turns snapping off.
+    const xs = [0, view.width / 2, view.width], ys = [0, view.height / 2, view.height];
+    for (const el of view.elements) {
+      if (moving.has(el.index)) continue;
+      xs.push(el.rect.x, el.rect.x + el.rect.w / 2, el.rect.x + el.rect.w);
+      ys.push(el.rect.y, el.rect.y + el.rect.h / 2, el.rect.y + el.rect.h);
+    }
+    const reach = e.altKey ? 0 : 6 / scale();
+    const all = [...moving.values()];
+    const x0 = Math.min(...all.map((r) => r.x)), x1 = Math.max(...all.map((r) => r.x + r.w));
+    const y0 = Math.min(...all.map((r) => r.y)), y1 = Math.max(...all.map((r) => r.y + r.h));
+    if (drag.mode === "move") {
+      const sx = snap([x0 + dx, (x0 + x1) / 2 + dx, x1 + dx], xs, reach);
+      const sy = snap([y0 + dy, (y0 + y1) / 2 + dy, y1 + dy], ys, reach);
+      dx += sx.by; dy += sy.by;
+      guides = { v: sx.at === null ? [] : [sx.at], h: sy.at === null ? [] : [sy.at] };
+      for (const [i, r] of moving) view.elements[i].rect = { ...r, x: r.x + dx, y: r.y + dy };
+    } else {
+      const r = moving.get(drag.index)!;
+      const sx = snap([r.x + r.w + dx], xs, reach);
+      const sy = snap([r.y + r.h + dy], ys, reach);
+      dx += sx.by; dy += sy.by;
+      guides = { v: sx.at === null ? [] : [sx.at], h: sy.at === null ? [] : [sy.at] };
+      // Lines may be flat: a rectangle keeps a minimum size.
+      const flat = view.elements[drag.index].shape === "line" || view.elements[drag.index].shape === "arrow";
+      const min = flat ? 0 : 10;
+      view.elements[drag.index].rect = { ...r, w: Math.max(min, r.w + dx), h: Math.max(min, r.h + dy) };
+    }
   }
 
   async function endDrag() {
     if (!drag || !view) return;
-    const { index } = drag;
+    const indices = [...drag.rects.keys()];
+    const moved = indices.some((i) => {
+      const a = drag!.rects.get(i)!, b = view!.elements[i].rect;
+      return a.x !== b.x || a.y !== b.y || a.w !== b.w || a.h !== b.h;
+    });
     drag = null;
-    await run("Moved", () => api.setRect(index, view!.elements[index].rect));
+    guides = { v: [], h: [] };
+    if (!moved) return;
+    if (indices.length === 1) await run("Moved", () => api.setRect(indices[0], view!.elements[indices[0]].rect));
+    else await run(`Moved ${indices.length} elements`, () => api.setRects(indices.map((i) => [i, view!.elements[i].rect] as [number, Rect])));
   }
 
   function onKey(e: KeyboardEvent) {
@@ -712,6 +763,11 @@
                   range={editing && editing.index === sel.index ? { from: Math.min(editing.caret, editing.anchor), to: Math.max(editing.caret, editing.anchor) } : null}
                   onrun={(label, f) => enqueue(() => run(label, f).then(() => refreshLayout()))} />
       {/if}
+      {#if selection.length && !editing}
+        <ArrangeBar elements={selection.map((i) => view!.elements[i]).filter((e) => e && e.kind !== "placeholder")}
+                    onrun={(label, f) => enqueue(async () => { await run(label, f); })}
+                    onmoved={(ix) => { if (ix.length) { selected = ix[0]; also = ix.slice(1); } }} />
+      {/if}
       <div class="canvas-wrap">
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -732,6 +788,8 @@
                       onpointerdown={(e) => startDrag(e, el.index, "resize")} />
               {/if}
             {/each}
+            {#each guides.v as x}<line class="guide" x1={x} y1="0" x2={x} y2={view.height} />{/each}
+            {#each guides.h as y}<line class="guide" x1="0" y1={y} x2={view.width} y2={y} />{/each}
           </svg>
           {#if editing && view.elements[editing.index]}
             {@const r = view.elements[editing.index].rect}
@@ -989,6 +1047,7 @@
   .layout-name { width: 160px; padding: 3px 6px; }
   .row { display: flex; gap: 6px; margin-top: 6px; }
   .macros { display: flex; flex-wrap: wrap; gap: 6px; }
+  .guide { stroke: #ff3b8d; stroke-width: 1; vector-effect: non-scaling-stroke; stroke-dasharray: 4 3; pointer-events: none; }
   .add-shape { width: auto; flex: none; padding: 5px 6px; background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; }
   .text-editing { user-select: none; }
   textarea.code { font-family: ui-monospace, "DejaVu Sans Mono", monospace; font-size: 11px; white-space: pre; }

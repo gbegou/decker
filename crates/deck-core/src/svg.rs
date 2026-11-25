@@ -215,7 +215,7 @@ fn element_body(out: &mut String, ctx: &Ctx, element: &Element, step: u32, index
             Element::Image(i) => image_body(out, r, i, index),
             Element::Media(m) => media_body(out, r, m, ctx.live),
             Element::Shape(s) => {
-                shape_body_flipped(out, r, s.kind, st.fill.or(s.fill), s.stroke, s.flip);
+                shape_body_flipped(out, r, s.kind, st.fill.or(s.fill), s.stroke, s.flip, s.reverse);
                 text_body(out, r, &s.paragraphs, &deck.math_preamble, math, defaults);
             }
             Element::Math(m) => math_body(out, r, m, &deck.math_preamble, math, defaults),
@@ -382,16 +382,35 @@ fn image_body(out: &mut String, r: &Rect, i: &Image, index: Option<usize>) {
     if let Some(shape) = &clip {
         let _ = write!(out, r#"<clipPath id="{clip_id}">{shape}</clipPath>"#);
     }
+    // A mirrored image: scaled by -1 about the box's center, inside the clip.
+    let mirror = if i.mirror_h || i.mirror_v {
+        let (sx, sy) = (if i.mirror_h { -1.0 } else { 1.0 }, if i.mirror_v { -1.0 } else { 1.0 });
+        let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+        format!(
+            r#" transform="translate({} {}) scale({sx} {sy}) translate({} {})""#,
+            fmt(cx),
+            fmt(cy),
+            fmt(-cx),
+            fmt(-cy)
+        )
+    } else {
+        String::new()
+    };
+    if clip.is_some() {
+        let _ = write!(out, r#"<g clip-path="url(#{clip_id})">"#);
+    }
     let _ = write!(
         out,
-        r#"<image x="{}" y="{}" width="{}" height="{}" preserveAspectRatio="none" xlink:href="{}"{}/>"#,
+        r#"<image x="{}" y="{}" width="{}" height="{}" preserveAspectRatio="none" xlink:href="{}"{mirror}/>"#,
         fmt(x),
         fmt(y),
         fmt(full_w),
         fmt(full_h),
         escape(&i.src),
-        if clip.is_some() { format!(r#" clip-path="url(#{clip_id})""#) } else { String::new() }
     );
+    if clip.is_some() {
+        out.push_str("</g>");
+    }
 }
 
 /// A formula, centered in its box: rendered glyphs when a math renderer
@@ -482,10 +501,11 @@ fn figure_body(
 }
 
 fn shape_body(out: &mut String, r: &Rect, kind: ShapeKind, fill: Option<Color>, stroke: Option<Stroke>) {
-    shape_body_flipped(out, r, kind, fill, stroke, false)
+    shape_body_flipped(out, r, kind, fill, stroke, false, false)
 }
 
-/// A shape; `flip` turns a line or arrow to run bottom-left to top-right.
+/// A shape; `flip` turns a line or arrow to run bottom-left to top-right,
+/// `reverse` puts an arrow's head at its start.
 fn shape_body_flipped(
     out: &mut String,
     r: &Rect,
@@ -493,6 +513,7 @@ fn shape_body_flipped(
     fill: Option<Color>,
     stroke: Option<Stroke>,
     flip: bool,
+    reverse: bool,
 ) {
     if fill.is_none() && stroke.is_none() {
         return;
@@ -500,6 +521,7 @@ fn shape_body_flipped(
     if matches!(kind, ShapeKind::Line | ShapeKind::Arrow) {
         let s = stroke.unwrap_or(Stroke { color: fill.unwrap_or(Color::BLACK), width: 1.0 });
         let (x1, y1, x2, y2) = if flip { (r.x, r.y + r.h, r.x + r.w, r.y) } else { (r.x, r.y, r.x + r.w, r.y + r.h) };
+        let (x1, y1, x2, y2) = if reverse { (x2, y2, x1, y1) } else { (x1, y1, x2, y2) };
         let color = s.color.to_hex();
         let (dx, dy) = (x2 - x1, y2 - y1);
         let len = (dx * dx + dy * dy).sqrt().max(1e-6);

@@ -385,11 +385,17 @@ fn import_tree(
                                 Mask::Rectangle
                             }
                         };
+                        let frame = child(node, NS_P, "spPr").and_then(|p| child(p, NS_A, "xfrm"));
+                        let flipped = |name: &str| {
+                            frame.and_then(|x| x.attribute(name)).map(|v| v == "1" || v == "true").unwrap_or(false)
+                        };
                         elements.push(Element::Image(Image {
                             rect,
                             src: images.copy(&media)?,
                             crop,
                             mask,
+                            mirror_h: flipped("flipH"),
+                            mirror_v: flipped("flipV"),
                             ..Default::default()
                         }));
                     }
@@ -430,11 +436,12 @@ fn import_tree(
             "cxnSp" => {
                 if let Some(rect) = xfrm(node).map(|r| shift(r, offset)) {
                     let sp_pr = child(node, NS_P, "spPr");
-                    let (kind, flip) = line_ends(node, ShapeKind::Line);
+                    let (kind, flip, reverse) = line_ends(node, ShapeKind::Line);
                     elements.push(Element::Shape(Shape {
                         rect,
                         kind,
                         flip,
+                        reverse,
                         stroke: sp_pr.and_then(stroke).or(Some(Stroke { color: Color::BLACK, width: 1.0 })),
                         ..Default::default()
                     }));
@@ -627,15 +634,15 @@ fn import_shape(
     if fill.is_none() && stroke.is_none() && paragraphs.iter().all(|p| p.text().is_empty()) {
         return None;
     }
-    let (kind, flip) = line_ends(node, kind);
-    Some(Element::Shape(Shape { rect, kind, fill, stroke, paragraphs, steps: vec![], flip }))
+    let (kind, flip, reverse) = line_ends(node, kind);
+    Some(Element::Shape(Shape { rect, kind, fill, stroke, paragraphs, steps: vec![], flip, reverse }))
 }
 
 /// For a line: an arrow when its outline has an end marker, and whether
 /// it is flipped (`flipV` without `flipH`, or the reverse).
-fn line_ends(node: Node, kind: ShapeKind) -> (ShapeKind, bool) {
+fn line_ends(node: Node, kind: ShapeKind) -> (ShapeKind, bool, bool) {
     if kind != ShapeKind::Line {
-        return (kind, false);
+        return (kind, false, false);
     }
     let sp_pr = child(node, NS_P, "spPr");
     let x = sp_pr.and_then(|p| child(p, NS_A, "xfrm"));
@@ -645,7 +652,9 @@ fn line_ends(node: Node, kind: ShapeKind) -> (ShapeKind, bool) {
         ln.and_then(|l| child(l, NS_A, tag)).and_then(|e| e.attribute("type")).map(|t| t != "none").unwrap_or(false)
     };
     let kind = if ended("tailEnd") || ended("headEnd") { ShapeKind::Arrow } else { ShapeKind::Line };
-    (kind, on("flipV") != on("flipH"))
+    // A head at the start only is a reversed arrow; flipH also swaps the ends.
+    let reverse = (ended("headEnd") && !ended("tailEnd")) != on("flipH");
+    (kind, on("flipV") != on("flipH"), kind == ShapeKind::Arrow && reverse)
 }
 
 fn shape_name(node: Node) -> String {

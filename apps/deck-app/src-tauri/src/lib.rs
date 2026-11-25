@@ -491,6 +491,32 @@ fn ungroup_element(app: AppHandle, state: Shared, index: usize) -> Result<usize,
     Ok(n)
 }
 
+/// Moves or resizes several elements as one undo step.
+#[tauri::command]
+fn set_rects(app: AppHandle, state: Shared, rects: Vec<(usize, Rect)>) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint("set_rects", false);
+        s.set_rects(&rects)?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+/// Aligns, distributes, mirrors or reorders the selection; returns where
+/// the selected elements are afterwards.
+#[tauri::command]
+fn arrange(app: AppHandle, state: Shared, indices: Vec<usize>, op: String) -> Result<Vec<usize>, String> {
+    let moved = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint("arrange", false);
+        s.arrange(&indices, &op)?
+    };
+    edited(&app);
+    Ok(moved)
+}
+
 #[tauri::command]
 fn add_shape(app: AppHandle, state: Shared, kind: String) -> Result<usize, String> {
     let index = {
@@ -896,6 +922,8 @@ pub fn run() {
             add_figure,
             add_shape,
             style_placeholder,
+            set_rects,
+            arrange,
             group_elements,
             set_steps,
             set_theme,

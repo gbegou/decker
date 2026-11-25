@@ -16,6 +16,8 @@
     ]],
     ["Elements", [
       ["Click · Shift+click", "Select; add to the selection; drag to move; corner handle to resize; Delete to remove"],
+      ["Drag", "Moves the whole selection; edges and centers snap to the slide and to other elements, with a guide line (hold Alt to move freely)"],
+      ["Arrange bar", "Align to the selection (or to the slide for one element), distribute with equal gaps, mirror, bring forward or send back, stroke color and width"],
       ["Group · Ungroup (Ctrl+G · Ctrl+Shift+G)", "Several elements become one, moved, resized and animated together"],
       ["+ Shape", "A rectangle, an ellipse, a line or an arrow in the theme's accent color; the style bar sets fill, outline and, for lines, the direction"],
       ["+ Text · + Plan · + Figure", "A text box; the sections list with the current one highlighted; a Typst figure (CeTZ plots and drawings) edited as source"],
