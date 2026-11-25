@@ -913,12 +913,26 @@ mod tests {
         deck.slides.push(Slide { elements: vec![Element::Image(cropped), Element::Image(oval)], ..Default::default() });
         let svg = render_slide(&deck, &deck.slides[0]);
         // Keeping the middle half horizontally and the top half vertically: the full image is 400 x 200 at (0, 100).
-        assert!(svg.contains(r#"<image x="0" y="100" width="400" height="200" preserveAspectRatio="none" xlink:href="assets/a.png" clip-path="url(#clip-0-"#), "{svg}");
+        assert!(svg.contains(r#"<g clip-path="url(#clip-0-"#), "the clip wraps the image: {svg}");
+        assert!(
+            svg.contains(r#"<image x="0" y="100" width="400" height="200" preserveAspectRatio="none" xlink:href="assets/a.png"/></g>"#),
+            "{svg}"
+        );
         assert!(
             svg.contains(r#"<clipPath id="clip-0-"#)
                 && svg.contains(r#"<rect x="100" y="100" width="200" height="100"/></clipPath>"#)
         );
         assert!(svg.contains(r#"<ellipse cx="20" cy="10" rx="20" ry="10"/></clipPath>"#), "{svg}");
+        // Mirrored: scaled by -1 about the box's center, inside the clip.
+        let Element::Image(i) = &mut deck.slides[0].elements[1] else { unreachable!() };
+        i.mirror_h = true;
+        let svg = render_slide(&deck, &deck.slides[0]);
+        assert!(
+            svg.contains(
+                r#"xlink:href="assets/b.png" transform="translate(20 10) scale(-1 1) translate(-20 -10)"/></g>"#
+            ),
+            "{svg}"
+        );
     }
 
     #[test]
