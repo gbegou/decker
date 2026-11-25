@@ -499,24 +499,7 @@ fn table_body(out: &mut String, r: &Rect, t: &Table, deck: &Deck, ctx: &Ctx) {
                     fill.to_hex()
                 );
             }
-            if header {
-                // The header row: bold, white unless the runs say otherwise.
-                let bold: Vec<Paragraph> = cell
-                    .paragraphs
-                    .iter()
-                    .map(|p| Paragraph {
-                        runs: p
-                            .runs
-                            .iter()
-                            .map(|run| Run { bold: true, color: run.color.or(Some(Color::WHITE)), ..run.clone() })
-                            .collect(),
-                        ..p.clone()
-                    })
-                    .collect();
-                text_body(out, &c, &bold, &deck.math_preamble, ctx.math, &defaults);
-            } else {
-                text_body(out, &c, &cell.paragraphs, &deck.math_preamble, ctx.math, &defaults);
-            }
+            text_body(out, &c, &t.display_paragraphs(i, j), &deck.math_preamble, ctx.math, &defaults);
         }
     }
     if let Some(s) = t.stroke {

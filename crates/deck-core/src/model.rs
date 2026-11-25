@@ -1021,6 +1021,27 @@ impl Table {
         )
     }
 
+    /// The paragraphs of a cell as they are drawn: the header row bold,
+    /// white unless its runs set a color. Shared by the renderer and by
+    /// the caret's layout, so that they agree.
+    pub fn display_paragraphs(&self, row: usize, column: usize) -> Vec<Paragraph> {
+        let Some(cell) = self.rows.get(row).and_then(|r| r.get(column)) else { return vec![] };
+        if !(self.header && row == 0) {
+            return cell.paragraphs.clone();
+        }
+        cell.paragraphs
+            .iter()
+            .map(|p| Paragraph {
+                runs: p
+                    .runs
+                    .iter()
+                    .map(|run| Run { bold: true, color: run.color.or(Some(Color::WHITE)), ..run.clone() })
+                    .collect(),
+                ..p.clone()
+            })
+            .collect()
+    }
+
     /// Makes every row as long as the longest.
     pub fn square(&mut self) {
         let n = self.column_count();

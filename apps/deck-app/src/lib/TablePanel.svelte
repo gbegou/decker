@@ -49,7 +49,7 @@
   <input type="text" value={table.columns.join(" ")} placeholder={Array(columns).fill(1).join(" ")}
          onchange={(e) => edit({ op: "columns", widths: e.currentTarget.value.split(/[\s,;]+/).map(Number).filter((n) => n > 0) }, "Column widths")} />
 </label>
-<p class="muted">One line per paragraph in a cell. Rows share the table's height; resize the table to give them room. The rules' color and width are the stroke of the arrange bar.</p>
+<p class="muted">Double-click a cell on the slide to type in it (Tab moves to the next cell, the style bar styles the selection). One line per paragraph in a cell. Rows share the table's height; resize the table to give them room. The rules' color and width are the stroke of the arrange bar.</p>
 
 <style>
   h3 { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; color: var(--muted); }

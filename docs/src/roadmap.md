@@ -2,7 +2,6 @@
 
 What is not there yet, roughly in order of usefulness:
 
-1. Editor: editing table cells in place.
 2. PPTX: master text styles on import; merged cells and table styles; real video embedding
    on export; motion paths as build steps.
 3. PDF: formulas and figures as selectable text.

@@ -356,11 +356,40 @@
   let editingSlide = -1;
   let editingLayout: string | null = null;
 
+  /** The table cell being edited in place, when the edited element is a table. */
+  let editingCell: { row: number; column: number } | null = null;
+
+  /** Tab in a table: on to the next cell (Shift: the previous one), wrapping over rows. */
+  async function nextCell(back: boolean) {
+    if (!editing || !editingCell || !view) return;
+    const table = view.elements[editing.index]?.table;
+    if (!table) return;
+    const columns = table.rects[0]?.length ?? 1, count = table.rects.length * columns;
+    const k = (editingCell.row * columns + editingCell.column + (back ? count - 1 : 1)) % count;
+    editingCell = { row: Math.floor(k / columns), column: k % columns };
+    await api.focusCell(editing.index, editingCell.row, editingCell.column);
+    const layout = await api.textLayout(editing.index);
+    if (!editing || !layout) { editing = null; return; }
+    // The whole cell selected, as a spreadsheet does.
+    editing = { ...editing, layout, anchor: 0, caret: layout.chars.length - 1 };
+  }
+
   async function startEdit(index: number, at?: { x: number; y: number }) {
     if (!view) return;
     const el = view.elements[index];
-    if (el.kind === "image" || el.kind === "math" || el.kind === "placeholder" || el.kind === "outline" || el.kind === "table" || el.kind === "media" || el.kind === "figure") return;
+    if (el.kind === "image" || el.kind === "math" || el.kind === "placeholder" || el.kind === "outline" || el.kind === "media" || el.kind === "figure") return;
     selected = index;
+    if (el.kind === "table" && el.table) {
+      // The cell under the click (the first one otherwise) takes the text edits.
+      let cell = { row: 0, column: 0 };
+      if (at) {
+        el.table.rects.forEach((row, i) => row.forEach((r, j) => {
+          if (at.x >= r.x && at.x <= r.x + r.w && at.y >= r.y && at.y <= r.y + r.h) cell = { row: i, column: j };
+        }));
+      }
+      await api.focusCell(index, cell.row, cell.column);
+      editingCell = cell;
+    } else editingCell = null;
     const layout = await api.textLayout(index);
     if (!layout) { status = "Text editing in place needs the Typst feature"; return; }
     const caret = at ? caretAt(layout, at.x, at.y) : layout.chars.length - 1;
@@ -449,6 +478,7 @@
     if (key !== "ArrowUp" && key !== "ArrowDown") caretGoalX = null;
     switch (key) {
       case "Escape": return () => { editing = null; };
+      case "Tab": return editingCell ? () => nextCell(shift) : null;
       case "ArrowLeft": return withState(({ caret, lo, hi }) => setCaret(lo !== hi && !shift ? lo : caret - 1, shift));
       case "ArrowRight": return withState(({ caret, lo, hi }) => setCaret(lo !== hi && !shift ? hi : caret + 1, shift));
       case "ArrowUp": return () => setCaret(moveVertical(-1), shift);
@@ -837,6 +867,9 @@
     </aside>
 
     <main>
+      <!-- The toolbars keep their place whether or not something is selected, so the canvas never jumps under the pointer. -->
+      <div class="bars">
+      {#if !sel}<div class="bars-hint">Select an element to style and arrange it. Drag on the empty slide to select several.</div>{/if}
       {#if sel && sel.kind !== "image" && sel.kind !== "placeholder"}
         <StyleBar element={sel} theme={view.theme}
                   range={editing && editing.index === sel.index ? { from: Math.min(editing.caret, editing.anchor), to: Math.max(editing.caret, editing.anchor) } : null}
@@ -847,6 +880,7 @@
                     onrun={(label, f) => enqueue(async () => { await run(label, f); })}
                     onmoved={(ix) => { if (ix.length) { selected = ix[0]; also = ix.slice(1); } }} />
       {/if}
+      </div>
       <div class="canvas-wrap">
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -886,7 +920,7 @@
             {#each guides.h as y}<line class="guide" x1="0" y1={y} x2={view.width} y2={y} />{/each}
           </svg>
           {#if editing && view.elements[editing.index]}
-            {@const r = view.elements[editing.index].rect}
+            {@const r = editing.layout.rect ?? view.elements[editing.index].rect}
             {@const c = editing.layout.chars[editing.caret]}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <svg class="overlay text-editing" viewBox="0 0 {view.width} {view.height}" preserveAspectRatio="none"
@@ -1163,6 +1197,8 @@
   .layout-name { width: 160px; padding: 3px 6px; }
   .row { display: flex; gap: 6px; margin-top: 6px; }
   .macros { display: flex; flex-wrap: wrap; gap: 6px; }
+  .bars { flex: none; height: 100px; overflow: hidden; border-bottom: 1px solid var(--border); }
+  .bars-hint { padding: 10px 16px; color: var(--muted); font-size: 12px; }
   .dialog.small { width: min(520px, 90vw); }
   .guide { stroke: #ff3b8d; stroke-width: 1; vector-effect: non-scaling-stroke; stroke-dasharray: 4 3; pointer-events: none; }
   .add-shape { width: auto; flex: none; padding: 5px 6px; background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; }

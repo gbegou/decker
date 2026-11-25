@@ -31,7 +31,7 @@ export interface ElementInfo {
   /** Placeholders: their default text style. */
   placeholder?: PlaceholderStyle & { name: string };
   /** Tables: the cells' texts and fills by row, and the settings. */
-  table?: { cells: string[][]; fills: (string | null)[][]; header: boolean; columns: number[] };
+  table?: { cells: string[][]; fills: (string | null)[][]; header: boolean; columns: number[]; rects: Rect[][] };
 }
 /** An edit of a table: one cell, the grid, the header, the column widths. */
 export type TableEdit =
@@ -115,6 +115,8 @@ export interface View {
 
 /** Character boxes of a text element, in slide points; the last is the caret after the end. */
 export interface TextLayout {
+  /** The box being edited: the element's, or a table cell's. */
+  rect: Rect;
   text: string;
   chars: { x: number; right: number; top: number; bottom: number }[];
 }
@@ -169,6 +171,8 @@ export const api = {
   /** Adds a table and returns its index. */
   addTable: (rows: number, columns: number) => invoke<number>("add_table", { rows, columns }),
   editTable: (element: number, edit: TableEdit) => invoke<View>("edit_table", { element, edit }),
+  /** Aims in-place text editing at a cell of a table. */
+  focusCell: (element: number, row: number, column: number) => invoke<void>("focus_cell", { element, row, column }),
   /** Adds a shape and returns its index. */
   addShape: (kind: "rectangle" | "ellipse" | "line" | "arrow") => invoke<number>("add_shape", { kind }),
   stylePlaceholder: (element: number, change: PlaceholderStyle) => invoke<View>("style_placeholder", { element, change }),

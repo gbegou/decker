@@ -31,6 +31,9 @@ pub struct AppState {
     thumbs: Vec<Option<String>>,
     /// Images as data URIs, by deck-relative path.
     pub assets: HashMap<String, String>,
+    /// The table cell being edited in place: `(element, row, column)`.
+    /// Text edits and styles aimed at that table go to this cell.
+    pub cell: Option<(usize, usize, usize)>,
     /// The `.deckz` file the deck came from or was last saved to: saving
     /// packs the working folder back into it.
     pub archive: Option<PathBuf>,
@@ -115,6 +118,8 @@ pub struct ThemeInfo {
 /// The character boxes of a text element, in slide points.
 #[derive(Debug, Clone, Serialize)]
 pub struct TextLayout {
+    /// The box being edited: the element's, or a table cell's.
+    pub rect: Rect,
     pub text: String,
     /// One box per character plus the caret box at the end.
     pub chars: Vec<CharRect>,
@@ -294,11 +299,14 @@ pub struct TableInfo {
     pub fills: Vec<Vec<Option<Color>>>,
     pub header: bool,
     pub columns: Vec<f64>,
+    /// The cells' boxes on the slide, to find the cell under a click.
+    pub rects: Vec<Vec<Rect>>,
 }
 
-fn table_info(e: &Element) -> Option<TableInfo> {
+fn table_info(e: &Element, shown: &Rect) -> Option<TableInfo> {
     let Element::Table(t) = e else { return None };
     Some(TableInfo {
+        rects: (0..t.rows.len()).map(|i| (0..t.rows[i].len()).map(|j| t.cell_rect(shown, i, j)).collect()).collect(),
         cells: t.rows.iter().map(|r| r.iter().map(deck_core::Cell::text).collect()).collect(),
         fills: t.rows.iter().map(|r| r.iter().map(|c| c.fill).collect()).collect(),
         header: t.header,
@@ -544,6 +552,7 @@ impl AppState {
     }
 
     pub fn load(&mut self, deck: Deck, dir: PathBuf) {
+        self.cell = None;
         self.undo.clear();
         self.redo.clear();
         self.last_edit = None;
@@ -744,7 +753,7 @@ impl AppState {
                     shape: shape_info(e).0,
                     flip: shape_info(e).1,
                     placeholder: None,
-                    table: table_info(e),
+                    table: table_info(e, &e.state_at(self.step).rect),
                 })
                 .collect(),
             presenting: self.presenting,
@@ -816,7 +825,7 @@ impl AppState {
                 shape: shape_info(e).0,
                 flip: shape_info(e).1,
                 placeholder: None,
-                table: table_info(e),
+                table: table_info(e, e.rect()),
             })
             .collect();
         for (k, ph) in layout.placeholders.iter().enumerate() {
@@ -1239,9 +1248,21 @@ impl AppState {
 
     /// The paragraphs of a text box or shape, for the caret editor.
     fn paragraphs_mut(&mut self, element: usize) -> Result<&mut Vec<Paragraph>, String> {
+        let cell = self.cell;
         match self.elements_mut()?.get_mut(element) {
             Some(Element::Text(t)) => Ok(&mut t.paragraphs),
             Some(Element::Shape(s)) => Ok(&mut s.paragraphs),
+            Some(Element::Table(t)) => match cell {
+                Some((e, row, column)) if e == element => {
+                    let c = t.rows.get_mut(row).and_then(|r| r.get_mut(column)).ok_or("no such cell")?;
+                    // An empty cell has no paragraph to type into yet.
+                    if c.paragraphs.is_empty() {
+                        c.paragraphs.push(Paragraph::default());
+                    }
+                    Ok(&mut c.paragraphs)
+                }
+                _ => Err("pick a cell of the table first".into()),
+            },
             Some(_) => Err("not a text element".into()),
             None => Err("no such element".into()),
         }
@@ -1256,22 +1277,34 @@ impl AppState {
             None => &slide.elements,
         };
         let shown = |e: &Element| if self.editing_layout.is_some() { *e.rect() } else { e.state_at(self.step).rect };
-        let (rect, paragraphs) = match elements.get(element) {
+        let mut size = None;
+        let cell_paragraphs;
+        let (rect, paragraphs): (Rect, &[Paragraph]) = match elements.get(element) {
             Some(e @ Element::Text(t)) => (shown(e), &t.paragraphs),
             Some(e @ Element::Shape(s)) => (shown(e), &s.paragraphs),
+            Some(e @ Element::Table(t)) => match self.cell {
+                Some((el, row, column)) if el == element && row < t.rows.len() && column < t.column_count() => {
+                    size = t.size;
+                    cell_paragraphs = t.display_paragraphs(row, column);
+                    (t.cell_rect(&shown(e), row, column), &cell_paragraphs)
+                }
+                _ => return Err("pick a cell of the table first".into()),
+            },
             Some(_) => return Err("not a text element".into()),
             None => return Err("no such element".into()),
         };
-        let defaults = match self.editing_layout.as_deref().and_then(|n| deck.layout(n)) {
+        let mut defaults = match self.editing_layout.as_deref().and_then(|n| deck.layout(n)) {
             Some(layout) => deck.theme_of_layout(layout).defaults(),
             None => deck.theme_of(slide).defaults(),
         };
+        defaults.size = size.or(defaults.size);
         let width = (rect.w - 2.0 * svg::PADDING).max(1.0);
         let Some(boxes) = self.math.layout(&deck.math_preamble, paragraphs, width, &defaults) else {
             return Ok(None);
         };
         let (ox, oy) = (rect.x + svg::PADDING, rect.y + svg::PADDING);
         Ok(Some(TextLayout {
+            rect,
             text: text::flat_text(paragraphs),
             chars: boxes
                 .into_iter()
@@ -1883,6 +1916,18 @@ impl AppState {
         Ok(elements.len() - 1)
     }
 
+    /// Makes a cell of the table at `element` the target of in-place text
+    /// editing (`text_layout`, `text_edit`, `style_text`).
+    pub fn focus_cell(&mut self, element: usize, row: usize, column: usize) -> Result<(), String> {
+        let Some(Element::Table(t)) = self.elements_mut()?.get_mut(element) else { return Err("not a table".into()) };
+        t.square();
+        if row >= t.rows.len() || column >= t.column_count() {
+            return Err("no such cell".into());
+        }
+        self.cell = Some((element, row, column));
+        Ok(())
+    }
+
     /// Edits the table at `element`.
     pub fn edit_table(&mut self, element: usize, edit: &TableEdit) -> Result<(), String> {
         self.touch_target();
@@ -2246,6 +2291,34 @@ mod tests {
         assert_eq!(xs(&s), [170.0, 170.0, 0.0]);
         s.set_rects(&[(0, Rect::new(1.0, 2.0, 3.0, 4.0)), (1, Rect::new(5.0, 6.0, 7.0, 8.0))]).unwrap();
         assert_eq!(xs(&s)[..2], [1.0, 5.0]);
+    }
+
+    #[cfg(feature = "typst")]
+    #[test]
+    fn table_cells_are_edited_in_place() {
+        let mut s = AppState::default();
+        s.load(deck(), PathBuf::new());
+        let i = s.add_table(2, 2).unwrap();
+        assert!(s.text_layout(i).is_err(), "no cell picked yet");
+        s.focus_cell(i, 1, 1).unwrap();
+        let empty = s.text_layout(i).unwrap().unwrap();
+        let cell = s.view().elements[i].table.as_ref().unwrap().rects[1][1];
+        assert_eq!(empty.rect, cell);
+        assert_eq!(empty.chars.len(), 1, "just the caret");
+        assert!(empty.chars[0].x >= cell.x && empty.chars[0].top >= cell.y);
+        assert_eq!(s.text_edit(i, 0, 0, "42").unwrap(), 2);
+        s.style_text(i, 0, 2, &text::StyleChange { toggle_bold: true, ..Default::default() }).unwrap();
+        let Element::Table(t) = &s.deck.as_ref().unwrap().slides[0].elements[i] else { unreachable!() };
+        assert_eq!(t.rows[1][1].text(), "42");
+        assert!(t.rows[1][1].paragraphs[0].runs[0].bold);
+        assert!(t.rows[0][0].text().starts_with("Column"), "other cells untouched");
+        // The header row is laid out as drawn: bold, so wider than plain.
+        s.focus_cell(i, 0, 0).unwrap();
+        let head = s.text_layout(i).unwrap().unwrap();
+        s.edit_table(i, &TableEdit::Header { on: false }).unwrap();
+        let plain = s.text_layout(i).unwrap().unwrap();
+        assert!(head.chars.last().unwrap().x > plain.chars.last().unwrap().x);
+        assert!(s.focus_cell(i, 5, 0).is_err());
     }
 
     #[test]

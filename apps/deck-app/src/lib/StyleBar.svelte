@@ -14,7 +14,8 @@
   } = $props();
 
   let info = $state<StyleInfo | null>(null);
-  const textual = $derived(element.kind === "text" || element.kind === "shape");
+  // A table takes run styles for the cell being edited in place.
+  const textual = $derived(element.kind === "text" || element.kind === "shape" || (element.kind === "table" && range !== null));
   const FALLBACK_FONTS = ["DejaVu Sans", "Libertinus Serif", "DejaVu Sans Mono", "New Computer Modern"];
   const fonts = $derived(theme.fonts.length ? theme.fonts : FALLBACK_FONTS);
   /** The accent then the palette, without repeats. */
@@ -24,7 +25,7 @@
     // Re-read the style whenever the element or the selection changes.
     const id = element.index, r = range, k = element.kind, t = element.text;
     void t;
-    if (k === "text" || k === "shape") {
+    if (k === "text" || k === "shape" || (k === "table" && r !== null)) {
       api.styleInfo(id, r?.from ?? null, r?.to ?? null).then((i) => (info = i)).catch(() => (info = null));
     } else info = null;
   });

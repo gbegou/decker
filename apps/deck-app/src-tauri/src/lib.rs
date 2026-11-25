@@ -598,6 +598,12 @@ fn add_table(app: AppHandle, state: Shared, rows: usize, columns: usize) -> Resu
     Ok(index)
 }
 
+/// Aims in-place text editing at a cell of a table.
+#[tauri::command]
+fn focus_cell(state: Shared, element: usize, row: usize, column: usize) -> Result<(), String> {
+    state.lock().map_err(err)?.focus_cell(element, row, column)
+}
+
 #[tauri::command]
 fn edit_table(app: AppHandle, state: Shared, element: usize, edit: TableEdit) -> Result<View, String> {
     let view = {
@@ -1027,6 +1033,7 @@ pub fn run() {
             style_placeholder,
             add_table,
             edit_table,
+            focus_cell,
             set_poster,
             set_rects,
             arrange,

@@ -117,7 +117,9 @@ Two environment variables help scripts and tests:
   Saving removes from `assets/` the files no element uses any more.
 - **+ Shape** adds a rectangle, an ellipse, a line or an arrow in the theme's accent color;
   the style bar sets its fill and outline.
-- **+ Table** adds a table with a header row. Its panel shows the cells as a grid of fields
+- **+ Table** adds a table with a header row. Double-click a cell to type in it, with the
+  caret, selection and styles of any text; Tab and Shift+Tab move between cells. Its panel
+  also shows the cells as a grid of fields
   (one line per paragraph), adds or removes rows and columns around the cell that has the
   focus, toggles the header, sets a cell's fill and the relative column widths. Rows are as
   tall as their line count asks; the table's box sets the overall size, the style bar its
