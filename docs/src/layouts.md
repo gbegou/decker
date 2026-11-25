@@ -57,7 +57,9 @@ slide: its background, its static elements, editable like slide elements (drag, 
 double-click to type), and its placeholders as dashed boxes with their name, which move and
 resize the same way and are renamed in the panel (slides that fill the placeholder follow the
 new name). **+ Text** and **+ Placeholder** add elements, **Delete layout** removes the layout
-(its slides keep their elements), the name field renames it, **Done** returns to the slides.
+(its slides keep their elements), the name field renames it, **Done** returns to the slides. Selecting
+a placeholder shows its default text style in the panel (size, bold, color, font, alignment,
+bullets): new slides made from the layout start with it.
 
 ## Theme: color scheme and default fonts
 

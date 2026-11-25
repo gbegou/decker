@@ -243,9 +243,11 @@ class Slide:
         return self.add(e)
 
     def add_shape(self, kind: str, x: float, y: float, w: float, h: float, *, fill: str | None = None,
-                  stroke: str | None = None, stroke_width: float = 1.0, text: str = "") -> Element:
-        """``rectangle``, ``ellipse`` or ``line``."""
+                  stroke: str | None = None, stroke_width: float = 1.0, text: str = "", flip: bool = False) -> Element:
+        """``rectangle``, ``ellipse``, ``line`` or ``arrow``; ``flip=True`` runs a line or arrow from the bottom-left to the top-right."""
         e: dict[str, Any] = {"type": "shape", "kind": kind, "rect": _rect(x, y, w, h)}
+        if flip:
+            e["flip"] = True
         if fill:
             e["fill"] = fill
         if stroke:

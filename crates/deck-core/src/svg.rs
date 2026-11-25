@@ -215,7 +215,7 @@ fn element_body(out: &mut String, ctx: &Ctx, element: &Element, step: u32, index
             Element::Image(i) => image_body(out, r, i, index),
             Element::Media(m) => media_body(out, r, m, ctx.live),
             Element::Shape(s) => {
-                shape_body(out, r, s.kind, st.fill.or(s.fill), s.stroke);
+                shape_body_flipped(out, r, s.kind, st.fill.or(s.fill), s.stroke, s.flip);
                 text_body(out, r, &s.paragraphs, &deck.math_preamble, math, defaults);
             }
             Element::Math(m) => math_body(out, r, m, &deck.math_preamble, math, defaults),
@@ -482,7 +482,54 @@ fn figure_body(
 }
 
 fn shape_body(out: &mut String, r: &Rect, kind: ShapeKind, fill: Option<Color>, stroke: Option<Stroke>) {
+    shape_body_flipped(out, r, kind, fill, stroke, false)
+}
+
+/// A shape; `flip` turns a line or arrow to run bottom-left to top-right.
+fn shape_body_flipped(
+    out: &mut String,
+    r: &Rect,
+    kind: ShapeKind,
+    fill: Option<Color>,
+    stroke: Option<Stroke>,
+    flip: bool,
+) {
     if fill.is_none() && stroke.is_none() {
+        return;
+    }
+    if matches!(kind, ShapeKind::Line | ShapeKind::Arrow) {
+        let s = stroke.unwrap_or(Stroke { color: fill.unwrap_or(Color::BLACK), width: 1.0 });
+        let (x1, y1, x2, y2) = if flip { (r.x, r.y + r.h, r.x + r.w, r.y) } else { (r.x, r.y, r.x + r.w, r.y + r.h) };
+        let color = s.color.to_hex();
+        let (dx, dy) = (x2 - x1, y2 - y1);
+        let len = (dx * dx + dy * dy).sqrt().max(1e-6);
+        // The arrowhead: a triangle 4 strokes long and 3 wide (at least
+        // 8 by 6 points); the line stops at its base.
+        let head = if kind == ShapeKind::Arrow { (s.width * 4.0).max(8.0).min(len) } else { 0.0 };
+        let (ux, uy) = (dx / len, dy / len);
+        let (bx, by) = (x2 - ux * head, y2 - uy * head);
+        let _ = write!(
+            out,
+            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{color}" stroke-width="{}"/>"#,
+            fmt(x1),
+            fmt(y1),
+            fmt(bx),
+            fmt(by),
+            fmt(s.width)
+        );
+        if head > 0.0 {
+            let half = head * 0.375;
+            let _ = write!(
+                out,
+                r#"<path d="M{} {}L{} {}L{} {}Z" fill="{color}"/>"#,
+                fmt(x2),
+                fmt(y2),
+                fmt(bx - uy * half),
+                fmt(by + ux * half),
+                fmt(bx + uy * half),
+                fmt(by - ux * half)
+            );
+        }
         return;
     }
     let fill = fill.map(Color::to_hex).unwrap_or_else(|| "none".into());
@@ -505,14 +552,7 @@ fn shape_body(out: &mut String, r: &Rect, kind: ShapeKind, fill: Option<Color>, 
             fmt(r.w / 2.0),
             fmt(r.h / 2.0)
         ),
-        ShapeKind::Line => write!(
-            out,
-            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" {style}/>"#,
-            fmt(r.x),
-            fmt(r.y),
-            fmt(r.x + r.w),
-            fmt(r.y + r.h)
-        ),
+        ShapeKind::Line | ShapeKind::Arrow => Ok(()),
     };
 }
 
@@ -874,5 +914,29 @@ mod tests {
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].len(), 2);
         assert_eq!(lines[0][1].1, "cd");
+    }
+
+    #[test]
+    fn arrows_end_in_a_head_and_lines_flip() {
+        let mut deck = Deck::new("t");
+        let stroke = Some(Stroke { color: Color::BLACK, width: 2.0 });
+        let arrow =
+            Shape { rect: Rect::new(0.0, 0.0, 100.0, 0.0), kind: ShapeKind::Arrow, stroke, ..Default::default() };
+        let flipped = Shape {
+            rect: Rect::new(0.0, 0.0, 30.0, 40.0),
+            kind: ShapeKind::Line,
+            stroke,
+            flip: true,
+            ..Default::default()
+        };
+        deck.slides
+            .push(Slide { elements: vec![Element::Shape(arrow), Element::Shape(flipped)], ..Default::default() });
+        let svg = render_slide(&deck, &deck.slides[0]);
+        assert!(svg.contains(r#"<line x1="0" y1="0" x2="92" y2="0""#), "the line stops at the head's base: {svg}");
+        assert!(svg.contains(r#"<path d="M100 0L92 3L92 -3Z""#), "{svg}");
+        assert!(svg.contains(r#"<line x1="0" y1="40" x2="30" y2="0""#), "{svg}");
+        let json = serde_json::to_string(&deck).unwrap();
+        assert!(json.contains("\"arrow\"") && json.contains("\"flip\":true"));
+        assert_eq!(serde_json::from_str::<Deck>(&json).unwrap(), deck);
     }
 }

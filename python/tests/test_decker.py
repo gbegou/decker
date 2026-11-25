@@ -24,6 +24,9 @@ class DeckTests(unittest.TestCase):
         s.add_math("x^2 + y^2 = z^2", 40, 400, 400, 60, size=24)
         s.add_shape("ellipse", 600, 400, 100, 60, fill="#FF0000", text="go").move_to(2, x=700)
         s.add_outline(500, 100, 400, 200)
+        arrow = s.add_shape("arrow", 0, 0, 100, 50, stroke="#000000", stroke_width=2, flip=True)
+        self.assertEqual((arrow.data["kind"], arrow.data["flip"]), ("arrow", True))
+        arrow.remove()
         self.assertEqual(len(deck), 1)
         with tempfile.TemporaryDirectory() as tmp:
             png = Path(tmp) / "pic.png"

@@ -435,10 +435,16 @@
     return { x: ((e.clientX - r.left) / r.width) * view!.width, y: ((e.clientY - r.top) / r.height) * view!.height };
   }
 
+  // Mouse selection: press sets the caret (Shift extends), dragging
+  // extends the selection, a double click takes the word and a triple
+  // click the paragraph.
+  let selecting = false;
   function editorPointerDown(e: PointerEvent) {
     if (!editing) return;
     const p = slidePoint(e);
     const shift = e.shiftKey;
+    selecting = true;
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
     enqueue(() => {
       if (!editing) return;
       const i = caretAt(editing.layout, p.x, p.y);
@@ -447,6 +453,34 @@
       caretGoalX = null;
     });
     e.stopPropagation();
+  }
+  function editorPointerMove(e: PointerEvent) {
+    if (!editing || !selecting) return;
+    const p = slidePoint(e);
+    enqueue(() => {
+      if (editing && selecting) editing.caret = caretAt(editing.layout, p.x, p.y);
+    });
+  }
+  function editorPointerUp() {
+    selecting = false;
+  }
+  /** Selects the word (2 clicks) or the paragraph (3) at the click. */
+  function editorMultiClick(e: MouseEvent) {
+    e.stopPropagation();
+    if (!editing || e.detail < 2) return;
+    const p = slidePoint(e);
+    const clicks = e.detail;
+    enqueue(() => {
+      if (!editing) return;
+      const text = editing.layout.text;
+      const i = Math.min(caretAt(editing.layout, p.x, p.y), text.length);
+      const stop = (c: string) => (clicks >= 3 ? c === "\n" : !/[\p{L}\p{N}_'’-]/u.test(c));
+      let from = i, to = i;
+      while (from > 0 && !stop(text[from - 1])) from--;
+      while (to < text.length && !stop(text[to])) to++;
+      editing.anchor = from;
+      editing.caret = to;
+    });
   }
 
   // Selection rectangles, one per line.
@@ -602,12 +636,26 @@
         <input class="layout-name" value={view.editing_layout} onchange={(e) => run("Layout renamed", () => api.renameLayout(e.currentTarget.value))} />
       </span>
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
+      <select class="add-shape" title="Add a shape" value="" onchange={(e) => { const k = e.currentTarget.value as "rectangle" | "ellipse" | "line" | "arrow"; e.currentTarget.value = ""; if (k) enqueue(() => run("Added shape", () => api.addShape(k)).then(selectAdded)); }}>
+        <option value="">+ Shape</option>
+        <option value="rectangle">▭ Rectangle</option>
+        <option value="ellipse">◯ Ellipse</option>
+        <option value="line">╱ Line</option>
+        <option value="arrow">→ Arrow</option>
+      </select>
       <button onclick={() => run("Added placeholder", api.addPlaceholder)}>+ Placeholder</button>
       <button onclick={saveLayoutAs} disabled={!view.dir}>Save layout…</button>
       <button onclick={() => run("Layout deleted", api.deleteLayout)}>Delete layout</button>
       <button class="primary" onclick={() => run("Back to slides", () => api.editLayout(null))}>Done</button>
     {:else if view?.slide_count}
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
+      <select class="add-shape" title="Add a shape" value="" onchange={(e) => { const k = e.currentTarget.value as "rectangle" | "ellipse" | "line" | "arrow"; e.currentTarget.value = ""; if (k) enqueue(() => run("Added shape", () => api.addShape(k)).then(selectAdded)); }}>
+        <option value="">+ Shape</option>
+        <option value="rectangle">▭ Rectangle</option>
+        <option value="ellipse">◯ Ellipse</option>
+        <option value="line">╱ Line</option>
+        <option value="arrow">→ Arrow</option>
+      </select>
       <button onclick={addMedia} title="A video or an animated GIF; images and clips can also be pasted or dropped">+ Video…</button>
       <button onclick={() => run("Added figure", api.addFigure)} title="A Typst figure: CeTZ drawings and plots, edited as source in the panel">+ Figure</button>
       <button onclick={() => run("Added outline", api.addOutline)} title="The sections, the current one highlighted: a plan slide">+ Plan</button>
@@ -690,7 +738,8 @@
             {@const c = editing.layout.chars[editing.caret]}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <svg class="overlay text-editing" viewBox="0 0 {view.width} {view.height}" preserveAspectRatio="none"
-                 onpointerdown={editorPointerDown} onclick={(e) => e.stopPropagation()}>
+                 onpointerdown={editorPointerDown} onpointermove={editorPointerMove} onpointerup={editorPointerUp} onpointercancel={editorPointerUp}
+                 onclick={editorMultiClick}>
               <rect class="edit-frame" x={r.x} y={r.y} width={r.w} height={r.h} />
               {#each selectionRects(editing) as s}
                 <rect class="selection" x={s.x} y={s.y} width={s.w} height={s.h} />
@@ -754,6 +803,31 @@
             <input type="text" value={sel.text} onchange={(e) => run("Placeholder renamed", () => api.setText(sel!.index, e.currentTarget.value))} />
           </label>
           <p class="muted">Slides fill this slot by name; "title" and "subtitle" map to PowerPoint's own placeholders.</p>
+          {#if sel.placeholder}
+            {@const ph = sel.placeholder}
+            {@const idx = sel.index}
+            <h3>Default text style</h3>
+            <div class="theme">
+              <label>size <input type="number" min="0" max="200" value={ph.size ?? ""} placeholder={String(view.theme.effective.size ?? 18)}
+                     onchange={(e) => run("Placeholder size", () => api.stylePlaceholder(idx, { size: +e.currentTarget.value || 0 }))} /></label>
+              <label><input type="checkbox" checked={ph.bold ?? false} onchange={(e) => run("Placeholder bold", () => api.stylePlaceholder(idx, { bold: e.currentTarget.checked }))} /> bold</label>
+              <label>color <input type="color" value={ph.color ?? view.theme.effective.color ?? "#000000"} onchange={(e) => run("Placeholder color", () => api.stylePlaceholder(idx, { color: e.currentTarget.value }))} />
+                <button title="Theme color" onclick={() => run("Placeholder color reset", () => api.stylePlaceholder(idx, { color: "" }))}>⌀</button></label>
+              <label>font
+                <select value={ph.font ?? ""} onchange={(e) => run("Placeholder font", () => api.stylePlaceholder(idx, { font: e.currentTarget.value }))}>
+                  <option value="">theme font</option>
+                  {#each view.theme.fonts as f}<option value={f}>{f}</option>{/each}
+                </select>
+              </label>
+              <label>align
+                <select value={ph.align ?? "left"} onchange={(e) => run("Placeholder alignment", () => api.stylePlaceholder(idx, { align: e.currentTarget.value as "left" | "center" | "right" | "justify" }))}>
+                  <option value="left">left</option><option value="center">center</option><option value="right">right</option><option value="justify">justify</option>
+                </select>
+              </label>
+              <label><input type="checkbox" checked={ph.bullets ?? false} onchange={(e) => run("Placeholder bullets", () => api.stylePlaceholder(idx, { bullets: e.currentTarget.checked }))} /> bullets</label>
+            </div>
+            <p class="muted">New slides made from this layout start with this style; existing slides keep theirs.</p>
+          {/if}
         {:else if sel.kind !== "image" && sel.kind !== "media"}
           <label>{sel.kind === "math" ? "formula" : sel.kind === "figure" ? "Typst source" : "text"}
             <textarea rows={sel.kind === "figure" ? 12 : 6} class:code={sel.kind === "figure" || sel.kind === "math"} value={sel.text} onchange={(e) => api.setText(sel!.index, e.currentTarget.value)}></textarea>
@@ -915,6 +989,8 @@
   .layout-name { width: 160px; padding: 3px 6px; }
   .row { display: flex; gap: 6px; margin-top: 6px; }
   .macros { display: flex; flex-wrap: wrap; gap: 6px; }
+  .add-shape { width: auto; flex: none; padding: 5px 6px; background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; }
+  .text-editing { user-select: none; }
   textarea.code { font-family: ui-monospace, "DejaVu Sans Mono", monospace; font-size: 11px; white-space: pre; }
   .output { font-size: 11px; max-height: 160px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px; white-space: pre-wrap; margin: 6px 0 0; }
   .theme { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 12px; color: var(--muted); }

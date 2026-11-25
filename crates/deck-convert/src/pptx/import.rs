@@ -430,9 +430,11 @@ fn import_tree(
             "cxnSp" => {
                 if let Some(rect) = xfrm(node).map(|r| shift(r, offset)) {
                     let sp_pr = child(node, NS_P, "spPr");
+                    let (kind, flip) = line_ends(node, ShapeKind::Line);
                     elements.push(Element::Shape(Shape {
                         rect,
-                        kind: ShapeKind::Line,
+                        kind,
+                        flip,
                         stroke: sp_pr.and_then(stroke).or(Some(Stroke { color: Color::BLACK, width: 1.0 })),
                         ..Default::default()
                     }));
@@ -625,7 +627,25 @@ fn import_shape(
     if fill.is_none() && stroke.is_none() && paragraphs.iter().all(|p| p.text().is_empty()) {
         return None;
     }
-    Some(Element::Shape(Shape { rect, kind, fill, stroke, paragraphs, steps: vec![] }))
+    let (kind, flip) = line_ends(node, kind);
+    Some(Element::Shape(Shape { rect, kind, fill, stroke, paragraphs, steps: vec![], flip }))
+}
+
+/// For a line: an arrow when its outline has an end marker, and whether
+/// it is flipped (`flipV` without `flipH`, or the reverse).
+fn line_ends(node: Node, kind: ShapeKind) -> (ShapeKind, bool) {
+    if kind != ShapeKind::Line {
+        return (kind, false);
+    }
+    let sp_pr = child(node, NS_P, "spPr");
+    let x = sp_pr.and_then(|p| child(p, NS_A, "xfrm"));
+    let on = |name: &str| x.and_then(|x| x.attribute(name)).map(|v| v == "1" || v == "true").unwrap_or(false);
+    let ln = sp_pr.and_then(|p| child(p, NS_A, "ln"));
+    let ended = |tag: &str| {
+        ln.and_then(|l| child(l, NS_A, tag)).and_then(|e| e.attribute("type")).map(|t| t != "none").unwrap_or(false)
+    };
+    let kind = if ended("tailEnd") || ended("headEnd") { ShapeKind::Arrow } else { ShapeKind::Line };
+    (kind, on("flipV") != on("flipH"))
 }
 
 fn shape_name(node: Node) -> String {

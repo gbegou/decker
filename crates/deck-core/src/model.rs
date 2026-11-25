@@ -963,8 +963,11 @@ pub enum ShapeKind {
     #[default]
     Rectangle,
     Ellipse,
-    /// A straight line from the top-left to the bottom-right of the rect.
+    /// A straight line from the top-left to the bottom-right of the rect
+    /// (bottom-left to top-right when the shape is flipped).
     Line,
+    /// A line ending in an arrowhead.
+    Arrow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -988,6 +991,9 @@ pub struct Shape {
     pub stroke: Option<Stroke>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paragraphs: Vec<Paragraph>,
+    /// Lines and arrows: run from the bottom-left to the top-right.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub flip: bool,
 }
 
 fn is_default<T: Default + PartialEq>(v: &T) -> bool {

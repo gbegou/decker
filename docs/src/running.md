@@ -114,6 +114,10 @@ Two environment variables help scripts and tests:
   file is copied once. Resizing, cropping or masking never changes the file: those are
   properties of the element, so two copies of one picture can be cropped differently.
   Saving removes from `assets/` the files no element uses any more.
+- **+ Shape** adds a rectangle, an ellipse, a line or an arrow in the theme's accent color;
+  the style bar sets its fill and outline, and flips the direction of a line or arrow.
+- While editing a text, the mouse works as in any editor: click places the caret, dragging
+  selects, a double click selects the word and a triple click the paragraph.
 - **+ Text**, **+ Slide**, **Duplicate** and **− Slide** do what they say; a new slide starts
   from the current slide's [layout](layouts.md). **Insert from deck…** copies slides from
   another deck. Page Up and Page Down change slide.

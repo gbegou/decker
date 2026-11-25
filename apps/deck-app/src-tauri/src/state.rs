@@ -39,6 +39,24 @@ pub struct AppState {
     last_edit: Option<String>,
 }
 
+/// A placeholder's default text style (see [`AppState::style_placeholder`]);
+/// an empty string clears a color or font, a size of 0 the size.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct PlaceholderStyle {
+    #[serde(default)]
+    pub size: Option<f64>,
+    #[serde(default)]
+    pub bold: Option<bool>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub font: Option<String>,
+    #[serde(default)]
+    pub align: Option<deck_core::Align>,
+    #[serde(default)]
+    pub bullets: Option<bool>,
+}
+
 /// Element-level style change (see [`AppState::style_element`]).
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 pub struct ElementStyle {
@@ -61,6 +79,9 @@ pub struct ElementStyle {
     pub looping: Option<bool>,
     #[serde(default)]
     pub sound: Option<bool>,
+    /// Lines and arrows: flip the direction.
+    #[serde(default)]
+    pub flip: Option<bool>,
 }
 
 /// A theme edit (see [`AppState::set_theme`]): `Some("")` clears a field.
@@ -250,6 +271,28 @@ pub struct ElementInfo {
     /// Media: playback settings.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media: Option<MediaInfo>,
+    /// Shapes: `rectangle`, `ellipse`, `line` or `arrow`, and whether a line is flipped.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shape: Option<&'static str>,
+    pub flip: bool,
+    /// Placeholders: their default text style.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<Placeholder>,
+}
+
+fn shape_info(e: &Element) -> (Option<&'static str>, bool) {
+    match e {
+        Element::Shape(s) => (
+            Some(match s.kind {
+                deck_core::ShapeKind::Rectangle => "rectangle",
+                deck_core::ShapeKind::Ellipse => "ellipse",
+                deck_core::ShapeKind::Line => "line",
+                deck_core::ShapeKind::Arrow => "arrow",
+            }),
+            s.flip,
+        ),
+        _ => (None, false),
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -624,6 +667,9 @@ impl AppState {
                     highlight: element_style_info(e).2,
                     subsections: element_style_info(e).3,
                     media: media_info(e),
+                    shape: shape_info(e).0,
+                    flip: shape_info(e).1,
+                    placeholder: None,
                 })
                 .collect(),
             presenting: self.presenting,
@@ -689,6 +735,9 @@ impl AppState {
                 highlight: element_style_info(e).2,
                 subsections: element_style_info(e).3,
                 media: media_info(e),
+                shape: shape_info(e).0,
+                flip: shape_info(e).1,
+                placeholder: None,
             })
             .collect();
         for (k, ph) in layout.placeholders.iter().enumerate() {
@@ -707,6 +756,9 @@ impl AppState {
                 highlight: None,
                 subsections: None,
                 media: None,
+                shape: None,
+                flip: false,
+                placeholder: Some(ph.clone()),
             });
         }
         let starts = deck
@@ -1359,6 +1411,65 @@ impl AppState {
         Ok(())
     }
 
+    /// Adds a shape: `rectangle`, `ellipse`, `line` or `arrow`, in the
+    /// theme's accent color.
+    pub fn add_shape(&mut self, kind: &str) -> Result<usize, String> {
+        self.touch_target();
+        let (deck, slide) = self.current().ok_or("no slide")?;
+        let (w, h) = (deck.width, deck.height);
+        let accent = deck.theme_of(slide).accent.unwrap_or(Color::rgb(0x3F, 0x74, 0xE0));
+        let shape = match kind {
+            "ellipse" => deck_core::Shape {
+                rect: Rect::new(w * 0.4, h * 0.35, w * 0.2, h * 0.3),
+                kind: deck_core::ShapeKind::Ellipse,
+                fill: Some(accent),
+                ..Default::default()
+            },
+            "line" | "arrow" => deck_core::Shape {
+                rect: Rect::new(w * 0.35, h * 0.5, w * 0.3, 0.0),
+                kind: if kind == "arrow" { deck_core::ShapeKind::Arrow } else { deck_core::ShapeKind::Line },
+                stroke: Some(Stroke { color: accent, width: 3.0 }),
+                ..Default::default()
+            },
+            _ => deck_core::Shape {
+                rect: Rect::new(w * 0.35, h * 0.35, w * 0.3, h * 0.3),
+                fill: Some(accent),
+                ..Default::default()
+            },
+        };
+        let elements = self.elements_mut()?;
+        elements.push(Element::Shape(shape));
+        Ok(elements.len() - 1)
+    }
+
+    /// Styles a placeholder of the layout under edit (`element` counts
+    /// after the layout's static elements, as in the view).
+    pub fn style_placeholder(&mut self, element: usize, change: &PlaceholderStyle) -> Result<(), String> {
+        self.touch(None);
+        let layout = self.layout_mut()?;
+        let k = element.checked_sub(layout.elements.len()).ok_or("not a placeholder")?;
+        let ph = layout.placeholders.get_mut(k).ok_or("no such placeholder")?;
+        if let Some(size) = change.size {
+            ph.size = if size > 0.0 { Some(size) } else { None };
+        }
+        if let Some(b) = change.bold {
+            ph.bold = b;
+        }
+        if let Some(c) = &change.color {
+            ph.color = if c.is_empty() { None } else { Some(Color::from_hex(c).map_err(|e| e.to_string())?) };
+        }
+        if let Some(f) = &change.font {
+            ph.font = if f.is_empty() { None } else { Some(f.clone()) };
+        }
+        if let Some(a) = change.align {
+            ph.align = a;
+        }
+        if let Some(b) = change.bullets {
+            ph.bullets = b;
+        }
+        Ok(())
+    }
+
     pub fn add_text(&mut self) -> Result<(), String> {
         self.touch_target();
         let (w, h) = self.deck.as_ref().map(|d| (d.width, d.height)).ok_or("no deck")?;
@@ -1429,6 +1540,9 @@ impl AppState {
                     sh.fill = f;
                 }
                 apply_stroke(&mut sh.stroke);
+                if let Some(f) = change.flip {
+                    sh.flip = f;
+                }
             }
             Element::Math(m) => {
                 if let Some(size) = change.size {

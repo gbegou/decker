@@ -17,12 +17,14 @@
     ["Elements", [
       ["Click · Shift+click", "Select; add to the selection; drag to move; corner handle to resize; Delete to remove"],
       ["Group · Ungroup (Ctrl+G · Ctrl+Shift+G)", "Several elements become one, moved, resized and animated together"],
+      ["+ Shape", "A rectangle, an ellipse, a line or an arrow in the theme's accent color; the style bar sets fill, outline and, for lines, the direction"],
       ["+ Text · + Plan · + Figure", "A text box; the sections list with the current one highlighted; a Typst figure (CeTZ plots and drawings) edited as source"],
       ["Ctrl+Z · Ctrl+Y (or Ctrl+Shift+Z)", "Undo and redo any edit of the deck; a run of typing in one box is one step"],
       ["Ctrl+C · Ctrl+X · Ctrl+V", "Copy or cut the selected elements; paste them (also into another deck or slide, images shared within a deck, copied across decks), a clipboard image, or text into the box being edited"],
       ["Drop a file · + Video…", "Drop image, video or GIF files on the canvas where they should go, or pick a clip"],
       ["Playback (panel)", "A video or GIF plays when it appears or on its play button, looping or once; sound off by default"],
       ["Double-click a text", "Edit in place: type, Backspace/Delete, arrows, Home/End, Shift+arrows to select, Ctrl+A"],
+      ["Mouse in a text being edited", "Click places the caret, drag selects, double-click selects a word, triple-click a paragraph"],
       ["Enter · Escape", "New paragraph · finish editing"],
       ["Ctrl+B · Ctrl+I", "Bold · italic (selection, or the whole box when not editing)"],
       ["Style bar", "Size, color, font, alignment, bullets; fill and outline of boxes and shapes; plan colors"],
@@ -32,6 +34,7 @@
     ]],
     ["Layouts", [
       ["Layout selector · Edit layout · + New layout", "The slide's layout; open the layout editor; create one"],
+      ["Select a placeholder", "Its default text style in the panel: size, bold, color, font, alignment, bullets"],
       ["+ Placeholder · Save layout… · Load layout…", "Slots new slides start from; save as .deck_layout; load one"],
       ["{{section}} {{subsection}} {{slide}} {{slides}} {{title}} {{deck}} {{date}}", "Variables in layout texts, filled per slide"],
       ["Theme (panel)", "Default font, size, text color, accent and palette of the deck, or of the layout under edit; fonts/ in the deck adds fonts"],

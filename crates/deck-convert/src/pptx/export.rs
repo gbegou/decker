@@ -406,14 +406,21 @@ fn write_element(
             let prst = match s.kind {
                 ShapeKind::Rectangle => "rect",
                 ShapeKind::Ellipse => "ellipse",
-                ShapeKind::Line => "line",
+                ShapeKind::Line | ShapeKind::Arrow => "line",
             };
+            // A flipped line is PowerPoint's flipV; an arrow is a line with a tail end.
+            let mut frame = xfrm(&s.rect);
+            if s.flip {
+                frame = frame.replacen("<a:xfrm>", r#"<a:xfrm flipV="1">"#, 1);
+            }
+            let mut outline = line(s.stroke);
+            if s.kind == ShapeKind::Arrow {
+                outline = outline.replacen("</a:ln>", r#"<a:tailEnd type="triangle"/></a:ln>"#, 1);
+            }
             let _ = write!(
                 xml,
-                r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Shape {id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>{}<a:prstGeom prst="{prst}"><a:avLst/></a:prstGeom>{}{}</p:spPr>{}</p:sp>"#,
-                xfrm(&s.rect),
+                r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Shape {id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>{frame}<a:prstGeom prst="{prst}"><a:avLst/></a:prstGeom>{}{outline}</p:spPr>{}</p:sp>"#,
                 fill(s.fill),
-                line(s.stroke),
                 tx_body(&s.paragraphs)
             );
         }
@@ -822,6 +829,7 @@ mod tests {
                     stroke: Some(Stroke { color: Color::BLACK, width: 2.0 }),
                     paragraphs: vec![Paragraph::plain("in")],
                     steps: vec![Step::disappear(2)],
+                    flip: false,
                 }),
                 Element::Math(MathBlock {
                     rect: Rect::new(300.0, 300.0, 200.0, 60.0),
@@ -949,5 +957,41 @@ mod tests {
         let Element::Text(m) = &s.elements[3] else { panic!("math as text") };
         assert_eq!(m.text(), "x^2");
         std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[test]
+    fn arrows_and_flipped_lines_round_trip() {
+        let dir = std::env::temp_dir().join(format!("decker-arrow-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let stroke = Some(Stroke { color: Color::rgb(0xAA, 0, 0), width: 3.0 });
+        let mut deck = Deck::new("arrows");
+        deck.slides.push(Slide {
+            elements: vec![
+                Element::Shape(Shape {
+                    rect: Rect::new(10.0, 10.0, 200.0, 100.0),
+                    kind: ShapeKind::Arrow,
+                    stroke,
+                    flip: true,
+                    ..Default::default()
+                }),
+                Element::Shape(Shape {
+                    rect: Rect::new(10.0, 200.0, 200.0, 50.0),
+                    kind: ShapeKind::Line,
+                    stroke,
+                    ..Default::default()
+                }),
+            ],
+            ..Default::default()
+        });
+        let pptx = dir.join("a.pptx");
+        export(&deck, &dir, &pptx).unwrap();
+        let (back, report) = super::super::import(&pptx, &dir.join("back.deck")).unwrap();
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        let Element::Shape(arrow) = &back.slides[0].elements[0] else { panic!("arrow") };
+        assert_eq!((arrow.kind, arrow.flip, arrow.stroke), (ShapeKind::Arrow, true, stroke));
+        let Element::Shape(line) = &back.slides[0].elements[1] else { panic!("line") };
+        assert_eq!((line.kind, line.flip), (ShapeKind::Line, false));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

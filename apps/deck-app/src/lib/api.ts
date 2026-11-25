@@ -23,6 +23,14 @@ export interface ElementInfo {
   highlight?: string;
   subsections?: boolean;
   media?: MediaInfo;
+  /** Shapes: their kind, and whether a line or arrow is flipped. */
+  shape?: "rectangle" | "ellipse" | "line" | "arrow";
+  flip: boolean;
+  /** Placeholders: their default text style. */
+  placeholder?: PlaceholderStyle & { name: string };
+}
+export interface PlaceholderStyle {
+  size?: number; bold?: boolean; color?: string; font?: string; align?: Align; bullets?: boolean;
 }
 
 export type Align = "left" | "center" | "right" | "justify";
@@ -49,6 +57,8 @@ export interface ElementStyle {
   fill?: string; stroke?: string; stroke_width?: number; size?: number; highlight?: string; subsections?: boolean;
   /** Media: "appear" or "button"; loop; sound. */
   play?: "appear" | "button"; looping?: boolean; sound?: boolean;
+  /** Lines and arrows: run bottom-left to top-right. */
+  flip?: boolean;
 }
 export interface MediaInfo { play: "on_appear" | "button"; looping: boolean; sound: boolean; duration: number | null; poster: string | null }
 
@@ -136,6 +146,9 @@ export const api = {
   addPlaceholder: () => invoke<View>("add_placeholder"),
   addOutline: () => invoke<View>("add_outline"),
   addFigure: () => invoke<View>("add_figure"),
+  /** Adds a shape and returns its index. */
+  addShape: (kind: "rectangle" | "ellipse" | "line" | "arrow") => invoke<number>("add_shape", { kind }),
+  stylePlaceholder: (element: number, change: PlaceholderStyle) => invoke<View>("style_placeholder", { element, change }),
   groupElements: (indices: number[]) => invoke<number>("group_elements", { indices }),
   setSteps: (element: number, steps: Step[]) => invoke<View>("set_steps", { element, steps }),
   setTheme: (change: ThemeChange) => invoke<View>("set_theme", { change }),

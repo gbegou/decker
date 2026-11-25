@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use deck_core::text::{ParagraphChange, StyleChange, StyleInfo};
 use deck_core::{Crop, Deck, Mask, Rect};
-use state::{AppState, ElementStyle, TextLayout, ThemeChange, View};
+use state::{AppState, ElementStyle, PlaceholderStyle, TextLayout, ThemeChange, View};
 
 type Shared<'a> = State<'a, Mutex<AppState>>;
 
@@ -492,6 +492,29 @@ fn ungroup_element(app: AppHandle, state: Shared, index: usize) -> Result<usize,
 }
 
 #[tauri::command]
+fn add_shape(app: AppHandle, state: Shared, kind: String) -> Result<usize, String> {
+    let index = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint("add_shape", false);
+        s.add_shape(&kind)?
+    };
+    edited(&app);
+    Ok(index)
+}
+
+#[tauri::command]
+fn style_placeholder(app: AppHandle, state: Shared, element: usize, change: PlaceholderStyle) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint("style_placeholder", false);
+        s.style_placeholder(element, &change)?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+#[tauri::command]
 fn add_figure(app: AppHandle, state: Shared) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
@@ -871,6 +894,8 @@ pub fn run() {
             add_placeholder,
             add_outline,
             add_figure,
+            add_shape,
+            style_placeholder,
             group_elements,
             set_steps,
             set_theme,
