@@ -249,10 +249,26 @@ fn figure_source(preamble: &str, source: &str, width: f64, defaults: &TextDefaul
     )
 }
 
+/// Which of a page's layers to write: `Over` the picture of the slide
+/// (texts and formulas, transparent) or `Under` it (figures, whose lines
+/// the opaque picture hides).
+/// `Formulas` are over it too, apart so that a failing one can be dropped.
+#[derive(Clone, Copy, PartialEq)]
+enum Layer {
+    Over,
+    Formulas,
+    Under,
+}
+
 /// The texts of a slide at a build step as invisible Typst text placed
 /// where the picture of the slide shows them: the layout's (variables
 /// filled) and the slide's, inside groups too, skipping hidden elements.
+#[cfg(test)]
 fn text_layer(deck: &Deck, slide_index: usize, step: u32) -> String {
+    layer(deck, slide_index, step, Layer::Over)
+}
+
+fn layer(deck: &Deck, slide_index: usize, step: u32, which: Layer) -> String {
     let Some(slide) = deck.slides.get(slide_index) else { return String::new() };
     let defaults = deck.theme_of(slide).defaults();
     let mut out = String::new();
@@ -260,18 +276,53 @@ fn text_layer(deck: &Deck, slide_index: usize, step: u32) -> String {
         let vars = deck_core::vars::Vars::for_slide(deck, slide_index);
         for e in &layout.elements {
             let e = vars.element(e);
-            text_layer_element(&mut out, &e, e.last_step(), (0.0, 0.0), &defaults);
+            text_layer_element(&mut out, &e, e.last_step(), (0.0, 0.0), &defaults, which);
         }
     }
     for e in &slide.elements {
-        text_layer_element(&mut out, e, step, (0.0, 0.0), &defaults);
+        text_layer_element(&mut out, e, step, (0.0, 0.0), &defaults, which);
     }
     out
 }
 
-fn text_layer_element(out: &mut String, e: &Element, step: u32, offset: (f64, f64), defaults: &TextDefaults) {
+fn text_layer_element(
+    out: &mut String,
+    e: &Element,
+    step: u32,
+    offset: (f64, f64),
+    defaults: &TextDefaults,
+    which: Layer,
+) {
     let state = e.state_at(step);
     if state.opacity <= 0.01 {
+        return;
+    }
+    let r = state.rect;
+    let (x, y) = (r.x + offset.0, r.y + offset.1);
+    if which == Layer::Under {
+        match e {
+            Element::Figure(f) => place_figure(out, f, x, y, r.w, r.h, defaults),
+            Element::Group(g) => {
+                let moved = (offset.0 + r.x - g.rect.x, offset.1 + r.y - g.rect.y);
+                for c in &g.children {
+                    text_layer_element(out, c, c.last_step(), moved, defaults, which);
+                }
+            }
+            _ => {}
+        }
+        return;
+    }
+    if which == Layer::Formulas {
+        match e {
+            Element::Math(m) => place_math(out, m, x, y, r.w, r.h, defaults),
+            Element::Group(g) => {
+                let moved = (offset.0 + r.x - g.rect.x, offset.1 + r.y - g.rect.y);
+                for c in &g.children {
+                    text_layer_element(out, c, c.last_step(), moved, defaults, which);
+                }
+            }
+            _ => {}
+        }
         return;
     }
     let paragraphs = match e {
@@ -292,13 +343,53 @@ fn text_layer_element(out: &mut String, e: &Element, step: u32, offset: (f64, f6
             // A group's step moves its children along with it.
             let moved = (offset.0 + state.rect.x - g.rect.x, offset.1 + state.rect.y - g.rect.y);
             for c in &g.children {
-                text_layer_element(out, c, c.last_step(), moved, defaults);
+                text_layer_element(out, c, c.last_step(), moved, defaults, which);
             }
             return;
         }
         _ => return,
     };
     place_text(out, &TextBoxLike { rect: state.rect, paragraphs }, offset, defaults);
+}
+
+/// A formula, transparent, scaled and centered in its box the way the
+/// renderer draws it (natural size, scaled down to fit). Sizes come from
+/// Typst's own measure, so they match the picture.
+fn place_math(out: &mut String, m: &deck_core::MathBlock, x: f64, y: f64, w: f64, h: f64, defaults: &TextDefaults) {
+    if m.source.trim().is_empty() {
+        return;
+    }
+    let size = m.size.or(defaults.size).unwrap_or(DEFAULT_SIZE);
+    let body = format!("[\n#set text(size: {size}pt, fill: rgb(\"#00000000\"))\n$ {} $\n]", m.source);
+    out.push_str(&fitted(x, y, w, h, &body, false));
+}
+
+/// A figure under the picture: its texts are there, its lines hidden.
+fn place_figure(out: &mut String, f: &deck_core::Figure, x: f64, y: f64, w: f64, h: f64, defaults: &TextDefaults) {
+    if f.source.trim().is_empty() {
+        return;
+    }
+    let size = defaults.size.unwrap_or(DEFAULT_SIZE);
+    let font = font_list(defaults.font.as_deref());
+    let body = format!(
+        "block(width: {w}pt)[\n#set text(size: {size}pt, font: {font}, fill: rgb(\"#00000000\"))\n{}\n]",
+        f.source
+    );
+    out.push_str(&fitted(x, y, w, h, &body, true));
+}
+
+/// Places `body` (Typst code giving content) at `(x, y)`, scaled down to
+/// fit `w` by `h` and centered, as the renderer draws formulas and
+/// figures. `full_width`: the body already is `w` wide (a figure).
+fn fitted(x: f64, y: f64, w: f64, h: f64, body: &str, full_width: bool) -> String {
+    let scale = if full_width {
+        format!("calc.min(1.0, {h}pt / m.height)")
+    } else {
+        format!("calc.min(1.0, {w}pt / m.width, {h}pt / m.height)")
+    };
+    format!(
+        "#place(top + left, dx: {x}pt, dy: {y}pt, context {{\n  let body = {body}\n  let m = measure(body)\n  if m.width > 0pt and m.height > 0pt {{\n    let s = {scale}\n    place(top + left, dx: ({w}pt - m.width * s) / 2, dy: ({h}pt - m.height * s) / 2, scale(s * 100%, origin: top + left, reflow: true, box(width: m.width, height: m.height, body)))\n  }}\n}})\n"
+    )
 }
 
 /// A box of paragraphs to place in the text layer.
@@ -453,12 +544,15 @@ impl Engine {
         out: &Path,
     ) -> Result<(), Error> {
         let mut binaries = Binaries::new();
-        let mut text = format!(
+        let header = format!(
             "#set page(width: {w}pt, height: {h}pt, margin: 0pt)\n#set heading(outlined: true)\n#show heading: none\n{preamble}\n",
             w = deck.width,
             h = deck.height,
             preamble = deck.math_preamble
         );
+        // Each page: its bookmarks, the figures' layer (under the picture),
+        // the picture of the slide, and its texts and formulas (over it).
+        let mut parts: Vec<[String; 5]> = vec![];
         let mut previous = None;
         for (i, &(slide_index, step)) in pages.iter().enumerate() {
             let Some(slide) = deck.slides.get(slide_index) else { continue };
@@ -471,6 +565,7 @@ impl Engine {
                 .replace(r#"font-family="sans-serif""#, r#"font-family="DejaVu Sans""#)
                 .replace(r#"font-family="monospace""#, r#"font-family="DejaVu Sans Mono""#);
             binaries.insert(FileId::new(None, VirtualPath::new(&path)), Bytes::from_string(svg));
+            let mut text = String::new();
             if i > 0 {
                 text.push_str("#pagebreak()\n");
             }
@@ -488,15 +583,39 @@ impl Engine {
                     text.push_str(&format!("#heading(level: 3)[{}]\n", typst_markup(&title)));
                 }
             }
-            text.push_str(&format!("#image(\"{path}\", width: 100%, height: 100%, fit: \"contain\")\n"));
+            let picture = format!("#image(\"{path}\", width: 100%, height: 100%, fit: \"contain\")\n");
             // The slide's texts once more, typeset invisibly at the same
             // place: the PDF's text can be selected, searched and read aloud.
-            text.push_str(&text_layer(deck, slide_index, step));
+            // Formulas join them; figures go under the picture, which hides
+            // the lines a figure draws in its own colors.
+            parts.push([
+                text,
+                layer(deck, slide_index, step, Layer::Under),
+                picture,
+                layer(deck, slide_index, step, Layer::Over),
+                layer(deck, slide_index, step, Layer::Formulas),
+            ]);
         }
         let main_id = FileId::new(None, VirtualPath::new("/main.typ"));
-        let world = Sandbox { shared: &self.inner, main: Source::new(main_id, text), binaries: &binaries };
-        let document: PagedDocument =
-            typst::compile(&world).output.map_err(|errors| Error::Typst(describe(&errors)))?;
+        let compile = |typeset: bool| {
+            let mut text = header.clone();
+            for [bookmarks, under, picture, over, formulas] in &parts {
+                text.push_str(bookmarks);
+                if typeset {
+                    text.push_str(under);
+                }
+                text.push_str(picture);
+                text.push_str(over);
+                if typeset {
+                    text.push_str(formulas);
+                }
+            }
+            let world = Sandbox { shared: &self.inner, main: Source::new(main_id, text), binaries: &binaries };
+            typst::compile::<PagedDocument>(&world).output.map_err(|errors| Error::Typst(describe(&errors)))
+        };
+        // A formula or figure the layer cannot typeset (a source that only
+        // works on a page of its own) must not cost the export: without them.
+        let document = compile(true).or_else(|_| compile(false))?;
         let pdf = typst_pdf::pdf(&document, &typst_pdf::PdfOptions::default())
             .map_err(|errors| Error::Typst(describe(&errors)))?;
         std::fs::write(out, pdf).map_err(|e| Error::Typst(format!("writing {}: {e}", out.display())))?;
@@ -995,6 +1114,34 @@ mod tests {
         assert!(std::fs::read(&handout).unwrap().starts_with(b"%PDF"));
         std::fs::remove_file(&handout).unwrap();
         deck.slides[0].notes.clear();
+        // Formulas and figures: their text is in the PDF too, and a source
+        // the layer cannot typeset only costs the layer, not the export.
+        deck.slides[1].elements.push(Element::Math(MathBlock {
+            rect: Rect::new(100.0, 300.0, 300.0, 80.0),
+            source: "sin(theta)".into(),
+            ..Default::default()
+        }));
+        deck.slides[1].elements.push(Element::Figure(Figure {
+            rect: Rect::new(500.0, 300.0, 300.0, 120.0),
+            source: "Labelled *figure*".into(),
+            ..Default::default()
+        }));
+        let with_math = out.with_extension("math.pdf");
+        e.export_pdf(&deck, |i| svg::render_slide(&deck, &deck.slides[i]), &with_math).unwrap();
+        let formulas = layer(&deck, 1, 1, Layer::Formulas);
+        assert!(formulas.contains("$ sin(theta) $") && formulas.contains("measure(body)"), "{formulas}");
+        assert!(!layer(&deck, 1, 1, Layer::Over).contains("sin(theta)"));
+        assert!(layer(&deck, 1, 1, Layer::Under).contains("Labelled *figure*"));
+        deck.slides[1].elements.push(Element::Math(MathBlock {
+            rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+            source: "#context page.width".into(),
+            ..Default::default()
+        }));
+        e.export_pdf(&deck, |i| svg::render_slide(&deck, &deck.slides[i]), &with_math).unwrap();
+        let kept = deck.slides[1].elements.len() - 3;
+        deck.slides[1].elements.truncate(kept);
+        let _ = std::fs::remove_file(with_math.with_extension("notes.md"));
+        std::fs::remove_file(&with_math).unwrap();
         let layer = text_layer(&deck, 0, 0);
         assert!(layer.contains("#place(top + left, dx: 54pt, dy: 54pt, block(width: 792pt)["), "{layer}");
         assert!(layer.contains(r##"fill: rgb("#00000000")"##) && layer.contains(r"Welcome \[all\]"), "{layer}");

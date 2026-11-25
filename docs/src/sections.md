@@ -60,4 +60,5 @@ viewer's presenter view reads. The converter does the same: `deck-convert pdf ta
 
 Text in the PDF can be selected, searched and read by a screen reader: each slide is drawn as
 vector artwork, and its texts are typeset once more on top, invisibly, at the same place.
-Formulas and figures are artwork only.
+Formulas are typeset once more over the picture, transparent, and figures under it, so
+their text (axis labels, legends) is in the PDF as well.
