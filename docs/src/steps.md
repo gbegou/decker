@@ -37,8 +37,9 @@ In `deck.json` each step has `at` (the click that triggers it), `set` (what chan
 ## In exports
 
 - **PDF** can carry one page per click (see [Exporting](export.md)).
-- **PowerPoint** gets appear and disappear steps as fade entrances and exits; other changes
-  are reported as warnings.
+- **PowerPoint** gets appear and disappear steps as fade entrances and exits, moves as motion
+  paths, size changes as Grow/Shrink and turns as Spin; color changes are reported as
+  warnings. Importing reads these effects back as steps.
 
 Not covered, by design: curved motion paths (use intermediate steps), per-character text
 effects, looping animations.

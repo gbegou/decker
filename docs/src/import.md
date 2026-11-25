@@ -24,14 +24,15 @@ opening of the same file opens that folder. The command line does the same with
   default *Medium Style 2* family; other built-in styles are drawn as Medium Style 2, with a
   warning.
 - Colors given as theme references ("Accent 1, darker 25%"), resolved in the slide's theme.
-- Embedded videos, with their poster.
+- Embedded videos, with their poster; one started automatically plays when it appears.
 - Groups, with their child-to-slide transform.
-- Animations: entrance and exit effects of the main sequence become build steps.
+- Animations: entrance and exit effects of the main sequence become build steps; motion
+  paths become moves (to the path's end point), Spin a turn, Grow/Shrink a size change.
 - Formulas and figures exported by decker come back editable.
 
 ## What does not
 
-Skipped, with a warning: charts, SmartArt, embedded objects, gradients, emphasis and motion-path animations,
+Skipped, with a warning: charts, SmartArt, embedded objects, gradients, other emphasis effects (color, pulse...),
 transitions. The old binary `.ppt` format is not read; convert it first:
 
 ```bash

@@ -54,8 +54,8 @@ pub fn import(pptx: &Path, out: &Path) -> Result<(Deck, ImportReport)> {
         .unwrap_or_default();
     for id in ids {
         let part = pkg.rel_by_id(&pres_part, &id)?;
-        let (mut slide, layout_part) =
-            import_slide(&pkg, &part, &mut images, &mut report).with_context(|| format!("importing {part}"))?;
+        let (mut slide, layout_part) = import_slide(&pkg, &part, &mut images, &mut report, (deck.width, deck.height))
+            .with_context(|| format!("importing {part}"))?;
         if let Some(layout_part) = layout_part {
             if !layouts.contains_key(&layout_part) {
                 let mut layout = import_layout(&pkg, &layout_part, &mut images, &mut report)
@@ -312,6 +312,7 @@ fn import_slide(
     part: &str,
     images: &mut ImageStore,
     report: &mut ImportReport,
+    size: (f64, f64),
 ) -> Result<(Slide, Option<String>)> {
     let xml = pkg.xml(part)?;
     let doc = Document::parse(&xml).with_context(|| format!("parsing {part}"))?;
@@ -348,7 +349,7 @@ fn import_slide(
         false,
     )?;
     if let Some(timing) = child(doc.root_element(), NS_P, "timing") {
-        import_timing(timing, &shape_ids, &mut slide.elements, part, report);
+        import_timing(timing, &shape_ids, &mut slide.elements, part, report, size);
     }
 
     if let Some(notes_part) = pkg.rel_by_type(part, REL_NOTES)? {
@@ -598,13 +599,17 @@ fn import_tree(
 /// Reads the slide's timing tree. Every click-triggered `<p:par>` under the
 /// main sequence is one build step; entrance effects (`presetClass="entr"`)
 /// hide the target from step 0 and show it at that step, exit effects hide
-/// it at that step, emphasis and motion paths are reported and skipped.
+/// it at that step; motion paths move the element (their end point, in
+/// fractions of the slide `size`), Spin turns it and Grow/Shrink scales it
+/// about its center, each from where the previous steps left it. Other
+/// emphasis effects are reported and skipped.
 fn import_timing(
     timing: Node,
     shape_ids: &[Option<String>],
     elements: &mut [Element],
     part: &str,
     report: &mut ImportReport,
+    size: (f64, f64),
 ) {
     let Some(main_seq) = timing.descendants().find(|n| {
         n.has_tag_name((NS_P, "seq"))
@@ -619,7 +624,18 @@ fn import_timing(
     };
     let mut step = 0u32;
     for click_par in root_par.children().filter(|n| n.has_tag_name((NS_P, "par"))) {
-        step += 1;
+        // A group that starts by itself (delay not "indefinite") runs with
+        // the slide or the previous click: it is no click of its own.
+        let on_click = click_par
+            .children()
+            .find(|n| n.has_tag_name((NS_P, "cTn")))
+            .and_then(|c| child(c, NS_P, "stCondLst"))
+            .and_then(|l| child(l, NS_P, "cond"))
+            .and_then(|c| c.attribute("delay"))
+            .is_none_or(|d| d == "indefinite");
+        if on_click {
+            step += 1;
+        }
         // Within a click: the first group starts on click, the others
         // after the previous one or with it; all land in the same step.
         for effect in
@@ -657,9 +673,54 @@ fn import_timing(
                     steps.push(Step { at: step, duration, ..Step::appear(step) });
                 }
                 "exit" => steps.push(Step { at: step, duration, ..Step::disappear(step) }),
+                "mediacall" => {
+                    // A video started by the timeline: it plays when it appears.
+                    if let Element::Media(m) = &mut elements[index] {
+                        m.play = deck_core::Play::OnAppear;
+                    }
+                }
+                "path" | "emph" => {
+                    let now = elements[index].state_at(step).rect;
+                    let behaviour = |tag: &str| effect.descendants().find(|n| n.has_tag_name((NS_P, tag)));
+                    let mut set = Overrides::default();
+                    if let Some(motion) = behaviour("animMotion") {
+                        let Some((dx, dy)) = motion.attribute("path").and_then(path_end) else { continue };
+                        set.x = Some(now.x + dx * size.0);
+                        set.y = Some(now.y + dy * size.1);
+                    } else if let Some(rot) = behaviour("animRot") {
+                        let by = rot.attribute("by").and_then(|b| b.parse::<f64>().ok()).unwrap_or(0.0) / 60000.0;
+                        set.rotation = Some(elements[index].state_at(step).rotation + by);
+                    } else if let Some(by) = behaviour("animScale").and_then(|a| child(a, NS_P, "by")) {
+                        let factor = |k: &str| {
+                            by.attribute(k).and_then(|v| v.parse::<f64>().ok()).map(|v| v / 100_000.0).unwrap_or(1.0)
+                        };
+                        let (w, h) = (now.w * factor("x"), now.h * factor("y"));
+                        set.x = Some(now.x + (now.w - w) / 2.0);
+                        set.y = Some(now.y + (now.h - h) / 2.0);
+                        set.w = Some(w);
+                        set.h = Some(h);
+                    } else {
+                        report.warnings.push(format!("{part}: {class} animation on shape {target} skipped"));
+                        continue;
+                    }
+                    steps_mut(&mut elements[index]).push(Step { at: step, duration, set, ..Default::default() });
+                }
                 other => report.warnings.push(format!("{part}: {other} animation on shape {target} skipped")),
             }
         }
+    }
+}
+
+/// The end point of a motion path (`M 0 0 L 0.25 0.1 E`, any commands):
+/// its last coordinate pair.
+fn path_end(path: &str) -> Option<(f64, f64)> {
+    let numbers: Vec<f64> = path
+        .split(|c: char| c.is_whitespace() || c == ',' || (c.is_ascii_alphabetic() && c != 'e'))
+        .filter_map(|t| t.parse().ok())
+        .collect();
+    match numbers.as_slice() {
+        [.., x, y] => Some((*x, *y)),
+        _ => None,
     }
 }
 

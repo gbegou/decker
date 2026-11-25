@@ -42,10 +42,11 @@ the speaker notes. On the slides:
   fitted and centered in the element's box), with the Typst source kept in the picture's
   description so that importing the file brings them back editable;
 - videos embedded the way PowerPoint writes them, with their poster, looping and muted as
-  set; they start on click in PowerPoint. Animated GIFs as pictures, which PowerPoint
+  set; a video that plays when it appears starts by itself in PowerPoint ("Automatically"),
+  the others on click. Animated GIFs as pictures, which PowerPoint
   animates;
-- appear and disappear build steps as fade entrances and exits; sections.
+- build steps: appear and disappear as fade entrances and exits, moves as motion paths,
+  size changes as Grow/Shrink, turns as Spin; sections.
 
-What cannot be expressed is listed as warnings after the export: moves, size and color
-changes in build steps, plan slides (exported as their current text), "play when it appears"
-for videos. Without the Typst engine, formulas and figures go out as their source text.
+What cannot be expressed is listed as warnings after the export: color changes in build
+steps, plan slides (exported as their current text). Without the Typst engine, formulas and figures go out as their source text.

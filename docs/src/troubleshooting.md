@@ -35,7 +35,7 @@ Typst (`--no-default-features`); install a release build.
 
 **An imported PowerPoint looks different.** Read the import warnings in the side panel;
 [Importing PowerPoint](import.md) lists what is kept and what is not (gradients, charts,
-motion paths).
+SmartArt).
 
 **The PDF export fails on a formula.** The export retries without selectable formulas and
 figures rather than failing; if it still fails, look for a slide whose figure shows as an error

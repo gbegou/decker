@@ -203,7 +203,7 @@ pub fn export_with(deck: &Deck, deck_dir: &Path, pptx: &Path, math: &dyn MathRen
             )?;
         }
         part.xml.push_str("</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>");
-        part.xml.push_str(&timing_xml(slide, i, &mut warnings));
+        part.xml.push_str(&timing_xml(slide, i, (deck.width, deck.height), &mut warnings));
         part.xml.push_str("</p:sld>");
         if !slide.notes.is_empty() {
             let rel = part.next_rel();
@@ -224,38 +224,104 @@ pub fn export_with(deck: &Deck, deck_dir: &Path, pptx: &Path, math: &dyn MathRen
 
 /// Build steps as a PowerPoint timing tree: one click per step, a fade
 /// entrance for opacity going to 1, a fade exit for opacity going to 0.
-fn timing_xml(slide: &Slide, slide_no: usize, warnings: &mut Vec<String>) -> String {
+fn timing_xml(slide: &Slide, slide_no: usize, size: (f64, f64), warnings: &mut Vec<String>) -> String {
     let last = slide.last_step();
     let mut id = 1u32;
     let mut next = || {
         id += 1;
         id
     };
+    // Videos that play when they appear: PowerPoint's "Automatically", a
+    // media call after the effect that shows them (or with the slide).
+    let autoplay = |k: usize, at: u32, next: &mut dyn FnMut() -> u32| -> Option<String> {
+        let Element::Media(m) = &slide.elements[k] else { return None };
+        let shown_from = m.steps.iter().filter(|s| s.set.opacity.is_some_and(|o| o >= 1.0)).map(|s| s.at).min();
+        let starts_hidden = m.steps.iter().any(|s| s.at == 0 && s.set.opacity == Some(0.0));
+        let appears = if starts_hidden { shown_from? } else { 0 };
+        if m.is_gif() || m.play != Play::OnAppear || appears != at {
+            return None;
+        }
+        let (outer, inner) = (next(), next());
+        Some(format!(
+            r#"<p:par><p:cTn id="{outer}" presetID="1" presetClass="mediacall" presetSubtype="0" fill="hold" nodeType="afterEffect"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:cmd type="call" cmd="playFrom(0.0)"><p:cBhvr><p:cTn id="{inner}" dur="1" fill="hold"/><p:tgtEl><p:spTgt spid="{}"/></p:tgtEl></p:cBhvr></p:cmd></p:childTnLst></p:cTn></p:par>"#,
+            k + 2
+        ))
+    };
     let mut clicks = String::new();
+    let at_start: String = (0..slide.elements.len()).filter_map(|k| autoplay(k, 0, &mut next)).collect();
+    if !at_start.is_empty() {
+        let _ = write!(
+            clicks,
+            r#"<p:par><p:cTn id="{}" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="{}" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>{at_start}</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>"#,
+            next(),
+            next()
+        );
+    }
     for step in 1..=last {
         let mut effects = String::new();
         for (k, element) in slide.elements.iter().enumerate() {
             let shape_id = k + 2;
             for s in element.steps().iter().filter(|s| s.at == step) {
                 let o = &s.set;
-                if o.x.is_some()
-                    || o.y.is_some()
-                    || o.w.is_some()
-                    || o.h.is_some()
-                    || o.rotation.is_some()
-                    || o.fill.is_some()
-                {
-                    warnings.push(format!(
-                        "slide {slide_no}: step {step} of element {k} changes geometry or color, not exported"
+                let dur = ((if s.duration > 0.0 { s.duration } else { 0.5 }) * 1000.0) as u64;
+                let delay = (s.delay * 1000.0) as u64;
+                // Geometry: a scale about the center, a turn, then a move of
+                // the center, from the state before this step.
+                let (before, after) = (element.state_at(step - 1), element.state_at(step));
+                let (b, a) = (before.rect, after.rect);
+                let mut behaviours = vec![];
+                let target = format!(r#"<p:tgtEl><p:spTgt spid="{shape_id}"/></p:tgtEl>"#);
+                if (o.w.is_some() || o.h.is_some()) && b.w > 0.0 && b.h > 0.0 && (a.w != b.w || a.h != b.h) {
+                    behaviours.push((
+                        "6",
+                        "emph",
+                        format!(
+                            r#"<p:animScale><p:cBhvr><p:cTn id="{{id}}" dur="{dur}" fill="hold"/>{target}</p:cBhvr><p:by x="{}" y="{}"/></p:animScale>"#,
+                            (a.w / b.w * 100_000.0).round(),
+                            (a.h / b.h * 100_000.0).round()
+                        ),
                     ));
+                }
+                if o.rotation.is_some() && after.rotation != before.rotation {
+                    behaviours.push((
+                        "8",
+                        "emph",
+                        format!(
+                            r#"<p:animRot by="{}"><p:cBhvr><p:cTn id="{{id}}" dur="{dur}" fill="hold"/>{target}<p:attrNameLst><p:attrName>r</p:attrName></p:attrNameLst></p:cBhvr></p:animRot>"#,
+                            ((after.rotation - before.rotation) * 60000.0).round()
+                        ),
+                    ));
+                }
+                let (dx, dy) = ((a.x + a.w / 2.0) - (b.x + b.w / 2.0), (a.y + a.h / 2.0) - (b.y + b.h / 2.0));
+                if (o.x.is_some() || o.y.is_some()) && (dx.abs() > 1e-6 || dy.abs() > 1e-6) {
+                    behaviours.push((
+                        "42",
+                        "path",
+                        format!(
+                            r#"<p:animMotion origin="layout" path="M 0 0 L {} {} E" pathEditMode="relative" ptsTypes=""><p:cBhvr><p:cTn id="{{id}}" dur="{dur}" fill="hold"/>{target}<p:attrNameLst><p:attrName>ppt_x</p:attrName><p:attrName>ppt_y</p:attrName></p:attrNameLst></p:cBhvr></p:animMotion>"#,
+                            dx / size.0,
+                            dy / size.1
+                        ),
+                    ));
+                }
+                for (preset_id, class, body) in behaviours {
+                    let node_type = if effects.is_empty() { "clickEffect" } else { "withEffect" };
+                    let outer = next();
+                    let body = body.replace("{id}", &next().to_string());
+                    let _ = write!(
+                        effects,
+                        r#"<p:par><p:cTn id="{outer}" presetID="{preset_id}" presetClass="{class}" presetSubtype="0" fill="hold" nodeType="{node_type}"><p:stCondLst><p:cond delay="{delay}"/></p:stCondLst><p:childTnLst>{body}</p:childTnLst></p:cTn></p:par>"#
+                    );
+                }
+                if o.fill.is_some() {
+                    warnings
+                        .push(format!("slide {slide_no}: step {step} of element {k} changes its color, not exported"));
                 }
                 let (class, preset, to) = match o.opacity {
                     Some(a) if a >= 1.0 => ("entr", "entr", "visible"),
                     Some(a) if a <= 0.0 => ("exit", "exit", "hidden"),
                     _ => continue,
                 };
-                let dur = ((if s.duration > 0.0 { s.duration } else { 0.5 }) * 1000.0) as u64;
-                let delay = (s.delay * 1000.0) as u64;
                 let node_type = if effects.is_empty() { "clickEffect" } else { "withEffect" };
                 let _ = write!(
                     effects,
@@ -268,6 +334,8 @@ fn timing_xml(slide: &Slide, slide_no: usize, warnings: &mut Vec<String>) -> Str
                 );
             }
         }
+        let plays: String = (0..slide.elements.len()).filter_map(|k| autoplay(k, step, &mut next)).collect();
+        effects.push_str(&plays);
         if effects.is_empty() {
             continue;
         }
@@ -686,9 +754,6 @@ fn write_element_plain(
                 r#"<p:pic><p:nvPicPr><p:cNvPr id="{id}" name="Video {id}"><a:hlinkClick r:id="" action="ppaction://media"/></p:cNvPr><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr><a:videoFile r:link="rId{video_rel}"/><p:extLst><p:ext uri="{{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}}"><p14:media xmlns:p14="{NS_P14}" r:embed="rId{media_rel}"/></p:ext></p:extLst></p:nvPr></p:nvPicPr><p:blipFill><a:blip r:embed="rId{poster_rel}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>{}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>"#,
                 xfrm(&m.rect)
             );
-            if m.play != Play::Button {
-                warnings.push(format!("{where_}: video {} embedded; it starts on click in PowerPoint", m.src));
-            }
         }
         Element::Image(img) => {
             let src = deck_dir.join(&img.src);
@@ -1226,6 +1291,53 @@ mod tests {
     }
 
     #[test]
+    fn moves_turns_and_scales_round_trip() {
+        let dir = std::env::temp_dir().join(format!("decker-motion-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut shape =
+            Shape { rect: Rect::new(100.0, 100.0, 200.0, 100.0), fill: Some(Color::BLACK), ..Default::default() };
+        shape.steps = vec![
+            Step {
+                at: 1,
+                duration: 1.0,
+                set: Overrides { x: Some(400.0), y: Some(250.0), ..Default::default() },
+                ..Default::default()
+            },
+            Step { at: 2, set: Overrides { rotation: Some(90.0), ..Default::default() }, ..Default::default() },
+            Step {
+                at: 3,
+                set: Overrides { x: Some(350.0), y: Some(225.0), w: Some(300.0), h: Some(150.0), ..Default::default() },
+                ..Default::default()
+            },
+        ];
+        let mut deck = Deck::new("motion");
+        deck.slides.push(Slide { elements: vec![Element::Shape(shape)], ..Default::default() });
+        let pptx = dir.join("m.pptx");
+        let warnings = export(&deck, &dir, &pptx).unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let (back, report) = super::super::import(&pptx, &dir.join("back.deck")).unwrap();
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        let (a, b) = (&deck.slides[0].elements[0], &back.slides[0].elements[0]);
+        for step in 0..=3 {
+            let (x, y) = (a.state_at(step), b.state_at(step));
+            let close = |p: f64, q: f64| (p - q).abs() < 0.01;
+            assert!(
+                close(x.rect.x, y.rect.x)
+                    && close(x.rect.y, y.rect.y)
+                    && close(x.rect.w, y.rect.w)
+                    && close(x.rect.h, y.rect.h),
+                "step {step}: {:?} came back as {:?}",
+                x.rect,
+                y.rect
+            );
+            assert!(close(x.rotation, y.rotation), "step {step}: rotation {} came back as {}", x.rotation, y.rotation);
+        }
+        assert_eq!(b.steps()[0].duration, 1.0);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn tables_round_trip() {
         let dir = std::env::temp_dir().join(format!("decker-table-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1303,6 +1415,40 @@ mod tests {
         // Without a typesetter: the source as text, with a warning.
         let plain = export(&deck, &dir, &dir.join("plain.pptx")).unwrap();
         assert_eq!(plain.len(), 2, "{plain:?}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn autoplaying_videos_round_trip() {
+        let dir = std::env::temp_dir().join(format!("decker-autoplay-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let clip = native::add_asset(&dir, "clip.mp4", b"not really a video").unwrap();
+        let video = |x: f64, steps: Vec<Step>| {
+            Element::Media(Media {
+                rect: Rect::new(x, 100.0, 320.0, 180.0),
+                src: clip.clone(),
+                play: Play::OnAppear,
+                steps,
+                ..Default::default()
+            })
+        };
+        let mut deck = Deck::new("autoplay");
+        deck.slides.push(Slide {
+            elements: vec![video(0.0, vec![]), video(400.0, vec![Step::disappear(0), Step::appear(1)])],
+            ..Default::default()
+        });
+        let pptx = dir.join("a.pptx");
+        let warnings = export(&deck, &dir, &pptx).unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let (back, report) = super::super::import(&pptx, &dir.join("back.deck")).unwrap();
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        for (k, e) in back.slides[0].elements.iter().enumerate() {
+            let Element::Media(m) = e else { panic!("a video") };
+            assert_eq!(m.play, Play::OnAppear, "video {k} plays by itself");
+        }
+        assert_eq!(back.slides[0].last_step(), 1, "the start-of-slide play is no click");
+        assert_eq!(back.slides[0].elements[1].state_at(1).opacity, 1.0);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
