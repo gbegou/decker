@@ -16,6 +16,8 @@
     ]],
     ["Elements", [
       ["Click · Shift+click", "Select; add to the selection; drag to move; corner handle to resize; Delete to remove"],
+      ["Drag on the empty slide", "A rubber band: selects every element it touches"],
+      ["Round handle above the selection", "Rotates the element (Shift: steps of 15°; it catches at 0, 90, 180, 270); double-click to reset. At a later click it makes a rotation step"],
       ["Drag", "Moves the whole selection; edges and centers snap to the slide and to other elements, with a guide line (hold Alt to move freely)"],
       ["Arrange bar", "Align to the selection (or to the slide for one element), distribute with equal gaps, mirror, bring forward or send back, stroke color and width"],
       ["Group · Ungroup (Ctrl+G · Ctrl+Shift+G)", "Several elements become one, moved, resized and animated together"],

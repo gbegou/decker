@@ -251,6 +251,8 @@ pub struct ElementInfo {
     pub index: usize,
     pub kind: &'static str,
     pub rect: Rect,
+    /// Degrees clockwise about the box's center, as shown at the viewed click.
+    pub rotation: f64,
     pub text: String,
     pub last_step: u32,
     /// Size of the first run in points, for the in-place editor.
@@ -704,6 +706,7 @@ impl AppState {
                     },
                     // As shown at the viewed click: a move step changes it.
                     rect: e.state_at(self.step).rect,
+                    rotation: e.state_at(self.step).rotation,
                     text: match e {
                         Element::Text(t) => t.text(),
                         Element::Shape(s) => s.paragraphs.iter().map(Paragraph::text).collect::<Vec<_>>().join("\n"),
@@ -783,6 +786,7 @@ impl AppState {
                     Element::Group(_) => "group",
                 },
                 rect: *e.rect(),
+                rotation: e.state_at(e.last_step()).rotation,
                 text: match e {
                     Element::Text(t) => t.text(),
                     Element::Shape(s) => s.paragraphs.iter().map(Paragraph::text).collect::<Vec<_>>().join("\n"),
@@ -815,6 +819,7 @@ impl AppState {
                 index: layout.elements.len() + k,
                 kind: "placeholder",
                 rect: ph.rect,
+                rotation: 0.0,
                 text: ph.name.clone(),
                 last_step: 0,
                 size: ph.size.unwrap_or(svg::DEFAULT_FONT_SIZE),
@@ -1674,6 +1679,30 @@ impl AppState {
         Ok(())
     }
 
+    /// Turns an element to `degrees` clockwise at the viewed click: a
+    /// rotation with no step of its own is the element's rotation from
+    /// the start (kept as an instant step at click 0).
+    pub fn set_rotation(&mut self, element: usize, degrees: f64) -> Result<(), String> {
+        self.touch_target();
+        let step = if self.editing_layout.is_some() { 0 } else { self.step };
+        let degrees = ((degrees % 360.0) + 360.0) % 360.0;
+        let e = self.elements_mut()?.get_mut(element).ok_or("no such element")?;
+        let steps = e.steps_mut();
+        match steps.iter_mut().find(|st| st.at == step) {
+            Some(st) => st.set.rotation = Some(degrees),
+            None => {
+                let mut st = Step { at: step, duration: if step == 0 { 0.0 } else { 0.5 }, ..Default::default() };
+                st.set.rotation = Some(degrees);
+                steps.push(st);
+                steps.sort_by_key(|st| st.at);
+            }
+        }
+        // A step at click 0 that sets nothing any more is dropped.
+        steps
+            .retain(|st| !(st.at == 0 && st.set == deck_core::Overrides { rotation: Some(0.0), ..Default::default() }));
+        Ok(())
+    }
+
     /// Moves several elements in one edit (a multi-selection dragged).
     pub fn set_rects(&mut self, rects: &[(usize, Rect)]) -> Result<(), String> {
         for (index, rect) in rects {
@@ -2223,6 +2252,25 @@ mod tests {
         assert_eq!(info.cells[1][0], "a\nb");
         assert_eq!(view.elements[i].kind, "table");
         assert!(s.edit_table(0, &TableEdit::Header { on: true }).is_err());
+    }
+
+    #[test]
+    fn rotation_is_a_step_at_the_viewed_click() {
+        let mut s = AppState::default();
+        s.load(deck(), PathBuf::new());
+        s.goto(1, 0);
+        s.add_text().unwrap();
+        s.set_rotation(0, 370.0).unwrap();
+        let e = |s: &AppState| s.deck.as_ref().unwrap().slides[1].elements[0].clone();
+        assert_eq!(e(&s).state_at(0).rotation, 10.0);
+        assert_eq!(s.view().elements[0].rotation, 10.0);
+        s.set_rotation(0, 0.0).unwrap();
+        assert!(e(&s).steps().is_empty(), "back to no rotation leaves no step");
+        // At a later click of a slide with steps: a rotation step there.
+        s.goto(0, 1);
+        s.set_rotation(0, 45.0).unwrap();
+        let shape = s.deck.as_ref().unwrap().slides[0].elements[0].clone();
+        assert_eq!((shape.state_at(0).rotation, shape.state_at(1).rotation), (0.0, 45.0));
     }
 
     #[test]

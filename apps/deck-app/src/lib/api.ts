@@ -12,6 +12,8 @@ export interface ElementInfo {
   index: number;
   kind: "text" | "image" | "media" | "figure" | "table" | "shape" | "math" | "placeholder" | "outline" | "group";
   rect: Rect;
+  /** Degrees clockwise about the box's center, at the viewed click. */
+  rotation: number;
   text: string;
   last_step: number;
   size: number;
@@ -140,6 +142,8 @@ export const api = {
     invoke<View>("navigate", { action }),
   goto: (slide: number, step = 0) => invoke<View>("goto", { slide, step }),
   setRect: (element: number, rect: Rect) => invoke<View>("set_rect", { element, rect }),
+  /** Turns an element to `degrees` clockwise at the viewed click. */
+  setRotation: (element: number, degrees: number) => invoke<View>("set_rotation", { element, degrees }),
   /** Moves several elements as one undo step. */
   setRects: (rects: [number, Rect][]) => invoke<View>("set_rects", { rects }),
   /** Aligns, distributes, mirrors or reorders elements; returns their indices afterwards. */

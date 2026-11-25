@@ -531,6 +531,19 @@ fn ungroup_element(app: AppHandle, state: Shared, index: usize) -> Result<usize,
     Ok(n)
 }
 
+/// Turns an element at the viewed click; dragging the handle is one undo step.
+#[tauri::command]
+fn set_rotation(app: AppHandle, state: Shared, element: usize, degrees: f64) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint("set_rotation", false);
+        s.set_rotation(element, degrees)?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
 /// Moves or resizes several elements as one undo step.
 #[tauri::command]
 fn set_rects(app: AppHandle, state: Shared, rects: Vec<(usize, Rect)>) -> Result<View, String> {
@@ -999,6 +1012,7 @@ pub fn run() {
             edit_table,
             set_rects,
             arrange,
+            set_rotation,
             group_elements,
             set_steps,
             set_theme,

@@ -317,7 +317,11 @@
   // through the rendered width.
   // A drag moves every selected element together (or resizes the one
   // whose handle is held); `rects` are their boxes when it started.
-  let drag: { index: number; startX: number; startY: number; rects: Map<number, Rect>; mode: "move" | "resize" } | null = null;
+  let drag: { index: number; startX: number; startY: number; rects: Map<number, Rect>; mode: "move" | "resize" | "rotate" } | null = null;
+  /** The rubber band dragged over the empty canvas, in slide coordinates. */
+  let band = $state<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  /** A band was just dragged: the click that ends it must not clear the selection. */
+  let banded = false;
   /** Guide lines shown while a drag snaps: slide coordinates. */
   let guides = $state<{ v: number[]; h: number[] }>({ v: [], h: [] });
 
@@ -516,7 +520,7 @@
     return view && canvas ? canvas.clientWidth / view.width : 1;
   }
 
-  function startDrag(e: PointerEvent, index: number, mode: "move" | "resize") {
+  function startDrag(e: PointerEvent, index: number, mode: "move" | "resize" | "rotate") {
     if (!view) return;
     if (e.shiftKey && mode === "move") {
       // Shift+click toggles the element in the multi-selection.
@@ -548,8 +552,32 @@
     return best;
   }
 
+  /** Pressing on the empty canvas starts a rubber band. */
+  function startBand(e: PointerEvent) {
+    if (!view || editing || (e.target as Element).closest(".hit, .handle, .rotate, .text-editing")) return;
+    const p = slidePoint(e);
+    band = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+    // Captured, so that releasing outside the canvas still ends the band.
+    canvas?.setPointerCapture(e.pointerId);
+  }
+
   function moveDrag(e: PointerEvent) {
+    if (band && view) {
+      const p = slidePoint(e);
+      band = { ...band, x1: p.x, y1: p.y };
+      return;
+    }
     if (!drag || !view) return;
+    if (drag.mode === "rotate") {
+      // The angle from the box's center to the pointer; straight up is 0. Shift snaps to 15 degrees.
+      const r = drag.rects.get(drag.index)!;
+      const p = slidePoint(e);
+      let deg = (Math.atan2(p.x - (r.x + r.w / 2), -(p.y - (r.y + r.h / 2))) * 180) / Math.PI;
+      if (e.shiftKey) deg = Math.round(deg / 15) * 15;
+      else if (Math.abs(deg - Math.round(deg / 90) * 90) < 3) deg = Math.round(deg / 90) * 90;
+      view.elements[drag.index].rotation = (deg + 360) % 360;
+      return;
+    }
     let dx = (e.clientX - drag.startX) / scale();
     let dy = (e.clientY - drag.startY) / scale();
     const moving = drag.rects;
@@ -573,8 +601,10 @@
       for (const [i, r] of moving) view.elements[i].rect = { ...r, x: r.x + dx, y: r.y + dy };
     } else {
       const r = moving.get(drag.index)!;
-      const sx = snap([r.x + r.w + dx], xs, reach);
-      const sy = snap([r.y + r.h + dy], ys, reach);
+      const turned = (view.elements[drag.index].rotation * Math.PI) / 180;
+      if (turned) [dx, dy] = [dx * Math.cos(turned) + dy * Math.sin(turned), -dx * Math.sin(turned) + dy * Math.cos(turned)];
+      const sx = snap([r.x + r.w + dx], xs, turned ? 0 : reach);
+      const sy = snap([r.y + r.h + dy], ys, turned ? 0 : reach);
       dx += sx.by; dy += sy.by;
       guides = { v: sx.at === null ? [] : [sx.at], h: sy.at === null ? [] : [sy.at] };
       // Lines may be flat: a rectangle keeps a minimum size.
@@ -585,6 +615,27 @@
   }
 
   async function endDrag() {
+    if (band && view) {
+      const b = { x: Math.min(band.x0, band.x1), y: Math.min(band.y0, band.y1), w: Math.abs(band.x1 - band.x0), h: Math.abs(band.y1 - band.y0) };
+      band = null;
+      if (b.w > 3 || b.h > 3) {
+        // Everything the band touches, the topmost first.
+        const hit = view.elements
+          .filter((el) => el.rect.x < b.x + b.w && el.rect.x + el.rect.w > b.x && el.rect.y < b.y + b.h && el.rect.y + el.rect.h > b.y)
+          .map((el) => el.index)
+          .reverse();
+        selected = hit[0] ?? null;
+        also = hit.slice(1);
+        banded = true;
+      }
+      return;
+    }
+    if (drag?.mode === "rotate" && view) {
+      const index = drag.index;
+      drag = null;
+      await run("Rotated", () => api.setRotation(index, view!.elements[index].rotation));
+      return;
+    }
     if (!drag || !view) return;
     const indices = [...drag.rects.keys()];
     const moved = indices.some((i) => {
@@ -785,22 +836,37 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div class="canvas" class:drop-hover={dropHover} bind:this={canvas} style="aspect-ratio: {view.width} / {view.height}"
-             onpointermove={moveDrag} onpointerup={endDrag}
-             onclick={(e) => { if ((e.target as Element).closest(".hit, .handle, .text-editing")) return; selected = null; also = []; editing = null; }}>
+             onpointerdown={startBand} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={endDrag}
+             onclick={(e) => { if (banded) { banded = false; return; } if ((e.target as Element).closest(".hit, .handle, .rotate, .text-editing")) return; selected = null; also = []; editing = null; }}>
           <SlideView svg={view.svg} width={view.width} height={view.height} dir={view.dir} />
           <svg class="overlay" viewBox="0 0 {view.width} {view.height}" preserveAspectRatio="none">
             {#each view.elements as el (el.index)}
               <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <rect class="hit" class:selected={selection.includes(el.index)}
+              {@const turn = el.rotation ? `rotate(${el.rotation} ${el.rect.x + el.rect.w / 2} ${el.rect.y + el.rect.h / 2})` : undefined}
+              <rect class="hit" class:selected={selection.includes(el.index)} transform={turn}
                     x={el.rect.x} y={el.rect.y} width={el.rect.w} height={el.rect.h}
                     onpointerdown={(e) => startDrag(e, el.index, "move")}
                     ondblclick={(e) => { e.stopPropagation(); startEdit(el.index, slidePoint(e)); }} />
               {#if el.index === selected}
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <rect class="handle" x={el.rect.x + el.rect.w - 6} y={el.rect.y + el.rect.h - 6} width="12" height="12"
+                <rect class="handle" x={el.rect.x + el.rect.w - 6} y={el.rect.y + el.rect.h - 6} width="12" height="12" transform={turn}
                       onpointerdown={(e) => startDrag(e, el.index, "resize")} />
+                {#if el.kind !== "placeholder" && also.length === 0}
+                  <g transform={turn}>
+                    <line class="rotate-stem" x1={el.rect.x + el.rect.w / 2} y1={el.rect.y} x2={el.rect.x + el.rect.w / 2} y2={el.rect.y - 22} />
+                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                    <circle class="rotate" cx={el.rect.x + el.rect.w / 2} cy={el.rect.y - 22} r="7"
+                            onpointerdown={(e) => startDrag(e, el.index, "rotate")}
+                            ondblclick={(e) => { e.stopPropagation(); run("Rotation reset", () => api.setRotation(el.index, 0)); }}>
+                      <title>Drag to rotate (Shift: steps of 15°); double-click to reset{el.rotation ? ` · ${Math.round(el.rotation)}°` : ""}</title>
+                    </circle>
+                  </g>
+                {/if}
               {/if}
             {/each}
+            {#if band}
+              <rect class="band" x={Math.min(band.x0, band.x1)} y={Math.min(band.y0, band.y1)} width={Math.abs(band.x1 - band.x0)} height={Math.abs(band.y1 - band.y0)} />
+            {/if}
             {#each guides.v as x}<line class="guide" x1={x} y1="0" x2={x} y2={view.height} />{/each}
             {#each guides.h as y}<line class="guide" x1="0" y1={y} x2={view.width} y2={y} />{/each}
           </svg>
@@ -1116,6 +1182,9 @@
   .hit:hover { stroke: var(--accent); stroke-dasharray: 4 2; }
   .hit.selected { stroke: var(--accent); stroke-width: 2; }
   .handle { fill: var(--accent); cursor: nwse-resize; }
+  .rotate { fill: white; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; cursor: grab; pointer-events: all; }
+  .rotate-stem { stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
+  .band { fill: rgba(79, 140, 255, 0.12); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; stroke-dasharray: 4 3; pointer-events: none; }
   .text-editing { cursor: text; }
   .edit-frame { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 3; }
   .selection { fill: rgba(79, 140, 255, 0.35); }

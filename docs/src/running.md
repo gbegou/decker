@@ -122,6 +122,10 @@ Two environment variables help scripts and tests:
   tall as their line count asks; the table's box sets the overall size, the style bar its
   text size, the arrange bar its rules. Tables go to PowerPoint and back as real tables, and
   their text is selectable in the PDF.
+- Dragging on the empty slide draws a rubber band that selects every element it touches.
+  The round handle above a selected element rotates it (Shift for steps of 15°; it catches
+  at right angles; double-click to reset). Viewing a later click, the rotation becomes a
+  build step, like a move.
 - Dragging moves the whole selection. Its edges and center snap to the slide's edges and
   center and to those of the other elements, with a dashed guide where it snapped; hold Alt
   to move freely.
