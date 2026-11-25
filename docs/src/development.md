@@ -78,6 +78,18 @@ Pushing a tag `vX.Y.Z` also publishes them as a GitHub release with generated no
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
+The `Python package` workflow builds `decker-slides` on every push, checks its metadata and
+runs the tests against the installed wheel; on a `vX.Y.Z` tag it also publishes it to PyPI.
+Bump `version` in `python/pyproject.toml` before tagging. Publishing uses PyPI's trusted
+publishing, so no token is stored in the repository; it needs a one-time setup by the
+project's owner:
+
+1. On PyPI, under *Your account → Publishing*, add a pending publisher for the project
+   `decker-slides`: owner `gbegou`, repository `decker`, workflow `pypi.yml`,
+   environment `pypi`.
+2. On GitHub, under *Settings → Environments*, create the environment `pypi` (optionally
+   restricted to tags `v*`).
+
 The manual is published by the `Docs` workflow to GitHub Pages, which has to be enabled once
 in the repository's settings (Pages, source "GitHub Actions").
 

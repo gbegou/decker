@@ -25,9 +25,17 @@ img = deck.slides[0].add_image(figure, 500, 130)          # copied into assets/
 deck.save()
 ```
 
-Install the package with `pip install -e python` from the repository (it is published as
-`decker-slides`, imported as `decker`), or point `PYTHONPATH` at the repository's `python/`
-folder, or at the `python/` folder of an installed decker's resources.
+Install the package from PyPI, where it is named `decker-slides` (it is imported as
+`decker`):
+
+```bash
+pip install decker-slides
+```
+
+It has no dependencies. From a checkout, `pip install -e python` installs the repository's
+version; or point `PYTHONPATH` at the repository's `python/` folder, or at the `python/`
+folder of an installed decker's resources. Macros run by the editor need none of this: the
+editor puts its own copy of the package on the path.
 
 A macro written for the editor also runs on a deck folder from the command line, the
 result saved to its `deck.json`:

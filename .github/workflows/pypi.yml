@@ -1,0 +1,49 @@
+name: Python package
+
+# Builds and checks the `decker-slides` package on every push; a tag
+# `v1.2.3` also publishes it to PyPI, through PyPI's trusted publishing
+# (no token stored here: PyPI trusts this workflow, see the manual's
+# Contributing page for the one-time setup).
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the sdist and wheel
+        run: |
+          python -m pip install build twine
+          python -m build python -o dist
+          twine check dist/*
+      - name: The wheel installs and its tests pass
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install dist/*.whl
+          # A copy away from the source, so that the installed package is the one imported.
+          mkdir -p /tmp/check/tests && cp python/tests/*.py /tmp/check/tests/
+          cd /tmp/check && /tmp/venv/bin/python -m unittest discover -s tests
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
