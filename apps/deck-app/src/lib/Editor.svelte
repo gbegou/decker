@@ -259,24 +259,38 @@
   let dragging = $state<number | null>(null);
   let dropAt = $state<number | null>(null);
 
-  function dragStart(e: DragEvent, i: number) {
-    dragging = i;
-    e.dataTransfer?.setData("text/plain", String(i));
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+  // Thumbnails are reordered with pointer events: HTML5 drag events never
+  // reach the page on Windows while the window handles file drops.
+  let pressed: { slide: number; y: number } | null = null;
+  /** A drag just ended: the click that follows must not open the slide. */
+  let dragged = false;
+
+  function thumbDown(e: PointerEvent, i: number) {
+    if (e.button !== 0) return;
+    pressed = { slide: i, y: e.clientY };
   }
-  function dragOver(e: DragEvent, i: number) {
-    if (dragging === null) return;
-    e.preventDefault();
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  function thumbMove(e: PointerEvent) {
+    if (!pressed) return;
+    if (dragging === null) {
+      // A few pixels first, so that a click stays a click.
+      if (Math.abs(e.clientY - pressed.y) < 6) return;
+      dragging = pressed.slide;
+    }
+    const item = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>(".stack-item[data-index]");
+    if (!item) return;
+    const i = Number(item.dataset.index);
+    const r = item.getBoundingClientRect();
     dropAt = e.clientY < r.top + r.height / 2 ? i : i + 1;
   }
-  function dragEnd() {
+  function thumbUp() {
     if (dragging !== null && dropAt !== null) {
       const from = dragging;
       // Dropping after the dragged slide: the index shifts once it is removed.
       const to = dropAt > from ? dropAt - 1 : dropAt;
-      if (to !== from) run(`Moved slide ${from + 1} to ${to + 1}`, () => api.moveSlide(from, to));
+      if (to !== from) enqueue(async () => { await run(`Moved slide ${from + 1} to ${to + 1}`, () => api.moveSlide(from, to)); });
+      dragged = true;
     }
+    pressed = null;
     dragging = null;
     dropAt = null;
   }
@@ -796,7 +810,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKey} onpointermove={thumbMove} onpointerup={thumbUp} onpointercancel={thumbUp} />
 
 <div class="editor">
   <header>
@@ -874,9 +888,9 @@
           {/if}
         {/each}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="stack-item" class:drop-before={dropAt === i} class:drop-after={dropAt === i + 1 && i === thumbnails.length - 1} class:dragging={dragging === i}
-             draggable="true" ondragstart={(e) => dragStart(e, i)} ondragover={(e) => dragOver(e, i)} ondragend={dragEnd} ondrop={(e) => { e.preventDefault(); dragEnd(); }}>
-          <button class="thumb" class:current={i === view.slide} onclick={() => api.goto(i)} oncontextmenu={(e) => openSlideMenu(e, i)}>
+        <div class="stack-item" data-index={i} class:drop-before={dropAt === i} class:drop-after={dropAt === i + 1 && i === thumbnails.length - 1} class:dragging={dragging === i}
+             onpointerdown={(e) => thumbDown(e, i)}>
+          <button class="thumb" class:current={i === view.slide} onclick={() => { if (dragged) { dragged = false; return; } api.goto(i); }} oncontextmenu={(e) => openSlideMenu(e, i)}>
             <span class="num">{i + 1}</span>
             <SlideView svg={thumb} width={view.width} height={view.height} />
           </button>
@@ -1178,9 +1192,6 @@
       <button role="menuitem" onclick={() => onSlide("Duplicated slide", api.duplicateSlide)}>Duplicate</button>
       <button role="menuitem" disabled={view.slide_count <= 1} onclick={() => onSlide("Deleted slide", api.deleteSlide)}>Delete</button>
       <hr />
-      <button role="menuitem" disabled={m.slide === 0} onclick={() => { const k = m.slide; slideMenu = null; enqueue(async () => { await run("Moved slide", () => api.moveSlide(k, k - 1)); }); }}>Move up</button>
-      <button role="menuitem" disabled={m.slide >= view.slide_count - 1} onclick={() => { const k = m.slide; slideMenu = null; enqueue(async () => { await run("Moved slide", () => api.moveSlide(k, k + 1)); }); }}>Move down</button>
-      <hr />
       {#if st.section === null}
         <button role="menuitem" onclick={() => { const k = m.slide; slideMenu = null; startHeading(k, "section"); }}>Start a section here</button>
       {:else}
@@ -1273,6 +1284,7 @@
   .slides { grid-area: slides; overflow-y: auto; padding: 8px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
   .stack-item { position: relative; border-top: 2px solid transparent; border-bottom: 2px solid transparent; cursor: grab; }
   .stack-item.dragging { opacity: 0.4; }
+  .stack-item { user-select: none; touch-action: none; }
   .stack-item.drop-before { border-top-color: var(--accent); }
   .stack-item.drop-after { border-bottom-color: var(--accent); }
   .stack-item .adders { display: none; position: absolute; right: 4px; bottom: 4px; gap: 3px; }

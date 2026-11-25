@@ -142,7 +142,7 @@ Two environment variables help scripts and tests:
 - While editing a text, the mouse works as in any editor: click places the caret, dragging
   selects, a double click selects the word and a triple click the paragraph.
 - Right-clicking a slide in the thumbnail pane opens its menu: new slide after it,
-  duplicate, delete, move up or down, and start or remove a section or subsection there.
+  duplicate, delete, and start or remove a section or subsection there.
 - **+ Text**, **+ Slide**, **Duplicate** and **− Slide** do what they say; a new slide starts
   from the current slide's [layout](layouts.md). **Insert from deck…** copies slides from
   another deck. Page Up and Page Down change slide.
