@@ -55,6 +55,9 @@ enum Command {
         /// One page per build step instead of one per slide.
         #[arg(long)]
         steps: bool,
+        /// The handout instead: one A4 page per slide with its notes below.
+        #[arg(long, conflicts_with = "steps")]
+        notes: bool,
     },
     /// Pack a deck folder into a single `.deckz` file, to send it.
     Pack {
@@ -129,10 +132,10 @@ fn main() -> Result<()> {
             }
             println!("{} slides rendered to {}", d.slides.len(), out.display());
         }
-        Command::Pdf { deck, out, steps } => {
+        Command::Pdf { deck, out, steps, notes } => {
             #[cfg(not(feature = "typst"))]
             {
-                let _ = (deck, out, steps);
+                let _ = (deck, out, steps, notes);
                 bail!("PDF export needs deck-convert built with the typst feature: cargo build -p deck-convert --features typst");
             }
             #[cfg(feature = "typst")]
@@ -142,6 +145,20 @@ fn main() -> Result<()> {
                 let engine = deck_typst::Engine::for_deck(&deck);
                 let assets: std::collections::HashMap<String, String> = std::collections::HashMap::new();
                 let _ = &assets;
+                if notes {
+                    engine.export_notes_pdf(
+                        &d,
+                        |i| {
+                            inline_for_pdf(
+                                &svg::render_step_still(&d, &d.slides[i], d.slides[i].last_step(), &engine),
+                                &deck,
+                            )
+                        },
+                        &out,
+                    )?;
+                    println!("{}: {} handout pages written to {}", deck.display(), d.slides.len(), out.display());
+                    return Ok(());
+                }
                 let pages = deck_core::transfer::pages(&d, steps);
                 engine.export_pdf_pages(
                     &d,

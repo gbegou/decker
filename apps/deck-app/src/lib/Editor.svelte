@@ -246,12 +246,12 @@
 
   // "Export PDF…" first asks how: one page per slide, or one per build step.
   let pdfDialog = $state(false);
-  let pdfSteps = $state(false);
+  let pdfMode = $state<"slides" | "steps" | "notes">("slides");
   async function exportPdf() {
     pdfDialog = false;
     const picked = await saveDialog({ defaultPath: "talk.pdf", filters: [{ name: "PDF", extensions: ["pdf"] }] });
     if (!picked) return;
-    await run(`Exported ${picked}`, () => api.exportPdf(picked, pdfSteps));
+    await run(`Exported ${picked}`, () => api.exportPdf(picked, pdfMode));
   }
 
   // Reordering slides by dragging thumbnails: the drop target is the gap
@@ -1114,8 +1114,9 @@
     <div class="modal">
       <div class="dialog small">
         <h3>Export PDF</h3>
-        <label><input type="radio" name="pdfmode" checked={!pdfSteps} onchange={() => (pdfSteps = false)} /> One page per slide, as it looks at the end (for reading and printing)</label>
-        <label><input type="radio" name="pdfmode" checked={pdfSteps} onchange={() => (pdfSteps = true)} /> One page per build step (for presenting with decker-viewer or any PDF reader)</label>
+        <label><input type="radio" name="pdfmode" checked={pdfMode === "slides"} onchange={() => (pdfMode = "slides")} /> One page per slide, as it looks at the end (for reading and printing)</label>
+        <label><input type="radio" name="pdfmode" checked={pdfMode === "steps"} onchange={() => (pdfMode = "steps")} /> One page per build step (for presenting with decker-viewer or any PDF reader)</label>
+        <label><input type="radio" name="pdfmode" checked={pdfMode === "notes"} onchange={() => (pdfMode = "notes")} /> Handout: one A4 page per slide with its speaker notes below</label>
         <p class="muted">Sections and slide titles become bookmarks. Speaker notes are written next to the PDF as <code>name.notes.md</code>, which decker-viewer shows in its presenter view.</p>
         <div class="row">
           <button class="primary" onclick={exportPdf}>Choose file…</button>

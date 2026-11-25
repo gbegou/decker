@@ -124,8 +124,8 @@ export const api = {
   newDeck: () => invoke<View>("new_deck"),
   save: (path?: string) => invoke<string>("save", { path: path ?? null }),
   exportPptx: (path: string) => invoke<string[]>("export_pptx", { path }),
-  /** `steps`: one page per build step. Notes are written next to it as <name>.notes.md. */
-  exportPdf: (path: string, steps = false) => invoke<void>("export_pdf", { path, steps }),
+  /** `slides`: a page per slide; `steps`: a page per build step; `notes`: the handout with notes. */
+  exportPdf: (path: string, mode: "slides" | "steps" | "notes" = "slides") => invoke<void>("export_pdf", { path, mode }),
   setSection: (section: string | null, subsection: string | null) => invoke<View>("set_section", { section, subsection }),
   setSectionOf: (slide: number, section: string | null, subsection: string | null) =>
     invoke<View>("set_section_of", { slide, section, subsection }),

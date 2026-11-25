@@ -50,7 +50,10 @@ depend on the fonts installed on the machine.
   the builds in [decker-viewer](viewer.md) or in any PDF reader. Bookmarks point at the first
   page of each slide.
 
-Either way, the speaker notes are written next to the PDF as `name.notes.md`, one `# page`
+- **Handout**: one A4 portrait page per slide, the slide on top and its speaker notes below,
+  with the section and the slide number in the header (`deck-convert pdf talk.deck --notes`).
+
+With the first two, the speaker notes are written next to the PDF as `name.notes.md`, one `# page`
 section per page (a slide's notes repeat on each of its step pages), which is the file the
 viewer's presenter view reads. The converter does the same: `deck-convert pdf talk.deck
 --steps`.

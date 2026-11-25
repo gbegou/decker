@@ -384,6 +384,55 @@ impl Engine {
         self.export_pdf_pages(deck, &deck_core::transfer::pages(deck, false), |slide, _| render(slide), out)
     }
 
+    /// Writes the handout: one A4 portrait page per slide, the slide (at
+    /// its last step) on top and its speaker notes below, with the slide
+    /// number and section in the header. Bookmarks as in the slides PDF.
+    pub fn export_notes_pdf(&self, deck: &Deck, render: impl Fn(usize) -> String, out: &Path) -> Result<(), Error> {
+        let mut binaries = Binaries::new();
+        let mut text = String::from(
+            "#set page(paper: \"a4\", margin: (x: 18mm, top: 16mm, bottom: 16mm))\n#set text(size: 11pt, font: \"DejaVu Sans\")\n#set heading(outlined: true)\n#show heading: none\n#set par(leading: 0.6em)\n",
+        );
+        for (i, slide) in deck.slides.iter().enumerate() {
+            let path = format!("/slides/{i}.svg");
+            let svg = render(i)
+                .replace(r#"font-family="sans-serif""#, r#"font-family="DejaVu Sans""#)
+                .replace(r#"font-family="monospace""#, r#"font-family="DejaVu Sans Mono""#);
+            binaries.insert(FileId::new(None, VirtualPath::new(&path)), Bytes::from_string(svg));
+            if i > 0 {
+                text.push_str("#pagebreak()\n");
+            }
+            if let Some(t) = &slide.section {
+                text.push_str(&format!("#heading(level: 1)[{}]\n", typst_markup(t)));
+            }
+            let title = slide.title();
+            if !title.is_empty() {
+                text.push_str(&format!("#heading(level: 2)[{}]\n", typst_markup(&title)));
+            }
+            let (section, _) = deck.position(i);
+            text.push_str(&format!(
+                "#text(size: 9pt, fill: luma(110))[{} #h(1fr) {} / {}]\n#v(2mm)\n#box(stroke: 0.5pt + luma(170), image(\"{path}\", width: 100%))\n#v(5mm)\n",
+                typst_markup(section.unwrap_or(&deck.title)),
+                i + 1,
+                deck.slides.len()
+            ));
+            if slide.notes.trim().is_empty() {
+                text.push_str("#text(fill: luma(150))[No notes.]\n");
+            } else {
+                for paragraph in slide.notes.split("\n") {
+                    text.push_str(&typst_markup(paragraph));
+                    text.push_str("\n\n");
+                }
+            }
+        }
+        let main_id = FileId::new(None, VirtualPath::new("/main.typ"));
+        let world = Sandbox { shared: &self.inner, main: Source::new(main_id, text), binaries: &binaries };
+        let document: PagedDocument =
+            typst::compile(&world).output.map_err(|errors| Error::Typst(describe(&errors)))?;
+        let pdf = typst_pdf::pdf(&document, &typst_pdf::PdfOptions::default())
+            .map_err(|errors| Error::Typst(describe(&errors)))?;
+        std::fs::write(out, pdf).map_err(|e| Error::Typst(format!("writing {}: {e}", out.display())))
+    }
+
     /// Writes `pages` (`(slide, step)` pairs, see [`deck_core::transfer::pages`])
     /// as a PDF, `render` drawing a slide at a step. Bookmarks go on the
     /// first page of each slide. The speaker notes are written next to it
@@ -905,6 +954,12 @@ mod tests {
         let bytes = std::fs::read(&out).unwrap();
         assert!(bytes.starts_with(b"%PDF"));
         assert!(!out.with_extension("notes.md").exists(), "no notes, no sidecar");
+        let handout = out.with_extension("notes.pdf");
+        deck.slides[0].notes = "Say hello.\nThen #wave [twice].".into();
+        e.export_notes_pdf(&deck, |i| svg::render_slide(&deck, &deck.slides[i]), &handout).unwrap();
+        assert!(std::fs::read(&handout).unwrap().starts_with(b"%PDF"));
+        std::fs::remove_file(&handout).unwrap();
+        deck.slides[0].notes.clear();
         let layer = text_layer(&deck, 0, 0);
         assert!(layer.contains("#place(top + left, dx: 54pt, dy: 54pt, block(width: 792pt)["), "{layer}");
         assert!(layer.contains(r##"fill: rgb("#00000000")"##) && layer.contains(r"Welcome \[all\]"), "{layer}");
