@@ -77,6 +77,15 @@ pub fn import(pptx: &Path, out: &Path) -> Result<(Deck, ImportReport)> {
             }
             slide.layout = layouts.get(&layout_part).filter(|n| !n.is_empty()).cloned();
         }
+        // Text in a placeholder takes what its runs leave unset from the
+        // layout's placeholder (which has the master's text styles).
+        if let Some(layout) = slide.layout.as_deref().and_then(|n| deck.layouts.iter().find(|l| l.name == n)) {
+            for element in &mut slide.elements {
+                let Element::Text(t) = element else { continue };
+                let Some(ph) = t.placeholder.as_deref().and_then(|n| layout.placeholder(n)) else { continue };
+                inherit_placeholder(&mut t.paragraphs, ph);
+            }
+        }
         deck.slides.push(slide);
     }
 
@@ -207,38 +216,87 @@ fn import_layout(pkg: &Package, part: &str, images: &mut ImageStore, report: &mu
             align: Align::Left,
             bullets: matches!(ph.kind.as_str(), "body" | "obj"),
         };
-        // The placeholder's own first-level list style, when it has one.
-        let lvl1 = child(sp, NS_P, "txBody")
+        // The master's text styles first (title, body or other), then the
+        // placeholder's own first-level list style over them.
+        let master_style = match ph.kind.as_str() {
+            "title" | "ctrTitle" => "titleStyle",
+            "body" | "subTitle" | "obj" => "bodyStyle",
+            _ => "otherStyle",
+        };
+        let from_master = master
+            .as_ref()
+            .and_then(|m| child(m.root_element(), NS_P, "txStyles"))
+            .and_then(|t| child(t, NS_P, master_style))
+            .and_then(|st| child(st, NS_A, "lvl1pPr"));
+        let own = child(sp, NS_P, "txBody")
             .and_then(|tb| child(tb, NS_A, "lstStyle"))
             .and_then(|ls| child(ls, NS_A, "lvl1pPr"));
-        if let Some(lvl1) = lvl1 {
-            placeholder.align = match lvl1.attribute("algn") {
-                Some("ctr") => Align::Center,
-                Some("r") => Align::Right,
-                Some("just") => Align::Justify,
-                _ => Align::Left,
-            };
-            if child(lvl1, NS_A, "buNone").is_some() {
-                placeholder.bullets = false;
-            } else if child(lvl1, NS_A, "buChar").is_some() || child(lvl1, NS_A, "buAutoNum").is_some() {
-                placeholder.bullets = true;
-            }
-            if let Some(rpr) = child(lvl1, NS_A, "defRPr") {
-                if let Some(sz) = rpr.attribute("sz").and_then(|v| v.parse::<f64>().ok()) {
-                    placeholder.size = Some(sz / 100.0);
-                }
-                placeholder.bold = rpr.attribute("b").map(|v| v == "1" || v == "true").unwrap_or(false);
-                placeholder.color = solid_fill(rpr);
-                placeholder.font = child(rpr, NS_A, "latin").and_then(|l| l.attribute("typeface")).map(str::to_string);
-            }
+        for lvl1 in [from_master, own].into_iter().flatten() {
+            level_style(&mut placeholder, lvl1);
         }
         layout.placeholders.push(placeholder);
     }
     Ok(layout)
 }
 
-/// PowerPoint's usual sizes for placeholders, since the master's text
-/// styles are not read.
+/// Fills what the runs of a placeholder's text leave unset with the
+/// placeholder's style. Deeper bullet levels step down in size the way
+/// PowerPoint's body styles do (32, 28, 24, 20…).
+fn inherit_placeholder(paragraphs: &mut [Paragraph], ph: &Placeholder) {
+    for p in paragraphs {
+        if p.align == Align::Left {
+            p.align = ph.align;
+        }
+        let level = f64::from(p.bullet.unwrap_or(0));
+        for run in &mut p.runs {
+            if let Some(size) = ph.size {
+                run.size.get_or_insert((size - 4.0 * level).max(size * 0.6).max(12.0));
+            }
+            run.bold |= ph.bold;
+            if run.color.is_none() {
+                run.color = ph.color;
+            }
+            if run.font.is_none() {
+                run.font.clone_from(&ph.font);
+            }
+        }
+    }
+}
+
+/// Applies a first-level paragraph style (`a:lvl1pPr`) to a placeholder:
+/// only what the style sets, so that styles stack from the master down.
+fn level_style(placeholder: &mut Placeholder, lvl1: Node) {
+    match lvl1.attribute("algn") {
+        Some("ctr") => placeholder.align = Align::Center,
+        Some("r") => placeholder.align = Align::Right,
+        Some("just") => placeholder.align = Align::Justify,
+        Some("l") => placeholder.align = Align::Left,
+        _ => {}
+    }
+    if child(lvl1, NS_A, "buNone").is_some() {
+        placeholder.bullets = false;
+    } else if child(lvl1, NS_A, "buChar").is_some() || child(lvl1, NS_A, "buAutoNum").is_some() {
+        placeholder.bullets = true;
+    }
+    let Some(rpr) = child(lvl1, NS_A, "defRPr") else { return };
+    if let Some(sz) = rpr.attribute("sz").and_then(|v| v.parse::<f64>().ok()) {
+        placeholder.size = Some(sz / 100.0);
+    }
+    if let Some(b) = rpr.attribute("b") {
+        placeholder.bold = b == "1" || b == "true";
+    }
+    if let Some(color) = solid_fill(rpr) {
+        placeholder.color = Some(color);
+    }
+    // `+mj-lt` and `+mn-lt` name the theme's fonts: the layout's theme has them.
+    if let Some(font) = child(rpr, NS_A, "latin").and_then(|l| l.attribute("typeface")).filter(|f| !f.starts_with('+'))
+    {
+        placeholder.font = Some(font.to_string());
+    }
+}
+
+/// PowerPoint's usual sizes for placeholders, when the master's text
+/// styles say nothing.
 fn placeholder_defaults(kind: &str) -> (Option<f64>, bool) {
     match kind {
         "title" | "ctrTitle" => (Some(44.0), false),
@@ -350,6 +408,28 @@ fn import_tree(
                     }));
                 } else if let Some(source) = described.and_then(|d| d.strip_prefix("typst:")) {
                     elements.push(Element::Math(MathBlock { rect, source: source.to_string(), ..Default::default() }));
+                }
+                // A video: the picture links its media part; the picture itself is the poster.
+                let video = node
+                    .descendants()
+                    .find(|n| n.has_tag_name((NS_A, "videoFile")))
+                    .and_then(|v| v.attribute((NS_R, "link")))
+                    .and_then(|id| pkg.rel_by_id(part, id).ok())
+                    .filter(|target| target.starts_with("ppt/"));
+                if let Some(media) = video {
+                    let poster = node
+                        .descendants()
+                        .find(|n| n.has_tag_name((NS_A, "blip")))
+                        .and_then(|b| b.attribute((NS_R, "embed")))
+                        .and_then(|id| pkg.rel_by_id(part, id).ok())
+                        .and_then(|p| images.copy(&p).ok());
+                    elements.push(Element::Media(deck_core::Media {
+                        rect,
+                        src: images.copy(&media)?,
+                        poster,
+                        play: deck_core::Play::Button,
+                        ..Default::default()
+                    }));
                 }
                 if elements.len() > before {
                     // Fall through to the id bookkeeping below.
@@ -634,23 +714,9 @@ fn import_shape(
     let geom = sp_pr.and_then(|p| child(p, NS_A, "prstGeom")).and_then(|g| g.attribute("prst")).unwrap_or("rect");
     let ph = placeholder(node);
     let is_body = ph.as_ref().map(|p| p.kind == "body" || p.kind == "obj").unwrap_or(false);
-    let mut paragraphs = child(node, NS_P, "txBody")
+    let paragraphs = child(node, NS_P, "txBody")
         .map(|tb| if is_body { body_paragraphs(tb) } else { paragraphs(tb) })
         .unwrap_or_default();
-    // Placeholder sizes come from the master's text styles, which are not
-    // read yet: give titles and subtitles PowerPoint's usual defaults.
-    if let Some(ph) = &ph {
-        let default = match ph.kind.as_str() {
-            "title" | "ctrTitle" => Some(44.0),
-            "subTitle" => Some(24.0),
-            _ => None,
-        };
-        if let Some(size) = default {
-            for run in paragraphs.iter_mut().flat_map(|p| p.runs.iter_mut()) {
-                run.size.get_or_insert(size);
-            }
-        }
-    }
     let is_text_box = child(node, NS_P, "nvSpPr")
         .and_then(|n| child(n, NS_P, "cNvSpPr"))
         .and_then(|n| n.attribute("txBox"))
@@ -989,6 +1055,10 @@ mod tests {
         let l1 = &deck.layouts[1];
         assert_eq!(l1.name, "Title and Content");
         assert!(l1.placeholder("body1").map(|p| p.bullets).unwrap_or(false), "{:?}", l1.placeholders);
+        // Sizes come from the master's text styles: 44 pt titles, 32 pt body.
+        assert_eq!(l1.placeholder("title").and_then(|p| p.size), Some(44.0));
+        assert_eq!(l1.placeholder("title").map(|p| p.align), Some(Align::Center));
+        assert_eq!(l1.placeholder("body1").and_then(|p| p.size), Some(32.0));
         assert_eq!(deck.slides[1].layout.as_deref(), Some("Title and Content"));
         assert_eq!(deck.slides[0].section.as_deref(), Some("Opening"));
         assert_eq!(deck.slides[1].section.as_deref(), Some("Content"));
@@ -1002,6 +1072,9 @@ mod tests {
         let body = body.expect("body placeholder");
         assert_eq!(body.paragraphs[0].bullet, Some(0));
         assert_eq!(body.paragraphs[1].bullet, Some(1));
+        // Unset sizes come from the layout's placeholder: the master's 32 pt body, 28 pt one level down.
+        assert_eq!(body.paragraphs[0].runs[0].size, Some(32.0));
+        assert_eq!(body.paragraphs[1].runs[0].size, Some(28.0));
         let runs = &body.paragraphs[2].runs;
         assert_eq!(runs[0].text, "Bold red");
         assert!(runs[0].bold);

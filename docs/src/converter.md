@@ -67,3 +67,15 @@ box), with the Typst source kept in the picture's description. Importing such a 
 the formula or figure back, editable. This needs the Typst engine: the application has it,
 and so does `deck-convert` built with the `typst` feature; without it the source is written
 as text, with a warning.
+
+## Videos and text styles in PowerPoint
+
+- A video is embedded in the exported file the way PowerPoint writes it: a picture (the
+  poster, or a dark still when the video has none) linked to the media part, with the node
+  that lets the slideshow play it, looping and muted as set in decker. It starts on click;
+  "play when it appears" is noted as a warning. An animated GIF is exported as a picture,
+  which PowerPoint animates. Importing brings an embedded video back as a media element.
+- On import, placeholders take the master's text styles (title, body and other: size, bold,
+  color, alignment, bullets), then the layout's own, and slide text takes what its runs
+  leave unset from its placeholder, one size step down per bullet level. Colors given as
+  theme references are not resolved yet.

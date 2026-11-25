@@ -37,7 +37,7 @@ pub fn export_with(deck: &Deck, deck_dir: &Path, pptx: &Path, math: &dyn MathRen
     let cy = emu(deck.height);
 
     let mut ct = String::from(
-        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="jpg" ContentType="image/jpeg"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="gif" ContentType="image/gif"/><Default Extension="bmp" ContentType="image/bmp"/><Default Extension="svg" ContentType="image/svg+xml"/><Default Extension="webp" ContentType="image/webp"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>"#,
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="mp4" ContentType="video/mp4"/><Default Extension="m4v" ContentType="video/x-m4v"/><Default Extension="mov" ContentType="video/quicktime"/><Default Extension="webm" ContentType="video/webm"/><Default Extension="ogv" ContentType="video/ogg"/><Default Extension="jpg" ContentType="image/jpeg"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="gif" ContentType="image/gif"/><Default Extension="bmp" ContentType="image/bmp"/><Default Extension="svg" ContentType="image/svg+xml"/><Default Extension="webp" ContentType="image/webp"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>"#,
     );
     // Layout k (0-based) is slideLayout{k+1}; the blank layout, for slides
     // without one, is the last.
@@ -226,9 +226,6 @@ pub fn export_with(deck: &Deck, deck_dir: &Path, pptx: &Path, math: &dyn MathRen
 /// entrance for opacity going to 1, a fade exit for opacity going to 0.
 fn timing_xml(slide: &Slide, slide_no: usize, warnings: &mut Vec<String>) -> String {
     let last = slide.last_step();
-    if last == 0 {
-        return String::new();
-    }
     let mut id = 1u32;
     let mut next = || {
         id += 1;
@@ -281,12 +278,35 @@ fn timing_xml(slide: &Slide, slide_no: usize, warnings: &mut Vec<String>) -> Str
             next()
         );
     }
-    if clicks.is_empty() {
+    // Each embedded video gets the media node that lets a slideshow play it.
+    let mut videos = String::new();
+    for (k, element) in slide.elements.iter().enumerate() {
+        let Element::Media(m) = element else { continue };
+        if m.is_gif() {
+            continue;
+        }
+        let _ = write!(
+            videos,
+            r#"<p:video><p:cMediaNode vol="80000"{}><p:cTn id="{}"{} fill="hold" display="0"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst></p:cTn><p:tgtEl><p:spTgt spid="{}"/></p:tgtEl></p:cMediaNode></p:video>"#,
+            if m.sound { "" } else { r#" mute="1""# },
+            next(),
+            if m.looping { r#" repeatCount="indefinite""# } else { "" },
+            k + 2
+        );
+    }
+    if clicks.is_empty() && videos.is_empty() {
         return String::new();
     }
+    let sequence = if clicks.is_empty() {
+        String::new()
+    } else {
+        format!(
+            r#"<p:seq concurrent="1" nextAc="seek"><p:cTn id="{}" dur="indefinite" nodeType="mainSeq"><p:childTnLst>{clicks}</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq>"#,
+            next()
+        )
+    };
     format!(
-        r#"<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst><p:seq concurrent="1" nextAc="seek"><p:cTn id="{}" dur="indefinite" nodeType="mainSeq"><p:childTnLst>{clicks}</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>"#,
-        next()
+        r#"<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst>{sequence}{videos}</p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>"#
     )
 }
 
@@ -600,25 +620,59 @@ fn write_element_plain(
                 math,
             );
         }
+        Element::Media(m) if m.is_gif() => {
+            // PowerPoint animates a GIF placed as a picture.
+            let gif = Image { rect: m.rect, steps: m.steps.clone(), src: m.src.clone(), ..Default::default() };
+            return write_element(
+                part,
+                media_count,
+                add,
+                deck_dir,
+                deck,
+                slide_index,
+                &Element::Image(gif),
+                id,
+                ph,
+                where_,
+                warnings,
+                math,
+            );
+        }
         Element::Media(m) => {
-            // PowerPoint gets the poster as a picture; the clip itself is not embedded.
-            warnings.push(format!("{where_}: video {} exported as its poster picture", m.src));
-            if let Some(poster) = &m.poster {
-                let still = Image { rect: m.rect, steps: m.steps.clone(), src: poster.clone(), ..Default::default() };
-                return write_element(
-                    part,
-                    media_count,
-                    add,
-                    deck_dir,
-                    deck,
-                    slide_index,
-                    &Element::Image(still),
-                    id,
-                    ph,
-                    where_,
-                    warnings,
-                    math,
-                );
+            // The clip is embedded the way PowerPoint does it: a picture (the
+            // poster) that links the media part twice, as a video file and
+            // as embedded media.
+            let src = deck_dir.join(&m.src);
+            let bytes = std::fs::read(&src).with_context(|| format!("reading asset {}", src.display()))?;
+            let ext = Path::new(&m.src)
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_else(|| "mp4".into());
+            *media_count += 1;
+            let clip = format!("media{media_count}.{ext}");
+            add(&format!("ppt/media/{clip}"), &bytes)?;
+            let poster = match &m.poster {
+                Some(poster) => {
+                    let path = deck_dir.join(poster);
+                    std::fs::read(&path).with_context(|| format!("reading asset {}", path.display()))?
+                }
+                None => VIDEO_POSTER.to_vec(),
+            };
+            *media_count += 1;
+            let still = format!("image{media_count}.png");
+            add(&format!("ppt/media/{still}"), &poster)?;
+            let (video_rel, media_rel, poster_rel) = (part.next_rel(), part.next_rel(), part.next_rel());
+            let _ = write!(
+                part.rels,
+                r#"<Relationship Id="rId{video_rel}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/video" Target="../media/{clip}"/><Relationship Id="rId{media_rel}" Type="http://schemas.microsoft.com/office/2007/relationships/media" Target="../media/{clip}"/><Relationship Id="rId{poster_rel}" Type="{REL_IMAGE}" Target="../media/{still}"/>"#
+            );
+            let _ = write!(
+                part.xml,
+                r#"<p:pic><p:nvPicPr><p:cNvPr id="{id}" name="Video {id}"><a:hlinkClick r:id="" action="ppaction://media"/></p:cNvPr><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr><a:videoFile r:link="rId{video_rel}"/><p:extLst><p:ext uri="{{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}}"><p14:media xmlns:p14="{NS_P14}" r:embed="rId{media_rel}"/></p:ext></p:extLst></p:nvPr></p:nvPicPr><p:blipFill><a:blip r:embed="rId{poster_rel}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>{}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>"#,
+                xfrm(&m.rect)
+            );
+            if m.play != Play::Button {
+                warnings.push(format!("{where_}: video {} embedded; it starts on click in PowerPoint", m.src));
             }
         }
         Element::Image(img) => {
@@ -672,6 +726,13 @@ fn write_element_plain(
 /// PowerPoint sections (a 2010 extension): one per slide that starts a
 /// section, holding the slide ids up to the next one. Slides before the
 /// first section go into a default section, as PowerPoint does.
+/// The poster of a video that has none: a small dark PNG.
+const VIDEO_POSTER: &[u8] = &[
+    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 16, 0, 0, 0, 9, 8, 2, 0, 0, 0, 180, 72, 59,
+    101, 0, 0, 0, 19, 73, 68, 65, 84, 120, 218, 99, 80, 208, 48, 32, 9, 49, 140, 106, 24, 20, 26, 0, 31, 223, 67, 129,
+    243, 103, 3, 85, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+];
+
 /// Writes a typeset formula or figure as a picture fitted in `rect`,
 /// its source in the picture's description. `false` when there is no
 /// picture (no typesetter, or an error): the caller writes the source.
@@ -1224,6 +1285,43 @@ mod tests {
         // Without a typesetter: the source as text, with a warning.
         let plain = export(&deck, &dir, &dir.join("plain.pptx")).unwrap();
         assert_eq!(plain.len(), 2, "{plain:?}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn videos_are_embedded_and_gifs_stay_pictures() {
+        let dir = std::env::temp_dir().join(format!("decker-video-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let clip = native::add_asset(&dir, "clip.mp4", b"not really a video").unwrap();
+        let gif = native::add_asset(&dir, "anim.gif", include_bytes!("../../../../tests/fixtures/red.png")).unwrap();
+        let mut deck = Deck::new("video");
+        deck.slides.push(Slide {
+            elements: vec![
+                Element::Media(Media {
+                    rect: Rect::new(100.0, 100.0, 320.0, 180.0),
+                    src: clip,
+                    play: Play::Button,
+                    ..Default::default()
+                }),
+                Element::Media(Media { rect: Rect::new(500.0, 100.0, 100.0, 100.0), src: gif, ..Default::default() }),
+            ],
+            ..Default::default()
+        });
+        let pptx = dir.join("v.pptx");
+        let warnings = export(&deck, &dir, &pptx).unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let back_dir = dir.join("back.deck");
+        let (back, report) = super::super::import(&pptx, &back_dir).unwrap();
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        let Element::Media(m) = &back.slides[0].elements[0] else {
+            panic!("a video, got {:?}", back.slides[0].elements[0])
+        };
+        assert_eq!(m.rect, Rect::new(100.0, 100.0, 320.0, 180.0));
+        assert!(m.src.ends_with(".mp4"), "{}", m.src);
+        assert_eq!(std::fs::read(back_dir.join(&m.src)).unwrap(), b"not really a video");
+        assert!(m.poster.is_some(), "the picture PowerPoint shows is the poster");
+        assert!(matches!(&back.slides[0].elements[1], Element::Image(i) if i.src.ends_with(".gif")));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

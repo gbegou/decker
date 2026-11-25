@@ -103,7 +103,8 @@ Two environment variables help scripts and tests:
   on entering the slide or at their appear step, or on the play button drawn over them) and
   whether they loop or play once and stop on the last frame; videos can also have their
   sound on. They play in the audience window; the editor and the presenter's previews show
-  the first frame. Thumbnails, PDF and PowerPoint exports show a poster with a play glyph: a
+  the first frame. Thumbnails and PDF show a poster with a play glyph, and PowerPoint gets the clip itself
+  with that poster: a
   GIF's first frame, or for a video the frame chosen with **Use as poster** in the panel
   (pick the time in seconds).
 - Ctrl+Z undoes any edit of the deck and Ctrl+Y (or Ctrl+Shift+Z) redoes it, also from the
