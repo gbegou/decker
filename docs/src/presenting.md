@@ -10,7 +10,9 @@ The presenter window shows the current section, the current slide, what the next
 next build step or the next slide), the notes with adjustable text size, an elapsed-time
 counter and the clock, and a strip of thumbnails to jump anywhere. **Pointer** (or the P
 key) mirrors the mouse over the current slide as a red dot on the audience window: point at
-the miniature, the audience sees the dot at the same place.
+the miniature, the audience sees the dot at the same place. **Pen** (or D) draws instead:
+drag over the miniature and the strokes appear on the audience window; they are erased with
+C, or when the slide or step changes, and are never saved.
 
 Keys work in every window, so a clicker does too:
 

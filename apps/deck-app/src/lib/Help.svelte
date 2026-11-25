@@ -46,6 +46,7 @@
     ]],
     ["Presenting", [
       ["P (presenter window) · Pointer button", "Mirror the mouse over the current slide as a red dot on the audience window"],
+      ["D · C (presenter window) · Pen button", "Draw on the current slide, shown to the audience; C or leaving the slide erases it"],
       ["Present · Esc", "Fullscreen on the projector, presenter view on the laptop · end"],
       ["Right / Down / Space / Enter / click · Left / Up / Backspace", "Next · previous step or slide"],
       ["Home · End", "First · last slide"],

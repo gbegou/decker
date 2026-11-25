@@ -13,7 +13,8 @@ megabytes, and it is the thing to put on a machine that only has to show slides.
    view on this one; with a single monitor, **Present + presenter** opens both as windows.
 3. The keys are decker's ([Presenting](presenting.md)): arrows, space, Page Up and Down,
    Home and End, B and W for a black or white screen, Escape to end; P in the presenter view
-   toggles the pointer, mirrored as a red dot on the audience window.
+   toggles the pointer, mirrored as a red dot on the audience window, and D the pen, to draw
+   on the page (C erases).
 
 Pages are rendered by pdf.js inside the window, sharp at any size, so vector slides stay
 vector. A page has no build steps: a Beamer overlay is a page of its own, as Beamer exports
