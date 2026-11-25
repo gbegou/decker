@@ -141,6 +141,9 @@ Two environment variables help scripts and tests:
   and width of shapes and text boxes.
 - While editing a text, the mouse works as in any editor: click places the caret, dragging
   selects, a double click selects the word and a triple click the paragraph.
+- Right-clicking between or below the thumbnails adds a new slide, a new section or a new
+  subsection there; a new section or subsection comes with its first slide, named for
+  editing at once.
 - Right-clicking a slide in the thumbnail pane opens its menu: new slide after it,
   duplicate, delete, and start or remove a section or subsection there.
 - **+ Text**, **+ Slide**, **Duplicate** and **− Slide** do what they say; a new slide starts

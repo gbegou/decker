@@ -319,6 +319,17 @@
   // section or subsection, renamed in place; a header being renamed.
   let renaming = $state<{ slide: number; level: "section" | "subsection" } | null>(null);
   let renameInput = $state<HTMLInputElement>();
+  // The name field of a new heading appears once the view has refreshed: focus it then.
+  let focusedRename: HTMLInputElement | undefined;
+  $effect(() => {
+    const input = renameInput;
+    if (renaming && input && input !== focusedRename) {
+      focusedRename = input;
+      input.focus();
+      input.select();
+    }
+    if (!renaming) focusedRename = undefined;
+  });
 
   // ----- The thumbnail pane's right-click menu
   let slideMenu = $state<{ slide: number; x: number; y: number } | null>(null);
@@ -333,6 +344,37 @@
     slideMenu = null;
     enqueue(() => run(label, async () => { await api.goto(slide); await f(); }));
   }
+  /** Right-click on the pane between or below slides: where a new slide would go. */
+  let gapMenu = $state<{ at: number; x: number; y: number } | null>(null);
+  function openGapMenu(e: MouseEvent) {
+    if (e.defaultPrevented || !view) return; // a thumbnail's own menu
+    e.preventDefault();
+    const items = Array.from((e.currentTarget as HTMLElement).querySelectorAll<HTMLElement>(".stack-item[data-index]"));
+    const after = items.find((el) => { const r = el.getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
+    gapMenu = { at: after ? Number(after.dataset.index) : view.slide_count, x: e.clientX, y: Math.min(e.clientY, window.innerHeight - 150) };
+  }
+  /** A new slide at position `at` (from the layout of the slide before it); returns its index. */
+  async function slideAt(at: number): Promise<number> {
+    await api.goto(Math.max(at - 1, 0));
+    await api.addSlide();
+    if (at === 0) await api.moveSlide(1, 0);
+    return at;
+  }
+  function onGap(what: "slide" | "section" | "subsection") {
+    const at = gapMenu!.at;
+    gapMenu = null;
+    enqueue(async () => {
+      await run(what === "slide" ? "Added slide" : `Added ${what}`, async () => {
+        const k = await slideAt(at);
+        if (what !== "slide") {
+          await api.setSectionOf(k, what === "section" ? "Section" : null, what === "subsection" ? "Subsection" : null);
+          renaming = { slide: k, level: what };
+          queueMicrotask(() => { renameInput?.focus(); renameInput?.select(); });
+        }
+      });
+    });
+  }
+
   function removeHeading(slide: number, level: "section" | "subsection") {
     const st = view!.starts[slide];
     slideMenu = null;
@@ -875,7 +917,8 @@
   </header>
 
   {#if view && view.slide_count}
-    <aside class="slides">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <aside class="slides" oncontextmenu={openGapMenu}>
       {#each thumbnails as thumb, i}
         {@const st = view.starts[i] ?? { section: null, subsection: null }}
         {#each ["section", "subsection"] as level}
@@ -1201,6 +1244,19 @@
 
   <footer>{status}</footer>
   {#if help}<Help onclose={() => (help = false)} />{/if}
+
+  {#if gapMenu && view}
+    {@const g = gapMenu}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div class="menu-backdrop" onclick={() => (gapMenu = null)} oncontextmenu={(e) => { e.preventDefault(); gapMenu = null; }}></div>
+    <div class="context-menu" role="menu" style="left: {g.x}px; top: {g.y}px">
+      <div class="menu-title">{g.at >= view.slide_count ? "At the end" : `Before slide ${g.at + 1}`}</div>
+      <button role="menuitem" onclick={() => onGap("slide")}>New slide</button>
+      <button role="menuitem" onclick={() => onGap("section")}>New section</button>
+      <button role="menuitem" onclick={() => onGap("subsection")}>New subsection</button>
+    </div>
+  {/if}
 
   {#if slideMenu && view}
     {@const m = slideMenu}
