@@ -56,9 +56,24 @@ python3 docs/diagrams/generate.py
 CI builds both on every push and publishes them to GitHub Pages from `main`. The manual is at
 `/decker/` and the API reference at `/decker/api/`.
 
-## Smoke test of the application
+## End-to-end tests
 
-The application runs under a virtual display with the fixture, for screenshots:
+`tests/e2e/` drives the real editor over WebDriver (`tauri-driver` and WebKitWebDriver) on a
+fresh copy of the demo deck per test: typing in place, formulas under the caret, Alt+=,
+merging table cells and undo, reordering thumbnails by dragging, and the presentation
+windows. The CI runs them on Linux; locally:
+
+```bash
+tests/e2e/run.sh
+```
+
+It builds the editor with its front end embedded, starts Xvfb when there is no display, and
+needs `tauri-driver` (`cargo install tauri-driver`) and WebKitWebDriver (package
+`webkit2gtk-driver`). `SKIP_BUILD=1` reuses the last build. A bug that shows in the
+interface gets a test here; the helpers in `tests/e2e/decker_app.py` (clicks and drags in
+slide coordinates, key chords, the app's own commands) are shared with the screenshots.
+
+To look at the application by hand under a virtual display:
 
 ```bash
 Xvfb :99 -screen 0 1600x1000x24 &

@@ -15,8 +15,12 @@ APP="$ROOT/target/debug/deck-app"
 python3 -I "$ROOT/docs/screenshots/make_demo.py" "$WORK/demo.deck"
 
 if [ -z "${DISPLAY:-}" ]; then
-  Xvfb :97 -screen 0 1600x1000x24 >/dev/null 2>&1 &
-  export DISPLAY=:97
+  # A free display number: a stale lock file means a display that is taken.
+  n=90
+  while [ -e "/tmp/.X$n-lock" ]; do n=$((n + 1)); done
+  Xvfb ":$n" -screen 0 1600x1000x24 >/dev/null 2>&1 &
+  XVFB=$!
+  export DISPLAY=":$n"
   sleep 1
 fi
 

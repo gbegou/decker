@@ -13,105 +13,19 @@ import time
 import urllib.request
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tests" / "e2e"))
+import decker_app  # noqa: E402
 from webdriver import Session  # noqa: E402
 
-DRIVER = "http://127.0.0.1:4444"
 DECK = ""
-W, H = 1440, 900
 
 
-class Driver:
-    """A tauri-driver of its own: it serves one session, one app start."""
-
-    def __init__(self, **env: str):
-        self.p = subprocess.Popen(["tauri-driver"], env={**os.environ, "DECKER_OPEN": DECK, **env},
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        # Ready when it answers its status endpoint.
-        for _ in range(100):
-            try:
-                urllib.request.urlopen(DRIVER + "/status", timeout=1).read()
-                return
-            except OSError:
-                time.sleep(0.1)
-        raise RuntimeError("tauri-driver did not start")
-
-    def close(self):
-        self.p.terminate()
-        self.p.wait()
-        # Wait for the port to be free again.
-        for _ in range(100):
-            try:
-                urllib.request.urlopen(DRIVER + "/status", timeout=1)
-                time.sleep(0.1)
-            except OSError:
-                break
+def Editor(app, out):
+    return decker_app.Editor(app, out, thumbs=5)
 
 
-class Editor:
-    def __init__(self, app: str, out: Path):
-        self.s = Session(DRIVER, app)
-        self.out = out
-        self.s.cmd("POST", "/window/rect", {"width": W, "height": H, "x": 0, "y": 0})
-        self.s.wait("return document.querySelectorAll('.thumb').length >= 5")
-        self.settle()
-
-    def settle(self, t: float = 1.0):
-        time.sleep(t)
-
-    def invoke(self, command: str, args: dict):
-        self.s.js("window.__TAURI_INTERNALS__.invoke(arguments[0], arguments[1]); return true", command, args)
-        self.settle()
-
-    def goto(self, slide: int, step: int = 0):
-        self.invoke("goto", {"slide": slide, "step": step})
-
-    def point(self, x: float, y: float):
-        """Viewport coordinates of slide point (x, y)."""
-        return self.s.js("""const r = document.querySelector('svg.overlay').getBoundingClientRect();
-            const vb = document.querySelector('svg.overlay').viewBox.baseVal;
-            return [r.left + arguments[0] / vb.width * r.width, r.top + arguments[1] / vb.height * r.height];""", x, y)
-
-    def pointer(self, x: float, y: float, clicks: int = 1, button: int = 0, keys=()):
-        acts = [{"type": "pointerMove", "x": int(x), "y": int(y), "origin": "viewport"}]
-        for _ in range(clicks):
-            acts += [{"type": "pointerDown", "button": button}, {"type": "pointerUp", "button": button}]
-        chain = [{"type": "pointer", "id": "mouse", "parameters": {"pointerType": "mouse"}, "actions": acts}]
-        if keys:
-            down = [{"type": "keyDown", "value": k} for k in keys]
-            up = [{"type": "keyUp", "value": k} for k in keys]
-            chain.append({"type": "key", "id": "kb", "actions": down + [{"type": "pause"}] * (len(acts) - len(down) - len(up)) + up})
-        self.s.cmd("POST", "/actions", {"actions": chain})
-        self.s.cmd("DELETE", "/actions")
-        self.settle(0.6)
-
-    def click_slide(self, x, y, clicks=1, keys=()):
-        self.pointer(*self.point(x, y), clicks=clicks, keys=keys)
-
-    def keys(self, *values: str):
-        acts = []
-        for v in values:
-            acts += [{"type": "keyDown", "value": v}, {"type": "keyUp", "value": v}]
-        self.s.cmd("POST", "/actions", {"actions": [{"type": "key", "id": "kb", "actions": acts}]})
-        self.s.cmd("DELETE", "/actions")
-        self.settle(0.6)
-
-    def rect(self, selector: str):
-        return self.s.js("const r = document.querySelector(arguments[0]).getBoundingClientRect();"
-                         "return [r.left, r.top, r.width, r.height];", selector)
-
-    def shot(self, name: str, crop=None, pad: int = 0):
-        """Saves the window, or the box `crop` = [x, y, w, h] grown by `pad`."""
-        path = self.out / f"{name}.png"
-        self.s.screenshot(str(path))
-        if crop:
-            x, y, w, h = (int(v) for v in crop)
-            x, y = max(0, x - pad), max(0, y - pad)
-            subprocess.run(["convert", str(path), "-crop", f"{w + 2 * pad}x{h + 2 * pad}+{x}+{y}", "+repage", str(path)], check=True)
-        print("wrote", path)
-
-    def escape(self):
-        self.keys("")
+def Driver(**env):
+    return decker_app.Driver(DECK, **env)
 
 
 def union(*rects):
@@ -192,7 +106,7 @@ def editor_shots(app: str, out: Path):
 
 def presenter_shot(app: str, out: Path):
     d = Driver(DECKER_PRESENT="both", DECKER_WINDOWED="1")
-    s = Session(DRIVER, app)
+    s = Session(decker_app.DRIVER, app)
     s.wait("return document.readyState === 'complete'")
     time.sleep(1)
     s.js("window.__TAURI_INTERNALS__.invoke('goto', {slide: 2, step: 0}); return true")
@@ -200,7 +114,7 @@ def presenter_shot(app: str, out: Path):
     for handle in s.cmd("GET", "/window/handles"):
         s.cmd("POST", "/window", {"handle": handle})
         if s.js("return !!document.querySelector('.presenter, .notes')"):
-            s.cmd("POST", "/window/rect", {"width": W, "height": H, "x": 0, "y": 0})
+            s.cmd("POST", "/window/rect", {"width": decker_app.W, "height": decker_app.H, "x": 0, "y": 0})
             time.sleep(1.5)
             s.screenshot(str(out / "presenter.png"))
             print("wrote", out / "presenter.png")
