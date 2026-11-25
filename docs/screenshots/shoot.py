@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -26,12 +27,25 @@ class Driver:
     def __init__(self, **env: str):
         self.p = subprocess.Popen(["tauri-driver"], env={**os.environ, "DECKER_OPEN": DECK, **env},
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(2)
+        # Ready when it answers its status endpoint.
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(DRIVER + "/status", timeout=1).read()
+                return
+            except OSError:
+                time.sleep(0.1)
+        raise RuntimeError("tauri-driver did not start")
 
     def close(self):
         self.p.terminate()
         self.p.wait()
-        time.sleep(0.5)
+        # Wait for the port to be free again.
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(DRIVER + "/status", timeout=1)
+                time.sleep(0.1)
+            except OSError:
+                break
 
 
 class Editor:

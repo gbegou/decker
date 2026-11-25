@@ -69,7 +69,7 @@
           <button onclick={() => remove(i)} title="Remove this step">×</button>
         </div>
         <div class="grid">
-          <label>visibility
+          <label class="wide">visibility
             <select value={s.set.opacity === undefined ? "" : s.set.opacity >= 1 ? "1" : s.set.opacity <= 0 ? "0" : "p"}
                     onchange={(e) => patch(i, (st) => { const v = e.currentTarget.value; if (v === "") delete st.set.opacity; else if (v !== "p") st.set.opacity = +v; })}>
               <option value="">unchanged</option>
@@ -89,7 +89,7 @@
           </label>
           <label>duration s <input type="number" min="0" step="0.1" value={s.duration ?? 0} onchange={(e) => patch(i, (st) => (st.duration = Math.max(0, +e.currentTarget.value)))} /></label>
           <label>delay s <input type="number" min="0" step="0.1" value={s.delay ?? 0} onchange={(e) => patch(i, (st) => (st.delay = Math.max(0, +e.currentTarget.value)))} /></label>
-          <label>easing
+          <label class="wide">easing
             <select value={s.easing ?? "ease_in_out"} onchange={(e) => patch(i, (st) => (st.easing = e.currentTarget.value as Step["easing"]))}>
               <option value="ease_in_out">ease in out</option><option value="linear">linear</option><option value="ease_in">ease in</option><option value="ease_out">ease out</option>
             </select>
@@ -105,17 +105,19 @@
   .steps { display: flex; flex-direction: column; gap: 6px; }
   .row { display: flex; flex-wrap: wrap; gap: 4px; }
   .row button, .head button { font-size: 11px; padding: 2px 6px; }
-  .step { border: 1px solid var(--border); border-radius: 6px; padding: 6px; }
+  .step { min-width: 0; border: 1px solid var(--border); border-radius: 6px; padding: 6px; }
   .step.current { border-color: var(--accent); }
   .head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
   .head label { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; }
   .head input { width: 48px; padding: 2px 4px; }
   .spacer { flex: 1; }
   .link { background: none; border: none; color: var(--accent); padding: 0; font-size: 11px; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 8px; }
-  .grid label { display: flex; align-items: center; justify-content: space-between; gap: 4px; color: var(--muted); font-size: 11px; }
-  .grid input[type="number"] { width: 64px; padding: 2px 4px; }
+  /* Cells may shrink below their content: the side panel is narrow. */
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 3px 8px; }
+  .grid label { display: flex; align-items: center; justify-content: space-between; gap: 4px; min-width: 0; color: var(--muted); font-size: 11px; white-space: nowrap; }
+  .grid input[type="number"] { flex: 0 1 64px; width: 0; min-width: 36px; padding: 2px 4px; }
   .grid input[type="color"] { width: 26px; height: 20px; padding: 0; border: 1px solid var(--border); background: none; }
-  .grid select { padding: 2px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; font-size: 11px; }
+  .grid .wide { grid-column: 1 / -1; }
+  .grid select { flex: 0 1 auto; min-width: 0; max-width: 100%; padding: 2px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; font-size: 11px; }
   .muted { color: var(--muted); font-size: 11px; margin: 2px 0; }
 </style>
