@@ -102,5 +102,29 @@ class DeckTests(unittest.TestCase):
             self.assertFalse(result.exists())
 
 
+class CommandLineTests(unittest.TestCase):
+    def test_run_a_macro_on_a_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deck = decker.new("cli")
+            deck.add_slide().add_text("a", 0, 0, 10, 10)
+            deck.add_slide()
+            folder = deck.save(Path(tmp) / "t.deck")
+            script = Path(tmp) / "m.py"
+            script.write_text("import decker\nd = decker.current()\nd.slide.add_text('added on %d' % d.slide.index, 0, 0, 1, 1)\n")
+            env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1]))
+            cmd = [sys.executable, "-m", "decker", "run", str(script), str(folder), "--slide", "2"]
+            dry = subprocess.run(cmd + ["--dry-run"], env=env, capture_output=True, text=True)
+            self.assertEqual((dry.returncode, dry.stdout.strip()), (0, "deck would change (dry run)"), dry.stderr)
+            self.assertEqual(len(decker.load(folder).slides[1].elements), 0)
+            run = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(decker.load(folder).slides[1].elements[0].text, "added on 1")
+            script.write_text("import decker\ndecker.current()\n")
+            same = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            self.assertEqual(same.stdout.strip(), "deck unchanged")
+            info = subprocess.run([sys.executable, "-m", "decker", "info", str(folder)], env=env, capture_output=True, text=True)
+            self.assertIn("cli (960 x 540 pt, 2 slides)", info.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

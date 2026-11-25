@@ -25,9 +25,17 @@ img = deck.slides[0].add_image(figure, 500, 130)          # copied into assets/
 deck.save()
 ```
 
-Point the package at the scripts: `PYTHONPATH=<repo>/python`, or, from an installed
-decker, the `python/` folder of its resources. `pip install -e python` works too, once a
-`pyproject.toml` ships there.
+Install the package with `pip install -e python` from the repository (it is published as
+`decker-slides`, imported as `decker`), or point `PYTHONPATH` at the repository's `python/`
+folder, or at the `python/` folder of an installed decker's resources.
+
+A macro written for the editor also runs on a deck folder from the command line, the
+result saved to its `deck.json`:
+
+```bash
+python -m decker run macro.py talk.deck --slide 3    # --dry-run to try without saving
+python -m decker info talk.deck
+```
 
 The model is thin: `deck.data`, `slide.data` and `element.data` are the JSON dicts, so
 anything the helpers do not cover can be set directly, following the format chapter.
