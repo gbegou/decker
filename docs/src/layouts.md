@@ -1,4 +1,4 @@
-# Layouts
+# Layouts and themes
 
 A layout is decker's equivalent of PowerPoint's masters and layouts: what a family of slides
 shares, and the slots a new slide starts from.
@@ -42,13 +42,12 @@ export produces real placeholders and how a slide keeps its link to the layout.
 }
 ```
 
-## In the editor
+## Choosing a slide's layout
 
 - The right panel shows the slide's layout, with a selector to change it. Changing it keeps
   the slide's elements; placeholders are not re-created.
 - **+ Slide** creates the next slide from the current slide's layout: one text box per
   placeholder, at the placeholder's position and style, showing the placeholder's name.
-- **Duplicate** copies the current slide.
 
 ## Creating a layout
 
@@ -99,7 +98,6 @@ by field for the slides that use the layout, so blank fields inherit.
   deck and the PDF export embeds it. A missing family falls back to DejaVu Sans.
 - PPTX: the deck theme is written to the PowerPoint theme (minor and major font, `dk1` text
   color, `accent1`–`accent6`); importing a PPTX gives each layout the theme of its master.
-**+ New layout** creates an empty one and opens it.
 
 ## Reusing a layout: `.deck_layout`
 
@@ -118,50 +116,24 @@ saved once, so that images have a folder to be copied into.
 
 ## Variables
 
-In a layout's texts, these are replaced on each slide that uses the layout:
+A layout's texts can hold variables filled per slide, such as a footer
+`{{section, " | ", subsection}}` and `{{slide, " / ", slides}}`. The list and the rules are
+in [Variables](variables.md).
 
-| Variable | Value |
-| --- | --- |
-| `{{section}}`, `{{subsection}}` | The section and subsection the slide belongs to |
-| `{{slide}}`, `{{slides}}` | The slide number and the number of slides |
-| `{{title}}` | The slide's title (its name, else the first line of its first text box) |
-| `{{deck}}` | The deck's title |
-| `{{date}}` | Today's date, `YYYY-MM-DD` |
-
-A footer such as `{{section}} › {{subsection}}` on the left and `{{slide}} / {{slides}}` on the
-right therefore maintains itself. Unknown names are left as written. In PPTX export,
-`{{slide}}` becomes PowerPoint's slide-number field and comes back as `{{slide}}` on import;
-the other variables have no PowerPoint equivalent and are exported as their text.
-
-## PPTX
+## PowerPoint
 
 **Import** turns each PowerPoint layout used by a slide into a decker layout: the master's
-static shapes and background, then the layout's own static shapes and placeholders. Date,
-footer and slide-number placeholders are skipped. Placeholder styles come from the layout's
-list style, with PowerPoint's usual sizes (44 pt titles, 24 pt subtitles) when it sets none.
-A blank layout is not kept. Slides keep their layout and their placeholder names.
+static shapes and background, then the layout's own static shapes and placeholders, with the
+master's text styles. Date, footer and slide-number placeholders are skipped; a blank layout
+is not kept. Slides keep their layout and their placeholder names.
 
 **Export** writes one PowerPoint layout per decker layout, with its placeholders and static
 shapes, plus a blank layout for slides without one. Text boxes that fill a placeholder are
-exported as placeholders of that layout, so PowerPoint sees real masters: the deck opens
-with its layouts in the layout gallery, and new slides made in PowerPoint can use them.
+exported as placeholders of that layout, so the deck opens in PowerPoint with its layouts in
+the layout gallery.
 
 ```bash
 deck-convert layouts talk.deck
 ```
 
 lists a deck's layouts and placeholders.
-
-## Joining variables
-
-A variable can be a list of variables and quoted texts, joined:
-
-```text
-{{section, " | ", subsection}}      Intro | Motivation, or just Intro without a subsection
-{{slide, " / ", slides}}            3 / 12
-{{"Part ", section}}                Part Intro, or nothing outside a section
-```
-
-Text between two variables shows only when both have a value, text before the first only
-when it has one, and text after the last likewise, so a missing subsection leaves no
-dangling separator. Inside quotes, `\"` is a quote and commas are kept.

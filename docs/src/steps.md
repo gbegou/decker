@@ -1,21 +1,21 @@
-# Build steps and animations
+# Build steps
 
-Animations are not effects attached to elements; they are **states per step**. An element has
-a base state, and for any step it may carry overrides: position, size, rotation, opacity,
-fill. Rendering step N applies the overrides in force at step N and draws a static picture.
-Playing step N interpolates from the state at N − 1 over the step's duration.
+A slide can reveal itself click by click. An element has a base state, and at any click it
+may change: appear, disappear, move, grow or shrink, rotate, change color. During the show,
+each press of a key plays the next click; a slide consumes as many clicks as its highest step
+before the next slide comes.
 
 ![Build steps](images/build-steps.svg)
 
-| Effect | Override at step N |
+| Effect | What the step sets at click N |
 | --- | --- |
-| Appear, fade in | `opacity` 1 (with `opacity` 0 at step 0) |
-| Disappear | `opacity` 0 |
-| Fly in from the left | `x` from off-slide to its place |
-| Grow, shrink | `w`, `h` |
-| Spin | `rotation` |
-| Color change | `fill` |
-| Move | `x`, `y` |
+| Appear, fade in | opacity 1 (with opacity 0 at click 0) |
+| Disappear | opacity 0 |
+| Fly in | position, from off the slide to its place |
+| Grow, shrink | size |
+| Spin | rotation |
+| Color change | fill |
+| Move | position |
 
 A group's steps apply to the group as a whole: its children fade, move, grow or spin
 together, while keeping steps of their own.
@@ -24,17 +24,19 @@ together, while keeping steps of their own.
 
 Select an element: the **Build steps** panel lists its steps with everything they change, and
 offers **Appear on click** and **Disappear on click**. The ◀ ▶ controls under the canvas show
-the slide at a given click; viewing click 1 or later, dragging or resizing an element sets
-where it is at that click, creating a move step if there is none (**+ Move step** does the
-same from the panel). Each step's visibility, position, size, rotation, fill, duration,
+the slide at a given click; viewing click 1 or later, dragging, resizing or rotating an
+element sets where it is at that click, creating a step if there is none (**+ Move step** does
+the same from the panel). Each step's visibility, position, size, rotation, fill, duration,
 delay and easing are editable in place; **view** shows that click.
 
-Each step has `at` (the click that triggers it), `set` (the overrides), `duration`, `delay`
-and `easing`. A slide consumes as many clicks as its highest step before moving on.
+In `deck.json` each step has `at` (the click that triggers it), `set` (what changes),
+`duration`, `delay` and `easing`.
 
-In the audience window, the renderer tags every element with a stable id, and a new step
-patches the existing elements rather than replacing the document, so the browser engine
-transitions opacity and rotation in place. Positions snap for now.
+## In exports
 
-Not covered, by design: curved motion paths (use intermediate steps, or a future `path`
-override), per-character text effects, looping animations.
+- **PDF** can carry one page per click (see [Exporting](export.md)).
+- **PowerPoint** gets appear and disappear steps as fade entrances and exits; other changes
+  are reported as warnings.
+
+Not covered, by design: curved motion paths (use intermediate steps), per-character text
+effects, looping animations.

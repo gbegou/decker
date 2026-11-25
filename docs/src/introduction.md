@@ -2,24 +2,19 @@
 
 <img src="images/decker_lockup.svg" alt="decker" width="420">
 
-**D**ecker is an **E**fficient, **C**ross-platform **K**eynote **E**ditor and **R**enderer.
+**D**ecker is an **E**fficient, **C**ross-platform **K**eynote **E**ditor and **R**enderer:
+a free, fast, modern alternative to PowerPoint, written in Rust, for Linux and Windows.
 
-A free, fast, modern alternative to PowerPoint, written in Rust, for Linux and Windows.
+- **Edit** slides with text typeset by Typst, formulas, CeTZ figures and plots, shapes,
+  pictures, videos and tables; arrange them with snapping, alignment and groups.
+- **Animate** with build steps: reveal, move, grow, spin or recolor elements click by click.
+- **Lay out** with layouts and themes, the equivalent of PowerPoint's masters, with variables
+  for footers and a plan slide that follows the sections.
+- **Present** on a projector with a presenter view: current and next slide, notes, timer,
+  pointer and pen, black screen. [decker-viewer](viewer.md) does the same for any PDF.
+- **Exchange** with PowerPoint both ways, and export PDF with bookmarks and selectable text.
+- **Automate** with Python: build decks from data, or run macros on the open deck.
 
-- **Reads and writes PPTX** through a converter that imports what can be expressed and says
-  what it skipped, so decks from colleagues open and go back to them.
-- **Presents** on a projector with a presenter view: current slide, what comes next, notes,
-  timer, black screen.
-- **Layouts**, the equivalent of masters, imported from and exported to PPTX; slides copy
-  between decks with their images and layouts.
-- **Sections** become PDF bookmarks; **PDF export** keeps text selectable and formulas crisp.
-- **Build steps** reveal, move, grow or recolor elements click by click, with one mechanism.
-- **Text and formulas** typeset by Typst embedded: exact line breaking, inline math, the
-  deck's own notations, identical on screen and in PDF.
-- **Python macros** run from the editor against the open deck, and a Python API builds decks from data; see [Python](python.md).
-
-Status: first draft. The document model, the native format, an SVG renderer, the PPTX
-converter and the application with its three windows exist. See the [roadmap](roadmap.md).
+New here? Start with [Installation](installation.md), then the [manual](slides.md).
 
 ![The stack](images/stack.svg)
-- **A viewer**: the audience and presenter windows alone, for any PDF; see [The viewer](viewer.md).

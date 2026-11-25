@@ -10,11 +10,15 @@ front-end only draws what Rust sends and turns user actions into commands.
 
 | Part | Language | Role |
 | --- | --- | --- |
-| `crates/deck-core` | Rust | `Deck` → `Slide` → `Element` (text, image, shape, math), build steps, JSON on disk, SVG renderer |
-| `crates/deck-convert` | Rust | Library and CLI: PPTX ↔ deck, SVG render |
-| `crates/deck-typst` | Rust | Typst embedded: formulas, with the deck's notations (feature `typst`) |
-| `apps/deck-app/src-tauri` | Rust | Tauri application: state, commands, the three windows |
-| `apps/deck-app/src` | Svelte + TypeScript | The three views, served in the webview |
+| `crates/deck-core` | Rust | `Deck` → `Slide` → `Element`, build steps, themes, variables, JSON on disk, SVG renderer, text editing |
+| `crates/deck-convert` | Rust | Library and CLI: PPTX ↔ deck, PDF, SVG render, `.deckz` archives |
+| `crates/deck-typst` | Rust | Typst embedded: text, formulas, figures, PDF (feature `typst`) |
+| `crates/deck-present` | Rust | The show state and the presentation windows, shared with the viewer |
+| `apps/deck-app/src-tauri` | Rust | The editor application: state, commands, undo, macros |
+| `apps/deck-app/src` | Svelte + TypeScript | The editor's views |
+| `apps/deck-viewer` | Rust + Svelte | decker-viewer: presenting PDFs |
+| `apps/shared` | Svelte + TypeScript | The presentation windows' front-end, shared by both apps |
+| `python/decker` | Python | The scripting package |
 
 A webview is the browser engine the operating system already ships, in a plain window with
 no browser chrome: WebView2 (Edge's engine) on Windows, WebKitGTK on Linux.
@@ -46,16 +50,7 @@ keys. That part lives apart so that `decker-viewer` can present PDFs with the sa
   `view-changed` event) that both apps implement under the same names. The components take
   Svelte snippets to draw a page, so the editor draws SVG and the viewer draws PDF pages.
 
-## Text editing
-
-Text is edited where it is drawn. Double-clicking a text box asks Rust for the layout of every
-character (`text_layout`: the box of each character as Typst placed it, read from the typeset
-frame, plus the caret box after the end); the editor draws the caret and the selection in its
-overlay from those boxes and sends each key as an edit (`text_edit`: replace a range of the
-flat text by a string). `deck_core::text` applies edits to paragraphs and runs by flat index,
-so styles survive typing, and the slide is re-rendered. Key actions are queued in the
-front-end so that fast typing keeps its order, and view responses that arrive out of order
-are dropped.
+Rendering, Typst, text editing and the PDF layers are described in [Rendering and Typst](rendering.md).
 
 ## Presentation windows
 
@@ -79,7 +74,7 @@ lines to the terminal with the monitors found and each window's page load events
 - **Svelte + TypeScript for the views**: the closest thing to plain HTML, small output, and
   the types mirror the Rust `View` so the two sides cannot drift silently.
 - **JSON in a folder**: readable, diffable, and trivial to script. A zipped single file is
-  the same layout archived.
+  the same layout archived (`.deckz`).
 - **PPTX as a converter, not the native format**: import what can be expressed, warn about
   the rest, and never let PowerPoint's model dictate ours.
 

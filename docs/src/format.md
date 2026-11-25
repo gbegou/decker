@@ -1,4 +1,4 @@
-# The native format
+# The deck format
 
 A deck is a folder:
 
@@ -13,20 +13,7 @@ talk.deck/
 Coordinates are in points (1/72 inch), origin at the top-left of the slide; a 16:9 slide is
 960 × 540 points.
 
-## The single-file deck
-
-A `.deckz` file is that folder zipped, to send a deck as one file. The editor opens it
-(**Open file…**), works in a temporary folder and packs it again on every save; **Save as…**
-with a `.deckz` name turns a folder deck into one, and with a folder name turns it back.
-From the command line:
-
-```bash
-deck-convert pack talk.deck          # writes talk.deckz
-deck-convert unpack talk.deckz       # writes talk.deck/
-```
-
-The folder remains the format to keep under version control: `deck.json` diffs line by
-line, an archive does not.
+A `.deckz` file is the same folder zipped; see [Reusing work](reuse.md#sending-a-deck-as-one-file).
 
 A minimal deck:
 
@@ -90,9 +77,10 @@ them). A run may carry `"math": true` to be rendered as an inline formula.
 Every element may carry `steps`; see [Build steps](steps.md). A rotation from the start is
 a step at click 0 that sets `rotation` (degrees clockwise); PowerPoint's frame rotation maps
 to it both ways. The deck may carry a
-`math_preamble` and a `typst/` folder of importable files; see [Math](math.md), a `theme`
+`math_preamble` and a `typst/` folder of importable files; see [Formulas and figures](formulas.md), a `theme`
 (default font, size, colors and palette, overridable per layout) and `layouts` that slides
-name; see [Layouts](layouts.md).
+name; see [Layouts and themes](layouts.md). Variables in layout texts are listed in
+[Variables](variables.md).
 
 The authoritative definition is the `Deck` type in `deck-core`, documented in the
 [API reference](api.md).

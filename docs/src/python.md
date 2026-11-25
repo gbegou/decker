@@ -1,4 +1,4 @@
-# Python macros and API
+# Python
 
 decker scripts are plain Python. They use the `decker` package, a small pure-Python
 library that reads and writes the [native format](format.md) with helpers for the common
@@ -38,12 +38,12 @@ python -m decker info talk.deck
 ```
 
 The model is thin: `deck.data`, `slide.data` and `element.data` are the JSON dicts, so
-anything the helpers do not cover can be set directly, following the format chapter.
+anything the helpers do not cover can be set directly, following [the deck format](format.md).
 `decker.load("talk.deck")` reads a deck, `deck.save()` writes it back.
 
 ## Charts from data
 
-`add_plot` and `add_bars` write a [CeTZ figure](math.md#figures-drawings-and-plots-with-cetz)
+`add_plot` and `add_bars` write a [CeTZ figure](formulas.md#figures-drawings-and-plots-with-cetz)
 from Python values; the result stays an editable Typst source on the slide.
 
 ```python

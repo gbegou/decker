@@ -1,4 +1,4 @@
-# Presenting
+# Presenting with decker
 
 **Present** opens the audience window fullscreen on the projector (the first monitor that is
 not the primary one) and the presenter window on the laptop screen. With a single monitor,
@@ -25,4 +25,5 @@ Keys work in every window, so a clicker does too:
 | W, `,` | White screen on and off, to write on a whiteboard under the projector |
 | Escape | End the presentation |
 
-Both windows draw the same state held by the Rust side, so they can never disagree.
+Both windows draw the same state, so they can never disagree. To present a PDF made
+elsewhere, use [decker-viewer](viewer.md).

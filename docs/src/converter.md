@@ -1,81 +1,23 @@
-# The converter
+# The converter command line
 
-`deck-convert` is the command-line converter; the application calls the same code.
-
-```bash
-cargo build --release
-```
+`deck-convert` does without the editor what the application does: convert, render, export,
+copy. The application calls the same code.
 
 ```bash
-target/release/deck-convert import talk.pptx          # → talk.deck/
+cargo build --release -p deck-convert --features typst
 ```
 
-```bash
-target/release/deck-convert export talk.deck -o out.pptx
-```
+| Command | Does |
+| --- | --- |
+| `deck-convert import talk.pptx [-o talk.deck]` | PowerPoint to a deck folder (see [Importing](import.md)) |
+| `deck-convert export talk.deck [-o talk.pptx]` | A deck to PowerPoint (see [Exporting](export.md)) |
+| `deck-convert pdf talk.deck [-o talk.pdf] [--steps \| --notes]` | A deck to PDF, per slide, per build step or as a handout |
+| `deck-convert render talk.deck [-o dir]` | Each slide to an SVG file (`talk.deck/svg/` by default) |
+| `deck-convert info talk.deck` | A summary: size, slides, sections |
+| `deck-convert layouts talk.deck` | The layouts and their placeholders |
+| `deck-convert copy other.deck 2,5-7 talk.deck [--at N]` | Slides from one deck into another (see [Reusing work](reuse.md)) |
+| `deck-convert pack talk.deck` / `unpack talk.deckz` | Between a deck folder and a single `.deckz` file |
 
-```bash
-target/release/deck-convert render talk.deck          # → talk.deck/svg/slideN.svg
-```
-
-```bash
-target/release/deck-convert info talk.deck
-```
-
-```bash
-target/release/deck-convert pdf talk.deck             # with --features typst
-```
-
-## What the PPTX import handles
-
-- Slide size and order, slide names, solid background colors, speaker notes.
-- Text: paragraphs with alignment and bullet level, runs with bold, italic, size, color and
-  font.
-- Placeholders without an explicit position inherit it from the slide layout, then the
-  master. Body placeholders are bulleted, titles get 44 pt and subtitles 24 pt when the run
-  sets no size (the master's text styles are not read yet).
-- Pictures (png, jpeg, gif, bmp, svg, webp), copied into `assets/`, with their crop and
-  their crop-to-shape (ellipse, rounded rectangle).
-- Shapes: rectangles and rounded variants, ellipses, lines and connectors, with solid fill,
-  outline and text. Other preset geometries are drawn as rectangles.
-- Groups, with their child-to-slide transform.
-- Animations: entrance and exit effects of the main sequence become build steps, one click
-  per step.
-- Masters and layouts, as decker [layouts](layouts.md), with their placeholders.
-- PowerPoint sections, as the `section` of the slide that starts each.
-
-Skipped, with a warning: tables, charts, SmartArt, embedded objects, gradients, theme
-colors, emphasis and motion-path animations, transitions. The old binary `.ppt` format is not
-read; convert it first:
-
-```bash
-soffice --headless --convert-to pptx old.ppt
-```
-
-## Export
-
-Writes a package with one master, one PowerPoint layout per decker layout (placeholders and
-static shapes) plus a blank one, a theme and notes; slide elements as explicit shapes, text
-boxes bound to their layout placeholders, build steps as fade entrances and exits, and
-formulas as their source text. What cannot be expressed is reported: geometry or color changes in a step, formulas.
-
-## Formulas and figures in PowerPoint
-
-PowerPoint cannot run Typst, so the export writes each formula and each figure as a picture
-of what decker renders (PNG at three pixels per point, fitted and centered in the element's
-box), with the Typst source kept in the picture's description. Importing such a file gives
-the formula or figure back, editable. This needs the Typst engine: the application has it,
-and so does `deck-convert` built with the `typst` feature; without it the source is written
-as text, with a warning.
-
-## Videos and text styles in PowerPoint
-
-- A video is embedded in the exported file the way PowerPoint writes it: a picture (the
-  poster, or a dark still when the video has none) linked to the media part, with the node
-  that lets the slideshow play it, looping and muted as set in decker. It starts on click;
-  "play when it appears" is noted as a warning. An animated GIF is exported as a picture,
-  which PowerPoint animates. Importing brings an embedded video back as a media element.
-- On import, placeholders take the master's text styles (title, body and other: size, bold,
-  color, alignment, bullets), then the layout's own, and slide text takes what its runs
-  leave unset from its placeholder, one size step down per bullet level. Colors given as
-  theme references are not resolved yet.
+Built without the `typst` feature, `pdf` is not available and exports write formula sources
+instead of pictures. Python macros run on a deck folder with `python -m decker run`; see
+[Python](python.md).

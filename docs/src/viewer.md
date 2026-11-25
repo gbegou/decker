@@ -1,4 +1,4 @@
-# The viewer: presenting any PDF
+# decker-viewer: presenting any PDF
 
 `decker-viewer` is a second, small application: the audience window and the presenter view
 of decker, for a PDF instead of a deck. Any PDF works: decker's own export, a Beamer talk, a
@@ -36,14 +36,7 @@ The notes panel of the main window edits them and writes the file back. decker's
 writes this file from the deck's notes, and its "one page per build step" option makes a PDF
 that plays the builds here.
 
-## Building it
+## Installing it
 
-```bash
-cd apps/deck-viewer && npm install
-npm run tauri dev        # or: npm run tauri build
-```
-
-The same toolchain as decker applies, including the [Windows without admin
-rights](running.md#windows-without-admin-rights) setup. The Rust side (`apps/deck-viewer/src-tauri`)
-is a few hundred lines over the shared `deck-present` crate; the windows are the shared
-front-end of `apps/shared` ([Architecture](architecture.md)).
+The viewer has its own installer next to decker's; to build it from source, follow
+[Installation](installation.md) in `apps/deck-viewer` instead of `apps/deck-app`.
