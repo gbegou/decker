@@ -532,7 +532,15 @@ fn import_tree(
             }
             "nvGrpSpPr" | "grpSpPr" => {}
             "graphicFrame" => match import_table(node, offset) {
-                Some(table) => elements.push(Element::Table(table)),
+                Some(mut table) => {
+                    if let Some(tbl) = node.descendants().find(|n| n.has_tag_name((NS_A, "tbl"))) {
+                        let styles = pkg.xml("ppt/tableStyles.xml").ok();
+                        if let Some(warning) = apply_table_style(&mut table, tbl, styles.as_deref()) {
+                            report.warnings.push(format!("{part}: {warning}"));
+                        }
+                    }
+                    elements.push(Element::Table(table))
+                }
                 None => report.warnings.push(format!("{part}: chart or diagram skipped")),
             },
             "cxnSp" => {
@@ -767,6 +775,140 @@ fn line_ends(node: Node, kind: ShapeKind) -> (ShapeKind, bool, bool) {
 
 /// A `<p:graphicFrame>` holding an `<a:tbl>`: the grid's relative column
 /// widths, the cells' paragraphs and solid fills, `firstRow` as header.
+/// One part of a table style (`wholeTbl`, `band1H`, `firstRow`...): the
+/// fill, text color and weight it gives its cells.
+#[derive(Default, Clone, Copy)]
+struct StylePart {
+    fill: Option<Color>,
+    text: Option<Color>,
+    bold: bool,
+}
+
+fn style_part(style: Node, name: &str) -> Option<StylePart> {
+    let part = child(style, NS_A, name)?;
+    let tx = child(part, NS_A, "tcTxStyle");
+    Some(StylePart {
+        fill: child(part, NS_A, "tcStyle").and_then(|t| child(t, NS_A, "fill")).and_then(solid_fill),
+        text: tx.and_then(srgb),
+        bold: tx.and_then(|t| t.attribute("b")).is_some_and(|b| b == "on"),
+    })
+}
+
+/// PowerPoint's built-in "Medium Style 2" family (its default table style),
+/// as a style definition: PowerPoint names it in the file without defining it.
+fn medium_style_2(color: &str) -> String {
+    let c = |extra: &str| format!(r#"<a:solidFill><a:schemeClr val="{color}">{extra}</a:schemeClr></a:solidFill>"#);
+    let lt1 = r#"<a:solidFill><a:schemeClr val="lt1"/></a:solidFill>"#;
+    let strong = format!(
+        r#"<a:tcTxStyle b="on"><a:schemeClr val="lt1"/></a:tcTxStyle><a:tcStyle><a:fill>{}</a:fill></a:tcStyle>"#,
+        c("")
+    );
+    format!(
+        r#"<a:tblStyle xmlns:a="{NS_A}"><a:wholeTbl><a:tcTxStyle><a:schemeClr val="dk1"/></a:tcTxStyle><a:tcStyle><a:tcBdr><a:insideH><a:ln w="12700">{lt1}</a:ln></a:insideH></a:tcBdr><a:fill>{}</a:fill></a:tcStyle></a:wholeTbl><a:band1H><a:tcStyle><a:fill>{}</a:fill></a:tcStyle></a:band1H><a:band1V><a:tcStyle><a:fill>{}</a:fill></a:tcStyle></a:band1V><a:lastCol>{strong}</a:lastCol><a:firstCol>{strong}</a:firstCol><a:lastRow>{strong}</a:lastRow><a:firstRow>{strong}</a:firstRow></a:tblStyle>"#,
+        c(r#"<a:tint val="20000"/>"#),
+        c(r#"<a:tint val="40000"/>"#),
+        c(r#"<a:tint val="40000"/>"#),
+    )
+}
+
+/// The built-in styles known by id: the Medium Style 2 family.
+fn builtin_style(id: &str) -> Option<String> {
+    let color = match id.to_ascii_uppercase().as_str() {
+        "{073A0DAA-6AF3-43AB-8588-CEC1D06C72B9}" => "dk1",
+        "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}" => "accent1",
+        "{21E4AEA4-8DFA-4A89-87EB-49C32662AFE8}" => "accent2",
+        "{F5AB1C69-6EDB-4FF4-983F-18BD219EF322}" => "accent3",
+        "{00A15C55-8517-42AA-B614-E9B94910E393}" => "accent4",
+        "{7DF18680-E054-41AD-8BC1-D1AEF772440D}" => "accent5",
+        "{93296810-A885-4BE3-A3E7-6D5BEEA58F35}" => "accent6",
+        _ => return None,
+    };
+    Some(medium_style_2(color))
+}
+
+/// Bakes the table's style into its cells: fills of the whole table,
+/// banded rows or columns, header and total rows, first and last columns
+/// (as the table's options turn them on), their text colors and weight,
+/// and the inner borders as the table's rules. Cells keep their own fill.
+/// Returns a warning when the style had to be approximated.
+fn apply_table_style(table: &mut deck_core::Table, tbl: Node, styles: Option<&str>) -> Option<String> {
+    let props = child(tbl, NS_A, "tblPr");
+    let id = props.and_then(|p| child(p, NS_A, "tableStyleId")).and_then(|n| n.text()).map(str::trim)?;
+    let flag = |name: &str| props.and_then(|p| p.attribute(name)).is_some_and(|v| v == "1" || v == "true");
+    let defined = styles.and_then(|xml| {
+        let doc = Document::parse(xml).ok()?;
+        let style = doc
+            .root_element()
+            .children()
+            .find(|s| s.attribute("styleId").is_some_and(|s| s.eq_ignore_ascii_case(id)))?;
+        // Keep the definition as text: the parsed document is dropped here.
+        Some(xml[style.range()].to_string().replacen("<a:tblStyle", &format!(r#"<a:tblStyle xmlns:a="{NS_A}""#), 1))
+    });
+    let (source, warning) = match defined.or_else(|| builtin_style(id)) {
+        Some(s) => (s, None),
+        None => (
+            builtin_style("{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}")?,
+            Some(format!("table style {id} drawn as Medium Style 2")),
+        ),
+    };
+    let doc = Document::parse(&source).ok()?;
+    let style = doc.root_element();
+    let part = |name: &str| style_part(style, name);
+    let (whole, band_h, band_v) = (part("wholeTbl"), part("band1H"), part("band1V"));
+    let (first_row, last_row, first_col, last_col) =
+        (part("firstRow"), part("lastRow"), part("firstCol"), part("lastCol"));
+    let (rows, columns) = (table.rows.len(), table.column_count());
+    let header = flag("firstRow") as usize;
+    for i in 0..rows {
+        for j in 0..columns {
+            // PowerPoint's order: later parts win.
+            let mut parts = vec![whole];
+            if flag("bandCol") && (j - (flag("firstCol") as usize).min(j)).is_multiple_of(2) {
+                parts.push(band_v);
+            }
+            if flag("bandRow") && i >= header && (i - header).is_multiple_of(2) {
+                parts.push(band_h);
+            }
+            if flag("firstCol") && j == 0 {
+                parts.push(first_col);
+            }
+            if flag("lastCol") && j + 1 == columns {
+                parts.push(last_col);
+            }
+            if flag("lastRow") && i + 1 == rows {
+                parts.push(last_row);
+            }
+            if flag("firstRow") && i == 0 {
+                parts.push(first_row);
+            }
+            let mut look = StylePart::default();
+            for p in parts.into_iter().flatten() {
+                look.fill = p.fill.or(look.fill);
+                look.text = p.text.or(look.text);
+                look.bold |= p.bold;
+            }
+            let cell = &mut table.rows[i][j];
+            cell.fill = cell.fill.or(look.fill);
+            for run in cell.paragraphs.iter_mut().flat_map(|p| p.runs.iter_mut()) {
+                run.color = run.color.or(look.text);
+                run.bold |= look.bold;
+            }
+        }
+    }
+    let border = child(style, NS_A, "wholeTbl")
+        .and_then(|w| child(w, NS_A, "tcStyle"))
+        .and_then(|t| child(t, NS_A, "tcBdr"))
+        .and_then(|b| child(b, NS_A, "insideH"))
+        .and_then(|h| child(h, NS_A, "ln"));
+    if let Some(ln) = border {
+        let width = ln.attribute("w").and_then(|w| w.parse::<f64>().ok()).map(|w| w / 12700.0).unwrap_or(1.0);
+        if let Some(color) = solid_fill(ln) {
+            table.stroke = Some(Stroke { color, width });
+        }
+    }
+    warning
+}
+
 fn import_table(node: Node, offset: Rect) -> Option<deck_core::Table> {
     let tbl = node.descendants().find(|n| n.has_tag_name((NS_A, "tbl")))?;
     let x = child(node, NS_P, "xfrm")?;
@@ -1009,8 +1151,11 @@ fn adjust(color: Color, node: Node) -> Color {
                     rgb = [c.r as f64, c.g as f64, c.b as f64];
                     hsl_dirty = false;
                 }
+                // PowerPoint tints and shades in linear light, not on sRGB values.
                 for x in &mut rgb {
-                    *x = if m.tag_name().name() == "tint" { 255.0 - (255.0 - *x) * v } else { *x * v };
+                    let lin = to_linear(*x / 255.0);
+                    let lin = if m.tag_name().name() == "tint" { lin * v + (1.0 - v) } else { lin * v };
+                    *x = from_linear(lin) * 255.0;
                 }
                 (h, s, l) = to_hsl(Color { r: rgb[0].round() as u8, g: rgb[1].round() as u8, b: rgb[2].round() as u8 });
             }
@@ -1024,6 +1169,23 @@ fn adjust(color: Color, node: Node) -> Color {
         r: rgb[0].round().clamp(0.0, 255.0) as u8,
         g: rgb[1].round().clamp(0.0, 255.0) as u8,
         b: rgb[2].round().clamp(0.0, 255.0) as u8,
+    }
+}
+
+fn to_linear(c: f64) -> f64 {
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+fn from_linear(c: f64) -> f64 {
+    let c = c.clamp(0.0, 1.0);
+    if c <= 0.0031308 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
     }
 }
 
@@ -1176,6 +1338,56 @@ mod tests {
         srgb(doc.root_element())
     }
 
+    fn styled(tbl_pr: &str, styles: Option<&str>) -> (deck_core::Table, Option<String>) {
+        SCHEME.with(|s| {
+            let mut s = s.borrow_mut();
+            s.insert("accent1".into(), Color::from_hex("4472C4").unwrap());
+            s.insert("lt1".into(), Color::WHITE);
+            s.insert("dk1".into(), Color::BLACK);
+        });
+        let mut t = deck_core::Table::new(Rect::new(0.0, 0.0, 100.0, 100.0), 4, 2);
+        t.rows[1][0] = deck_core::Cell::plain("x");
+        t.rows[2][1].fill = Some(Color::rgb(1, 2, 3));
+        let xml = format!(r#"<a:tbl xmlns:a="{NS_A}">{tbl_pr}</a:tbl>"#);
+        let doc = Document::parse(&xml).unwrap();
+        let warning = apply_table_style(&mut t, doc.root_element(), styles);
+        (t, warning)
+    }
+
+    #[test]
+    fn table_styles_are_baked_into_cells() {
+        let (t, warning) = styled(
+            r#"<a:tblPr firstRow="1" bandRow="1"><a:tableStyleId>{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}</a:tableStyleId></a:tblPr>"#,
+            None,
+        );
+        assert_eq!(warning, None, "PowerPoint's default style is known");
+        let hex = |r: usize, c: usize| t.rows[r][c].fill.map(|f| f.to_hex());
+        assert_eq!(hex(0, 0).as_deref(), Some("#4472C4"), "the header on the accent");
+        assert_eq!(
+            hex(1, 0).as_deref(),
+            Some("#CFD5EA"),
+            "first data row: band, accent tinted 40%, as PowerPoint draws it"
+        );
+        assert_eq!(hex(2, 0).as_deref(), Some("#E9EBF5"), "second: the whole table, tinted 20%");
+        assert_eq!(hex(2, 1).as_deref(), Some("#010203"), "a cell's own fill stays");
+        assert_eq!(t.rows[1][0].paragraphs[0].runs[0].color, Some(Color::BLACK));
+        assert_eq!(t.stroke.map(|s| (s.color, s.width)), Some((Color::WHITE, 1.0)), "white rules");
+
+        let custom = r#"<a:tblStyleLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:tblStyle styleId="{X}" styleName="Mine"><a:wholeTbl><a:tcStyle><a:fill><a:solidFill><a:srgbClr val="ABCDEF"/></a:solidFill></a:fill></a:tcStyle></a:wholeTbl></a:tblStyle></a:tblStyleLst>"#;
+        let (t, warning) = styled(r#"<a:tblPr><a:tableStyleId>{X}</a:tableStyleId></a:tblPr>"#, Some(custom));
+        assert_eq!(
+            (warning, t.rows[3][0].fill.map(|f| f.to_hex())),
+            (None, Some("#ABCDEF".into())),
+            "a style defined in the file"
+        );
+
+        let (_, warning) = styled(r#"<a:tblPr><a:tableStyleId>{0000}</a:tableStyleId></a:tblPr>"#, None);
+        assert!(
+            warning.is_some_and(|w| w.contains("Medium Style 2")),
+            "an unknown style is approximated, with a warning"
+        );
+    }
+
     #[test]
     fn scheme_colors_and_their_shades() {
         SCHEME.with(|s| {
@@ -1198,7 +1410,7 @@ mod tests {
         );
         assert_eq!(
             hex(r#"<a:schemeClr val="accent1"><a:shade val="50000"/></a:schemeClr>"#).as_deref(),
-            Some("#223962")
+            Some("#2F528F")
         );
         assert_eq!(hex(r#"<a:sysClr val="windowText" lastClr="000000"/>"#).as_deref(), Some("#000000"));
         assert_eq!(hex(r#"<a:schemeClr val="accent6"/>"#), None, "not in the scheme");

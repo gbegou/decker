@@ -18,7 +18,11 @@ opening of the same file opens that folder. The command line does the same with
   crop-to-shape (ellipse, rounded rectangle) and their mirroring.
 - Shapes: rectangles and rounded variants, ellipses, lines, connectors and arrows, with solid
   fill, outline and text; rotation. Other preset geometries are drawn as rectangles.
-- Tables, with their grid, texts, cell fills, merged cells and header row.
+- Tables, with their grid, texts, cell fills, merged cells and header row. Their table style
+  (banded rows and columns, header, total row, first and last column, inner borders) is
+  baked into the cells' fills and text colors: styles defined in the file, and PowerPoint's
+  default *Medium Style 2* family; other built-in styles are drawn as Medium Style 2, with a
+  warning.
 - Colors given as theme references ("Accent 1, darker 25%"), resolved in the slide's theme.
 - Embedded videos, with their poster.
 - Groups, with their child-to-slide transform.
@@ -27,7 +31,7 @@ opening of the same file opens that folder. The command line does the same with
 
 ## What does not
 
-Skipped, with a warning: charts, SmartArt, embedded objects, gradients, table styles, emphasis and motion-path animations,
+Skipped, with a warning: charts, SmartArt, embedded objects, gradients, emphasis and motion-path animations,
 transitions. The old binary `.ppt` format is not read; convert it first:
 
 ```bash
