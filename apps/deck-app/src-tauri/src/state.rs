@@ -34,6 +34,9 @@ pub struct AppState {
     /// The table cell being edited in place: `(element, row, column)`.
     /// Text edits and styles aimed at that table go to this cell.
     pub cell: Option<(usize, usize, usize)>,
+    /// The text element being edited and its caret, `(element, caret)`:
+    /// a formula typed as `$...$` around the caret shows as its source.
+    pub raw: Option<(usize, usize)>,
     /// The `.deckz` file the deck came from or was last saved to: saving
     /// packs the working folder back into it.
     pub archive: Option<PathBuf>,
@@ -581,7 +584,36 @@ impl AppState {
     }
 
     fn render(&self, deck: &Deck, slide: &Slide, step: u32) -> String {
+        let raw = self.raw_slide(slide);
+        let slide = raw.as_ref().unwrap_or(slide);
         inline_assets(&svg::render_step_with(deck, slide, step, &*self.math.0), &self.dir, &self.assets)
+    }
+
+    /// The current slide with the formula under the caret shown as source,
+    /// when `slide` is the current slide and there is one.
+    fn raw_slide(&self, slide: &Slide) -> Option<Slide> {
+        let (element, caret) = self.raw?;
+        if self.editing_layout.is_some() || !std::ptr::eq(self.current()?.1, slide) {
+            return None;
+        }
+        let mut slide = slide.clone();
+        let paragraphs = match slide.elements.get_mut(element)? {
+            Element::Text(t) => &mut t.paragraphs,
+            Element::Shape(s) => &mut s.paragraphs,
+            _ => return None,
+        };
+        text::raw_formula(paragraphs, caret).then_some(slide)
+    }
+
+    /// Sets the caret of the text being edited (`None` when done); returns
+    /// whether the slide's look changed, a formula opening or closing.
+    pub fn set_caret(&mut self, raw: Option<(usize, usize)>) -> bool {
+        let shown = |s: &Self| {
+            s.current().and_then(|(_, slide)| s.raw_slide(slide)).map(|s| serde_json::to_string(&s).unwrap_or_default())
+        };
+        let before = shown(self);
+        self.raw = raw;
+        shown(self) != before
     }
 
     /// The typesetter in use (Typst, or none without the feature).
@@ -1330,13 +1362,22 @@ impl AppState {
         };
         defaults.size = size.or(defaults.size);
         let width = (rect.w - 2.0 * svg::PADDING).max(1.0);
+        let mut raw_paragraphs = paragraphs.to_vec();
+        let paragraphs = match self.raw {
+            Some((e, caret))
+                if e == element && self.cell.is_none() && text::raw_formula(&mut raw_paragraphs, caret) =>
+            {
+                &raw_paragraphs
+            }
+            _ => paragraphs,
+        };
         let Some(boxes) = self.math.layout(&deck.math_preamble, paragraphs, width, &defaults) else {
             return Ok(None);
         };
         let (ox, oy) = (rect.x + svg::PADDING, rect.y + svg::PADDING);
         Ok(Some(TextLayout {
             rect,
-            text: text::flat_text(paragraphs),
+            text: text::flat_text(paragraphs).replace(text::RAW_DOLLAR, "$"),
             chars: boxes
                 .into_iter()
                 .map(|b| CharRect { x: ox + b.x, right: ox + b.right, top: oy + b.top, bottom: oy + b.bottom })

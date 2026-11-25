@@ -10,6 +10,49 @@ pub fn flat_text(paragraphs: &[Paragraph]) -> String {
     paragraphs.iter().map(Paragraph::text).collect::<Vec<_>>().join("\n")
 }
 
+/// A `$` that stays a dollar sign: the delimiters of a formula shown as
+/// its source while the caret is in it. One character, like `$`, so flat
+/// indices do not move.
+pub const RAW_DOLLAR: char = '\u{E024}';
+
+/// Shows the formula typed as `$...$` around flat index `caret` as its
+/// source, by turning its two dollars into [`RAW_DOLLAR`]. The caret is in
+/// it when after its first dollar and up to before its last. Returns whether
+/// there was one.
+pub fn raw_formula(paragraphs: &mut [Paragraph], caret: usize) -> bool {
+    let mut base = 0;
+    for p in paragraphs.iter_mut() {
+        for r in p.runs.iter_mut() {
+            let chars: Vec<char> = r.text.chars().collect();
+            if r.math {
+                base += chars.len();
+                continue;
+            }
+            let mut i = 0;
+            while i < chars.len() {
+                if chars[i] == '$' && (i == 0 || chars[i - 1] != '\\') {
+                    if let Some(len) = chars[i + 1..].iter().position(|&c| c == '$').filter(|&l| l > 0) {
+                        let end = i + len + 1;
+                        if base + i < caret && caret <= base + end {
+                            let mut out = chars.clone();
+                            out[i] = RAW_DOLLAR;
+                            out[end] = RAW_DOLLAR;
+                            r.text = out.into_iter().collect();
+                            return true;
+                        }
+                        i = end + 1;
+                        continue;
+                    }
+                }
+                i += 1;
+            }
+            base += chars.len();
+        }
+        base += 1; // the paragraph break
+    }
+    false
+}
+
 /// The number of characters, paragraph breaks included.
 pub fn len(paragraphs: &[Paragraph]) -> usize {
     flat_text(paragraphs).chars().count()
@@ -331,6 +374,19 @@ pub fn style_info(paragraphs: &[Paragraph], from: usize, to: usize) -> StyleInfo
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn raw_formula_around_the_caret() {
+        let mut ps =
+            vec![Paragraph { runs: vec![Run::plain("ab"), Run::plain("x $\\alpha$ y")], ..Default::default() }];
+        assert!(!raw_formula(&mut ps, 4)); // before the first dollar
+        assert!(raw_formula(&mut ps, 5));
+        assert_eq!(ps[0].runs[1].text, format!("x {RAW_DOLLAR}\\alpha{RAW_DOLLAR} y"));
+        let mut ps = vec![Paragraph { runs: vec![Run::plain("$x$")], ..Default::default() }];
+        assert!(raw_formula(&mut ps, 2)); // before the closing dollar
+        assert!(!raw_formula(&mut [Paragraph { runs: vec![Run::plain("$x$")], ..Default::default() }], 3));
+        assert!(!raw_formula(&mut [Paragraph { runs: vec![Run::plain("$x$ ")], ..Default::default() }], 4));
+    }
+
     use super::*;
 
     fn bold(t: &str) -> Run {

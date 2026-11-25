@@ -154,6 +154,7 @@ export const api = {
   setNotes: (notes: string) => invoke<View>("set_notes", { notes }),
   setImage: (element: number, crop: Crop, mask: Mask) => invoke<View>("set_image", { element, crop, mask }),
   textLayout: (element: number) => invoke<TextLayout | null>("text_layout", { element }),
+  setCaret: (element: number | null, caret: number) => invoke<boolean>("set_caret", { element, caret }),
   textEdit: (element: number, from: number, to: number, insert: string) => invoke<number>("text_edit", { element, from, to, insert }),
   addSlide: () => invoke<View>("add_slide"),
   deleteSlide: () => invoke<View>("delete_slide"),

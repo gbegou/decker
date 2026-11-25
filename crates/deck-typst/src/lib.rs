@@ -211,7 +211,11 @@ impl Engine {
         let page = document.pages.first().ok_or(Error::Empty)?;
         let mut glyphs = vec![];
         collect_glyphs(&page.frame, Point::zero(), &mut glyphs);
-        Ok(map_chars(&deck_core::text::flat_text(paragraphs), &glyphs, is_math_mask(paragraphs)))
+        Ok(map_chars(
+            &deck_core::text::flat_text(paragraphs).replace(deck_core::text::RAW_DOLLAR, "$"),
+            &glyphs,
+            is_math_mask(paragraphs),
+        ))
     }
 
     #[doc(hidden)]
@@ -1003,6 +1007,10 @@ impl World for Sandbox<'_> {
 fn typst_markup(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
+        if c == deck_core::text::RAW_DOLLAR {
+            out.push_str("\\$");
+            continue;
+        }
         if "\\#*_`$<>@[]~-+/=".contains(c) {
             out.push('\\');
         }

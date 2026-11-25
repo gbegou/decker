@@ -33,6 +33,7 @@
       ["Double-click a text", "Edit in place: type, Backspace/Delete, arrows, Home/End, Shift+arrows to select, Ctrl+A"],
       ["Mouse in a text being edited", "Click places the caret, drag selects, double-click selects a word, triple-click a paragraph"],
       ["Enter · Escape", "New paragraph · finish editing"],
+      ["Alt+=", "Inline formula: types $$ with the caret inside (while editing text)"],
       ["Ctrl+B · Ctrl+I", "Bold · italic (selection, or the whole box when not editing)"],
       ["Style bar", "Size, color, font, alignment, bullets; fill and outline of boxes and shapes; plan colors"],
       ["Image panel", "Crop to a shape; percentage cut from each edge"],

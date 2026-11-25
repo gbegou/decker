@@ -474,6 +474,16 @@
     editing = { index, caret, anchor: caret, layout };
   }
 
+  // The caret goes to Rust, which shows the formula around it as source.
+  let sentCaret = "";
+  $effect(() => {
+    const key = editing ? `${editing.index}:${editing.caret}` : "";
+    if (key === sentCaret) return;
+    sentCaret = key;
+    const index = editing?.index ?? null, caret = editing?.caret ?? 0;
+    enqueue(async () => { if (await api.setCaret(index, caret)) await refreshLayout(); });
+  });
+
   async function refreshLayout() {
     if (!editing) return;
     const layout = await api.textLayout(editing.index);
@@ -567,6 +577,8 @@
       case "Delete": return withState(({ caret, lo, hi, last }) => (lo !== hi ? applyEdit(lo, hi, "") : caret < last ? applyEdit(caret, caret + 1, "") : undefined));
       case "Enter": return withState(({ lo, hi }) => applyEdit(lo, hi, "\n"));
     }
+    // Alt+= : an inline formula, the caret between its dollars.
+    if (key === "=" && alt && !ctrl) return withState(async ({ lo, hi }) => { await applyEdit(lo, hi, "$$"); if (editing) { editing.caret = editing.anchor = lo + 1; } });
     if (key === "a" && ctrl) return withState(({ last }) => { if (editing) { editing.anchor = 0; editing.caret = last; } });
     if (key.length === 1 && !ctrl && !alt) return withState(({ lo, hi }) => applyEdit(lo, hi, key));
     return null;

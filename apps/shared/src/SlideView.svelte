@@ -1,3 +1,7 @@
+<script lang="ts" module>
+  let nextView = 0;
+</script>
+
 <script lang="ts">
   // Shows a slide's SVG, letterboxed in its box. When `animated`, a new
   // step patches the existing <g> elements instead of replacing the
@@ -10,6 +14,17 @@
   } = $props();
   let host: HTMLDivElement;
 
+  // Every view gets its own ids: thumbnails and the canvas are inline SVGs in
+  // one page, Typst names glyphs and clips by id, and some engines (WebView2)
+  // resolve `href="#id"` to the first match in the page, a stale thumbnail.
+  const prefix = `v${(nextView++).toString(36)}-`;
+  const scoped = $derived(
+    svg
+      .replace(/\bid="([^"]+)"/g, `id="${prefix}$1"`)
+      .replace(/(href="#)([^"]+)"/g, `$1${prefix}$2"`)
+      .replace(/url\(#([^)]+)\)/g, `url(#${prefix}$1)`),
+  );
+
   // The markup each <g> was last given, to tell real changes from the
   // src rewriting done on the live DOM.
   const given = new WeakMap<Element, string>();
@@ -18,7 +33,7 @@
     if (!host) return;
     const current = host.querySelector("svg");
     const replace = () => {
-      host.innerHTML = svg;
+      host.innerHTML = scoped;
       for (const g of host.querySelectorAll(":scope > svg > g")) given.set(g, g.innerHTML);
       if (dir) wireMedia(host, dir, mode);
     };
@@ -26,7 +41,7 @@
       replace();
       return;
     }
-    const next = new DOMParser().parseFromString(svg, "image/svg+xml").documentElement;
+    const next = new DOMParser().parseFromString(scoped, "image/svg+xml").documentElement;
     const nextGroups = Array.from(next.querySelectorAll(":scope > g"));
     const same = nextGroups.length === current.querySelectorAll(":scope > g").length;
     if (!same) {
@@ -34,7 +49,7 @@
       return;
     }
     for (const g of nextGroups) {
-      const old = current.querySelector(`:scope > g#${g.id}`);
+      const old = current.querySelector(`:scope > g[id="${g.id}"]`);
       if (!old) continue;
       if (given.get(old) !== g.innerHTML) { old.innerHTML = g.innerHTML; given.set(old, g.innerHTML); }
       for (const attr of ["opacity", "transform"]) {

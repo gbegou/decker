@@ -812,6 +812,17 @@ fn text_edit(
     Ok(caret)
 }
 
+/// The caret of the text being edited, `None` when editing ends: a formula
+/// around the caret shows as its source.
+#[tauri::command]
+fn set_caret(app: AppHandle, state: Shared, element: Option<usize>, caret: usize) -> Result<bool, String> {
+    let changed = state.lock().map_err(err)?.set_caret(element.map(|e| (e, caret)));
+    if changed {
+        let _ = app.emit("view-changed", ());
+    }
+    Ok(changed)
+}
+
 #[tauri::command]
 fn set_image(app: AppHandle, state: Shared, element: usize, crop: Crop, mask: Mask) -> Result<View, String> {
     let view = {
@@ -1063,6 +1074,7 @@ pub fn run() {
             set_image,
             text_layout,
             text_edit,
+            set_caret,
             add_slide,
             delete_slide,
             duplicate_slide,

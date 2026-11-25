@@ -33,8 +33,10 @@ Typing `$...$` in any text box makes an inline formula: `the angle $alpha$ is sm
 Formulas use [Typst math](https://typst.app/docs/reference/math/), which names symbols
 without a backslash, but LaTeX's habit works too: `$\alpha + 2\pi$` reads as
 `$alpha + 2 pi$`. A lone `$` (a price) and `\$` stay text. Other LaTeX commands such as
-`\frac{a}{b}` are not translated: write `a/b` or `frac(a, b)`. The caret treats a formula
-as one block. For a display formula on its own, see [Formulas and figures](formulas.md).
+`\frac{a}{b}` are not translated: write `a/b` or `frac(a, b)`. **Alt+=** types the two
+dollars and puts the caret between them. When the caret moves into a formula, the formula
+shows as its source, dollars included, so it can be edited character by character; it is
+typeset again as soon as the caret leaves it. For a display formula on its own, see [Formulas and figures](formulas.md).
 
 ## Fonts
 
