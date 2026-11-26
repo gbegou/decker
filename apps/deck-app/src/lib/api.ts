@@ -206,6 +206,7 @@ export const api = {
   styleElement: (element: number, change: ElementStyle) => invoke<View>("style_element", { element, change }),
   saveLayout: (path: string) => invoke<string>("save_layout", { path }),
   loadLayout: (path: string) => invoke<View>("load_layout", { path }),
+  moveStep: (element: number, step: number, to: number, insert: boolean) => invoke<View>("move_step", { element, step, to, insert }),
   setName: (element: number, name: string) => invoke<View>("set_name", { element, name }),
   addPath: (nodes: import("./paths").PathNode[], closed: boolean) => invoke<number>("add_path", { nodes, closed }),
   setPath: (element: number, nodes: import("./paths").PathNode[], closed: boolean) => invoke<View>("set_path", { element, nodes, closed }),

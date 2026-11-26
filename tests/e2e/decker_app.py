@@ -73,6 +73,11 @@ class Editor:
         self.out = out
         self.s.cmd("POST", "/window/rect", {"width": W, "height": H, "x": 0, "y": 0})
         self.s.wait(f"return document.querySelectorAll('.thumb').length >= {thumbs}")
+        # Remembered settings (a collapsed panel…) from an earlier run: cleared.
+        if self.s.js("return localStorage.length"):
+            self.s.js("localStorage.clear(); location.reload(); return true")
+            time.sleep(1)
+            self.s.wait(f"return document.querySelectorAll('.thumb').length >= {thumbs}")
         self.settle()
 
     def settle(self, t: float = 1.0):

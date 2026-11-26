@@ -22,9 +22,27 @@ together, while keeping steps of their own.
 
 ## In the editor
 
-![The build steps of an element in the side panel](images/screens/build-steps.png)
+![The Animations tab: the timeline, then the selected element's steps](images/screens/build-steps.png)
 
-Select an element: the **Build steps** panel lists its steps with everything they change, and
+The **Animations** tab of the side panel holds the slide's timeline and the steps of the
+selected element.
+
+### The timeline
+
+One row per click, after a **Start** row (what is hidden when the slide opens). Each row lists
+what happens at that click, element by element, by [name](arranging.md#names): "Speed arrow
+appears", "Tank moves". To reorder:
+
+- drag an entry onto another click: it happens at that click, with the others there;
+- drag it onto the thin line between two clicks, or under the last one: it gets a click of its
+  own there, and the later clicks shift.
+
+Clicks that end up empty are removed, so the clicks stay numbered 1, 2, 3… An entry's click
+selects its element; a row's ▶ shows the slide at that click.
+
+### Steps of an element
+
+Select an element: the **Animations** tab lists its steps with everything they change, and
 offers **Appear on click** and **Disappear on click**. The ◀ ▶ controls under the canvas show
 the slide at a given click; viewing click 1 or later, dragging, resizing or rotating an
 element sets where it is at that click, creating a step if there is none (**+ Move step** does

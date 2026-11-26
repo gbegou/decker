@@ -6,6 +6,7 @@
   import { SlideView, captureFrame } from "$shared";
   import StyleBar from "./StyleBar.svelte";
   import PathTool from "./PathTool.svelte";
+  import Timeline from "./Timeline.svelte";
   import type { PathNode } from "./paths";
   import ArrangeBar from "./ArrangeBar.svelte";
   import PlaceholderFields from "./PlaceholderFields.svelte";
@@ -506,6 +507,25 @@
     editing = { ...editing, layout, anchor: 0, caret: layout.chars.length - 1 };
   }
 
+  // ----- panels: room for the slide -----
+  /** Per-viewer settings, remembered across sessions when storage works. */
+  function remembered<T>(key: string, fallback: T): T {
+    try { const v = localStorage.getItem("decker." + key); return v === null ? fallback : (JSON.parse(v) as T); } catch { return fallback; }
+  }
+  function remember(key: string, value: unknown) {
+    try { localStorage.setItem("decker." + key, JSON.stringify(value)); } catch { /* not kept */ }
+  }
+  /** The right panel: open or collapsed to a strip, and its tab. */
+  let panelOpen = $state(remembered("panelOpen", true));
+  let panelTab = $state<"props" | "anim">(remembered("panelTab", "props"));
+  /** The notes under the slide: unfolded or not. */
+  let notesOpen = $state(remembered("notesOpen", true));
+  $effect(() => { remember("panelOpen", panelOpen); remember("panelTab", panelTab); remember("notesOpen", notesOpen); });
+  function showTab(tab: "props" | "anim") {
+    if (panelOpen && panelTab === tab) panelOpen = false;
+    else { panelTab = tab; panelOpen = true; }
+  }
+
   /** Drawing a path (the Shape menu's freehand and Bézier tools). */
   let pathMode = $state<"free" | "bezier" | null>(null);
   /** The path whose nodes are being edited (double-click on a path). */
@@ -967,7 +987,7 @@
 
 <svelte:window onkeydown={onKey} onpointermove={thumbMove} onpointerup={thumbUp} onpointercancel={thumbUp} />
 
-<div class="editor">
+<div class="editor" style:grid-template-columns="180px 1fr {panelOpen ? '300px' : '36px'}">
   <header>
     <div class="file-menu">
       <button aria-haspopup="menu" aria-expanded={fileMenu} onclick={() => (fileMenu = !fileMenu)}>File ▾</button>
@@ -1185,10 +1205,43 @@
           <button onclick={() => api.goto(view!.slide, Math.max(0, view!.step - 1))}>◀</button>
           <button onclick={() => api.goto(view!.slide, view!.step + 1)}>▶</button>
         {/if}
+        {#if !editingTemplate}
+          <span class="spacer"></span>
+          <button class="fold" aria-expanded={notesOpen} onclick={() => (notesOpen = !notesOpen)}>Notes {notesOpen ? "▾" : "▸"}</button>
+        {/if}
       </div>
+      {#if !editingTemplate && notesOpen}
+        <textarea class="notes" rows="3" placeholder="Speaker notes for this slide: shown in the presenter view and the handout"
+                  value={view.notes} onchange={(e) => api.setNotes(e.currentTarget.value)}></textarea>
+      {/if}
     </main>
 
-    <aside class="props">
+    <aside class="props" class:collapsed={!panelOpen}>
+      <div class="tabs" class:vertical={!panelOpen}>
+        <button class:on={panelOpen && panelTab === "props"} title="Properties of the selection, the slide, the layout" onclick={() => showTab("props")}>{panelOpen ? "Properties" : "☰"}</button>
+        <button class:on={panelOpen && panelTab === "anim"} title="Animations: the timeline of the slide's clicks" onclick={() => showTab("anim")}>{panelOpen ? "Animations" : "▶"}</button>
+        {#if panelOpen}<button class="collapse" title="Collapse the panel: more room for the slide" onclick={() => (panelOpen = false)}>⟩</button>{/if}
+      </div>
+      {#if !panelOpen}
+        <!-- collapsed: only the tabs -->
+      {:else if panelTab === "anim"}
+        {#if editingTemplate}
+          <p class="muted">Layouts and themes have no animation: steps belong to slides.</p>
+        {:else}
+          <h3>Timeline</h3>
+          <Timeline elements={view.elements} last={view.last_step} current={view.step} {selected}
+                    onselect={(i) => { selected = i; also = []; }}
+                    ongoto={(step) => api.goto(view!.slide, step)}
+                    onmove={(element, step, to, insert) => run(insert ? "Step on a click of its own" : "Step moved", () => api.moveStep(element, step, to, insert))} />
+          {#if sel && sel.kind !== "placeholder"}
+            <h3>Steps of {sel.label}</h3>
+            <Steps element={sel} current={view.step} last={view.last_step}
+                   onrun={(label, f) => run(label, f)} ongoto={(step) => api.goto(view!.slide, step)} />
+          {:else}
+            <p class="muted">Select an element to add or edit its steps: appear or disappear on a click, move, grow, turn, change color.</p>
+          {/if}
+        {/if}
+      {:else}
       {#if sel}
         <h3>{sel.kind} #{sel.index}</h3>
         {#if sel.kind !== "placeholder"}
@@ -1276,9 +1329,8 @@
           {/if}
         {/if}
         {#if sel.kind !== "placeholder" && !editingTemplate}
-          <h3>Build steps</h3>
-          <Steps element={sel} current={view.step} last={view.last_step}
-                 onrun={(label, f) => run(label, f)} ongoto={(step) => api.goto(view!.slide, step)} />
+          <h3>Animation</h3>
+          <p class="muted">{sel.last_step ? `${sel.steps.filter((x) => x.at > 0).length} step(s)` : "None"} · <button class="link" onclick={() => { panelTab = "anim"; }}>open the timeline</button></p>
         {/if}
       {:else}
         <p class="muted">Click an element to select it, Shift+click to select several (then Group), double-click its text to edit it in place (arrows, Shift for a selection, Enter for a paragraph, Escape to finish). Drag to move, corner handle to resize, Delete to remove.</p>
@@ -1431,13 +1483,10 @@
       {:else}
         <p class="muted">No Python found on this machine. Install one (python.org, conda) or point <code>DECKER_PYTHON</code> at it to run macros.</p>
       {/if}
-      {#if !editingTemplate}
-      <h3>Notes</h3>
-      <textarea rows="8" value={view.notes} onchange={(e) => api.setNotes(e.currentTarget.value)}></textarea>
-      {/if}
       {#if view.warnings.length}
         <h3>Import warnings</h3>
         <ul class="muted">{#each view.warnings as w}<li>{w}</li>{/each}</ul>
+      {/if}
       {/if}
     </aside>
   {:else}
@@ -1626,6 +1675,16 @@
   @keyframes blink { to { visibility: hidden; } }
   .steps { padding: 6px 16px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
   .props { grid-area: props; overflow-y: auto; padding: 12px; border-left: 1px solid var(--border); }
+  .props.collapsed { padding: 6px 4px; overflow: hidden; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 6px; position: sticky; top: -12px; background: var(--panel, var(--bg)); padding: 4px 0; z-index: 2; }
+  .tabs button { font-size: 12px; padding: 3px 8px; }
+  .tabs button.on { border-color: var(--accent); color: var(--accent); }
+  .tabs .collapse { margin-left: auto; }
+  .tabs.vertical { flex-direction: column; align-items: center; position: static; }
+  .tabs.vertical button { width: 28px; padding: 4px 0; }
+  .props .link { background: none; border: none; color: var(--accent); padding: 0; font-size: inherit; }
+  .notes { box-sizing: border-box; width: calc(100% - 32px); margin: 0 16px 10px; resize: vertical; min-height: 40px; font: inherit; }
+  .fold { font-size: 12px; padding: 2px 8px; }
   .props h3 { margin: 12px 0 6px; font-size: 13px; color: var(--muted); text-transform: uppercase; }
   .props label { display: block; margin-bottom: 6px; color: var(--muted); }
   .props label.check { display: flex; align-items: center; gap: 6px; }

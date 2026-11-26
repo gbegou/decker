@@ -67,14 +67,12 @@ def arrange(e):
 
 
 def build_steps(e):
+    # The Animations tab: the timeline, then the selected element's steps.
     e.goto(3, 1)
     e.click_slide(700, 320)
-    top = e.s.js("""const h = [...document.querySelectorAll('aside.props h3')].find(h => /build steps/i.test(h.textContent));
-        h.scrollIntoView(); return h.getBoundingClientRect().top;""")
-    e.settle(0.5)
-    top = e.s.js("return [...document.querySelectorAll('aside.props h3')].find(h => /build steps/i.test(h.textContent)).getBoundingClientRect().top")
-    x, y, w, h = e.rect("aside.props")
-    e.shot("build-steps", crop=[x, top - 8, w, min(420, y + h - top + 8)])
+    e.s.js("[...document.querySelectorAll('.tabs button')].find(b => b.textContent.trim() === 'Animations').click(); return true")
+    e.settle(1.0)
+    e.shot("build-steps", crop=e.rect("aside.props"))
 
 
 def layout_editor(e):

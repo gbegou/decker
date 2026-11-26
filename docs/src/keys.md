@@ -53,7 +53,9 @@ The same list as the editor's help (**F1** or **?**). Generated from the editor'
 | Ctrl+B · Ctrl+I | Bold · italic (selection, or the whole box when not editing) |
 | Style bar | Size, color, font, alignment, bullets; fill and outline of boxes and shapes; plan colors |
 | Image panel | Crop to a shape; percentage cut from each edge |
-| Build steps panel | Appear or disappear on click, move steps (drag the element while viewing the step), rotation, fill, timing |
+| Animations tab | The timeline: one row per click; drag an entry to another click, or between two for a click of its own. Then the selected element's steps: appear or disappear on click, move steps (drag the element while viewing the step), rotation, fill, timing |
+| Properties ▸ name | A name for the selected element, shown in the timeline and kept in PowerPoint |
+| ⟩ (side panel) · Notes ▾ | Collapse the side panel; fold the notes under the slide: more room for the slide |
 | ◀ ▶ under the canvas | View the slide at a given click |
 
 ## Layouts

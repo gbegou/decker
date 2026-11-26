@@ -265,6 +265,50 @@ class Paths(EditorTest):
         self.assertEqual(len(self.view()["elements"]), len(self.view()["elements"]), "still there")
 
 
+class Animations(EditorTest):
+    def tab(self, name):
+        self.e.s.js("[...document.querySelectorAll('.tabs button')].find(b => b.textContent.trim() === arguments[0]).click(); return true", name)
+        self.e.settle(0.6)
+
+    def test_name_then_order_in_the_timeline(self):
+        e = self.e
+        e.goto(4)  # the table, the arrow and the note appear at click 1
+        e.click_slide(820, 220)  # the note
+        e.s.js("""const i = document.querySelector('.props label.name input'); i.value = 'Agreement';
+                  i.dispatchEvent(new Event('change', {bubbles: true})); return true""")
+        e.settle(1.0)
+        self.tab("Animations")
+        labels = e.s.js("return [...document.querySelectorAll('.timeline .entry b')].map(b => b.textContent)")
+        self.assertIn("Agreement", labels, "the name shows in the timeline")
+        # Drag the named entry below the last click: a click of its own.
+        entry = e.s.js("""const b = [...document.querySelectorAll('.timeline .entry')].find(x => x.textContent.includes('Agreement'));
+                          const r = b.getBoundingClientRect(); return [r.x + 20, r.y + r.height / 2]""")
+        end = e.rect(".timeline .gap.end")
+        acts = [{"type": "pointerMove", "x": int(entry[0]), "y": int(entry[1]), "origin": "viewport"}, {"type": "pointerDown", "button": 0}]
+        for k in range(1, 9):
+            acts.append({"type": "pointerMove", "duration": 30, "origin": "viewport", "x": int(entry[0]),
+                         "y": int(entry[1] + (end[1] + 4 - entry[1]) * k / 8)})
+        acts.append({"type": "pointerUp", "button": 0})
+        e.s.cmd("POST", "/actions", {"actions": [{"type": "pointer", "id": "m", "parameters": {"pointerType": "mouse"}, "actions": acts}]})
+        e.s.cmd("DELETE", "/actions")
+        e.settle(1.2)
+        self.assertEqual(self.view()["last_step"], 2, "two clicks now")
+        rows = e.s.js("return [...document.querySelectorAll('.timeline .row:not(.start)')].map(r => r.textContent)")
+        self.assertIn("Agreement", rows[1])
+        self.assertNotIn("Agreement", rows[0])
+
+    def test_the_panel_collapses_and_the_notes_fold(self):
+        e = self.e
+        wide = e.rect(".canvas")[2]
+        e.s.js("document.querySelector('.tabs .collapse').click(); return true")
+        e.settle(0.8)
+        self.assertGreater(e.rect(".canvas")[2], wide + 150, "the slide takes the room")
+        self.assertTrue(e.s.js("return !!document.querySelector('textarea.notes')"), "the notes are under the slide")
+        e.s.js("document.querySelector('.steps .fold').click(); return true")
+        e.settle(0.5)
+        self.assertFalse(e.s.js("return !!document.querySelector('textarea.notes')"))
+
+
 class Presenting(EditorTest):
     def env(self):
         return {"DECKER_PRESENT": "both", "DECKER_WINDOWED": "1"}

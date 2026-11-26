@@ -2046,6 +2046,41 @@ impl AppState {
         Ok(elements.len() - 1)
     }
 
+    /// Moves step `step` of element `element` to click `to`; with `insert`,
+    /// into a new click there (the later clicks of the slide shift by one).
+    /// The clicks are then renumbered so that none is empty.
+    pub fn move_step(&mut self, element: usize, step: usize, to: u32, insert: bool) -> Result<(), String> {
+        if to == 0 {
+            return Err("click 0 is the slide as it opens".into());
+        }
+        self.touch_target();
+        let elements = self.elements_mut()?;
+        let steps = elements.get(element).ok_or("no such element")?.steps();
+        if step >= steps.len() {
+            return Err("no such step".into());
+        }
+        if insert {
+            for e in elements.iter_mut() {
+                for s in e.steps_mut().iter_mut().filter(|s| s.at >= to) {
+                    s.at += 1;
+                }
+            }
+        }
+        elements[element].steps_mut()[step].at = to;
+        // Renumber: the clicks in use become 1, 2, 3… in order.
+        let mut used: Vec<u32> =
+            elements.iter().flat_map(|e| e.steps().iter().map(|s| s.at)).filter(|&a| a > 0).collect();
+        used.sort_unstable();
+        used.dedup();
+        for e in elements.iter_mut() {
+            for s in e.steps_mut().iter_mut().filter(|s| s.at > 0) {
+                s.at = used.iter().position(|&a| a == s.at).map(|k| k as u32 + 1).unwrap_or(s.at);
+            }
+            e.steps_mut().sort_by_key(|s| s.at);
+        }
+        Ok(())
+    }
+
     /// Names element `element` (an empty name removes it).
     pub fn set_name(&mut self, element: usize, name: &str) -> Result<(), String> {
         self.touch_target();
@@ -2715,6 +2750,34 @@ fn layout_groups(deck: &Deck) -> Vec<LayoutGroup> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn steps_move_between_clicks() {
+        let mut deck = Deck::new("t");
+        let el = |steps: Vec<Step>| Element::Text(TextBox { steps, ..Default::default() });
+        deck.slides = vec![Slide {
+            elements: vec![
+                el(vec![Step::disappear(0), Step::appear(1)]),
+                el(vec![Step::disappear(0), Step::appear(2)]),
+                el(vec![Step::disappear(0), Step::appear(3)]),
+            ],
+            ..Default::default()
+        }];
+        let mut s = AppState::default();
+        s.load(deck, std::path::PathBuf::new());
+        let ats = |s: &AppState| -> Vec<u32> {
+            s.deck.as_ref().unwrap().slides[0].elements.iter().map(|e| e.steps().last().unwrap().at).collect()
+        };
+        s.move_step(2, 1, 1, false).unwrap();
+        assert_eq!(ats(&s), [1, 2, 1], "the third joins the first click");
+        s.move_step(1, 1, 1, true).unwrap();
+        assert_eq!(ats(&s), [2, 1, 2], "the second gets a click of its own, first");
+        s.move_step(0, 1, 3, false).unwrap();
+        assert_eq!(ats(&s), [3, 1, 2], "a click of its own, last");
+        s.move_step(1, 1, 2, false).unwrap();
+        assert_eq!(ats(&s), [2, 1, 1], "click 1 emptied: the others move up, no empty click");
+        assert!(s.move_step(0, 1, 0, false).is_err());
+    }
+
     #[test]
     fn fonts_and_colors_on_a_slide_are_its_themes() {
         let mut deck = Deck::new("t");

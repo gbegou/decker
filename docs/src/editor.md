@@ -9,13 +9,14 @@ The editor is one window in five areas.
 │ ① File ▾                                                          ↶ ↷ ?    │
 │ ② + Text + Shape + Table + Video… + Figure                       Present     │
 ├──────────┬──────────────────────────────────────────────┬──────────────────┤
-│ ③        │ ④ style bar · arrange bar                    │ ⑤                │
-│ thumb-   │ ┌──────────────────────────────────────────┐ │ properties of    │
-│ nails,   │ │                                          │ │ the selection,   │
-│ sections │ │               the slide                  │ │ build steps,     │
-│          │ │                                          │ │ section, layout, │
-│          │ └──────────────────────────────────────────┘ │ theme, macros,   │
-│          │            ◀  click 0 / 2  ▶                 │ notes            │
+│ ③        │ ④ style bar · arrange bar                    │ ⑤ Properties │   │
+│ thumb-   │ ┌──────────────────────────────────────────┐ │   Animations  ⟩  │
+│ nails,   │ │                                          │ │ name, position,  │
+│ sections │ │               the slide                  │ │ section, layout, │
+│          │ │                                          │ │ fonts and colors │
+│          │ └──────────────────────────────────────────┘ │ — or the         │
+│          │  ◀ click 0 / 2 ▶                    Notes ▾  │ timeline         │
+│          │ ⑥ speaker notes                              │                  │
 └──────────┴──────────────────────────────────────────────┴──────────────────┘
 ```
 
@@ -32,10 +33,14 @@ The editor is one window in five areas.
    size, color, alignment, bullets, fill and outline) and the **arrange bar** (align,
    distribute, mirror, order, stroke) act on the selection; below it, **◀ ▶** show the slide
    at a given click of its [build steps](steps.md).
-5. **The side panel**: without a selection, the slide's section, layout and theme, the
-   macros and the speaker notes; with one, its position and size and what belongs to its kind
-   (crop for an image, playback for a video, cells for a table, source for a formula) and its
-   build steps.
+5. **The side panel**, in two tabs. **Properties**: without a selection, the slide's
+   section, layout, fonts and colors and the macros; with one, its name, position and size
+   and what belongs to its kind (crop for an image, playback for a video, cells for a table,
+   source for a formula, points for a path). **Animations**: the slide's
+   [timeline](steps.md#the-timeline) and the selected element's steps. **⟩** collapses the
+   panel to a strip of its two tabs, for a larger slide; clicking a tab opens it again.
+6. **The notes**: the slide's speaker notes, under the slide; **Notes ▾** folds them away.
+   decker remembers whether the panel and the notes are open.
 
 ## Selecting and editing
 

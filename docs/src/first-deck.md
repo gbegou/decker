@@ -55,7 +55,7 @@ click 1. The **◀ ▶** under the canvas show the slide at each click. See
 
 ## 7. Notes
 
-With nothing selected, the side panel ends with the slide's **Notes**: what to say, shown in
+Under the slide, the **Notes** field holds what to say, shown in
 the presenter view and, if you want, in the PDF handout.
 
 ## 8. Present

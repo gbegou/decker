@@ -1,0 +1,138 @@
+<script lang="ts">
+  // The slide's animation timeline: one row per click, with what changes
+  // at that click, element by element. Drag an entry onto another click to
+  // move it there, or onto the line between two clicks to give it a click
+  // of its own. Clicking an entry selects its element; a click's ▶ shows
+  // the slide at that click.
+  import type { ElementInfo, Step } from "./api";
+
+  let {
+    elements,
+    last,
+    current,
+    selected,
+    onselect,
+    ongoto,
+    onmove,
+  }: {
+    elements: ElementInfo[];
+    last: number;
+    current: number;
+    selected: number | null;
+    onselect: (element: number) => void;
+    ongoto: (step: number) => void;
+    onmove: (element: number, step: number, to: number, insert: boolean) => void;
+  } = $props();
+
+  type Entry = { element: number; step: number; label: string; what: string };
+
+  function describe(s: Step): string {
+    const o = s.set ?? {};
+    const parts: string[] = [];
+    if (o.opacity !== undefined && o.opacity !== null) parts.push(o.opacity >= 1 ? "appears" : o.opacity <= 0 ? "disappears" : "fades");
+    if (o.x != null || o.y != null) parts.push("moves");
+    if (o.w != null || o.h != null) parts.push("resizes");
+    if (o.rotation != null) parts.push("turns");
+    if (o.fill != null) parts.push("changes color");
+    return parts.join(", ") || "changes";
+  }
+
+  const rows = $derived.by(() => {
+    const out: Entry[][] = Array.from({ length: last }, () => []);
+    for (const el of elements) {
+      if (el.kind === "placeholder") continue;
+      el.steps.forEach((s, k) => {
+        if (s.at >= 1 && s.at <= last) out[s.at - 1].push({ element: el.index, step: k, label: el.label, what: describe(s) });
+      });
+    }
+    return out;
+  });
+  /** Elements hidden when the slide opens (they appear later). */
+  const hidden = $derived(
+    elements.filter((el) => el.steps.some((s) => s.at === 0 && s.set?.opacity === 0)).map((el) => el.label),
+  );
+
+  // ----- dragging an entry -----
+  let dragging = $state<Entry | null>(null);
+  let pressed: { entry: Entry; y: number } | null = null;
+  /** Where it would land: a click (`insert` false) or a new click before `at`. */
+  let target = $state<{ at: number; insert: boolean } | null>(null);
+
+  function down(e: PointerEvent, entry: Entry) {
+    if (e.button !== 0) return;
+    pressed = { entry, y: e.clientY };
+  }
+  function move(e: PointerEvent) {
+    if (!pressed) return;
+    if (!dragging) {
+      if (Math.abs(e.clientY - pressed.y) < 5) return;
+      dragging = pressed.entry;
+    }
+    const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-at]");
+    target = hit ? { at: Number(hit.dataset.at), insert: hit.dataset.insert === "1" } : null;
+  }
+  function up() {
+    if (dragging && target) {
+      const { element, step } = dragging;
+      const same = !target.insert && elements.find((x) => x.index === element)?.steps[step]?.at === target.at;
+      if (!same) onmove(element, step, target.at, target.insert);
+    } else if (pressed && !dragging) {
+      onselect(pressed.entry.element);
+    }
+    pressed = null;
+    dragging = null;
+    target = null;
+  }
+</script>
+
+<svelte:window onpointermove={move} onpointerup={up} onpointercancel={up} />
+
+<div class="timeline" class:dragging={dragging !== null}>
+  <div class="row start" class:current={current === 0}>
+    <button class="go" title="The slide as it opens" onclick={() => ongoto(0)}>▶</button>
+    <span class="click">Start</span>
+    <span class="muted">{hidden.length ? `hidden: ${hidden.join(", ")}` : "everything shown"}</span>
+  </div>
+  {#each rows as entries, i}
+    <div class="gap" data-at={i + 1} data-insert="1" class:over={target?.insert && target.at === i + 1} title="A new click here"></div>
+    <div class="row" data-at={i + 1} data-insert="0" class:current={current === i + 1} class:over={target && !target.insert && target.at === i + 1}>
+      <button class="go" title="Show the slide at click {i + 1}" onclick={() => ongoto(i + 1)}>▶</button>
+      <span class="click">Click {i + 1}</span>
+      <div class="entries">
+        {#each entries as entry (entry.element + ":" + entry.step)}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="entry" class:selected={entry.element === selected} class:moving={dragging === entry}
+               onpointerdown={(e) => down(e, entry)} title="Drag to another click, or between two clicks for a click of its own">
+            <b>{entry.label}</b> {entry.what}
+          </div>
+        {/each}
+      </div>
+    </div>
+  {/each}
+  <div class="gap end" data-at={last + 1} data-insert="1" class:over={target?.insert && target.at === last + 1}>
+    {#if dragging}a new click at the end{:else if last > 0}<span class="hint">drag entries to reorder</span>{/if}
+  </div>
+  {#if last === 0}
+    <p class="muted">No animation yet: select an element and add a step below (appear on click, move…).</p>
+  {/if}
+</div>
+
+<style>
+  .timeline { display: flex; flex-direction: column; user-select: none; }
+  .row { display: grid; grid-template-columns: auto auto 1fr; gap: 6px; align-items: start; padding: 4px; border: 1px solid var(--border); border-radius: 6px; }
+  .row.current { border-color: var(--accent); }
+  .row.over { background: rgba(79, 140, 255, 0.15); }
+  .row.start { color: var(--muted); }
+  .go { font-size: 10px; padding: 1px 5px; }
+  .click { font-size: 11px; color: var(--muted); padding-top: 2px; white-space: nowrap; }
+  .entries { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .entry { font-size: 12px; padding: 2px 6px; border-radius: 4px; background: var(--bg); cursor: grab; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .entry.selected { outline: 1px solid var(--accent); }
+  .entry.moving { opacity: 0.4; }
+  /* Fixed heights: nothing moves under the pointer when a drag starts. */
+  .gap { height: 10px; border-radius: 3px; }
+  .gap.over { background: var(--accent); }
+  .gap.end { height: 20px; font-size: 11px; color: var(--muted); text-align: center; line-height: 20px; }
+  .hint { opacity: 0.6; }
+  .muted { color: var(--muted); font-size: 11px; }
+</style>

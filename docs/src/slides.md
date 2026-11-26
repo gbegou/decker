@@ -51,6 +51,6 @@ In PowerPoint export each copy becomes a plain text box with the text it shows.
 
 ## Speaker notes
 
-The side panel's **Notes** field holds the slide's speaker notes. They show in the
+The notes field under the slide holds the slide's speaker notes (**Notes ▾** folds it). They show in the
 [presenter view](presenting.md), in the PDF handout, and next to an exported PDF for the
 [viewer](viewer.md).
