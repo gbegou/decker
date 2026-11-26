@@ -273,7 +273,28 @@ impl Deck {
                 l.theme = l.theme.over(&deck_style);
             }
         }
+        self.clear_placeholder_names();
         self.version = self.version.max(FORMAT_VERSION);
+    }
+
+    /// Placeholder boxes used to be created holding the placeholder's name
+    /// as their text, which then had to be deleted by hand: such a box is
+    /// emptied (keeping its style), the editor showing a prompt instead.
+    fn clear_placeholder_names(&mut self) {
+        for slide in &mut self.slides {
+            for e in &mut slide.elements {
+                if let Element::Text(t) = e {
+                    let Some(name) = &t.placeholder else { continue };
+                    let text: String = t.paragraphs.iter().map(|p| p.text()).collect::<Vec<_>>().join("\n");
+                    if t.paragraphs.len() == 1 && text == *name {
+                        for r in &mut t.paragraphs[0].runs {
+                            r.text.clear();
+                        }
+                        t.paragraphs[0].runs.truncate(1);
+                    }
+                }
+            }
+        }
     }
 
     /// A theme name not yet taken, from `base`.
@@ -294,6 +315,26 @@ mod tests {
 
     fn text(y: f64) -> Element {
         Element::Text(TextBox::plain(Rect::new(0.0, y, 100.0, 20.0), "footer"))
+    }
+
+    #[test]
+    fn boxes_holding_their_placeholder_name_are_emptied() {
+        let mut deck = Deck::new("t");
+        let mut named = TextBox::plain(Rect::new(0.0, 0.0, 10.0, 10.0), "body1");
+        named.placeholder = Some("body1".into());
+        let mut typed = TextBox::plain(Rect::new(0.0, 0.0, 10.0, 10.0), "Hello");
+        typed.placeholder = Some("title".into());
+        deck.slides = vec![Slide { elements: vec![Element::Text(named), Element::Text(typed)], ..Default::default() }];
+        deck.migrate();
+        let texts: Vec<String> = deck.slides[0]
+            .elements
+            .iter()
+            .map(|e| match e {
+                Element::Text(t) => t.paragraphs.iter().map(|p| p.text()).collect(),
+                _ => String::new(),
+            })
+            .collect();
+        assert_eq!(texts, ["", "Hello"]);
     }
 
     fn two_layouts() -> Deck {

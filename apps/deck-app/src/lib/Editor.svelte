@@ -901,7 +901,7 @@
     if (!editing) return editing!.caret;
     const { layout, caret } = editing;
     const cur = lineOf(layout, caret);
-    const x = caretGoalX ?? layout.chars[caret].x;
+    const x = caretGoalX ?? layout.chars[Math.min(caret, layout.chars.length - 1)].x;
     caretGoalX = x;
     // The nearest line strictly above or below the current one.
     let target: { top: number; bottom: number } | null = null;
@@ -918,8 +918,10 @@
   async function applyEdit(from: number, to: number, insert: string) {
     if (!editing) return;
     const caret = await api.textEdit(editing.index, from, to, insert);
-    if (editing) { editing.caret = caret; editing.anchor = caret; }
+    // The caret moves once the new layout is in: an index past the old
+    // layout's end would leave the caret nowhere to be drawn.
     await refreshLayout();
+    if (editing) { editing.caret = editing.anchor = Math.min(caret, editing.layout.chars.length - 1); }
   }
 
   /// A key: queued, so that positions are read when the action runs.
@@ -1020,7 +1022,7 @@
   function selectionRects(ed: { caret: number; anchor: number; layout: TextLayout }): { x: number; y: number; w: number; h: number }[] {
     const lo = Math.min(ed.caret, ed.anchor), hi = Math.max(ed.caret, ed.anchor);
     const out: { x: number; y: number; w: number; h: number }[] = [];
-    for (let i = lo; i < hi; i++) {
+    for (let i = lo; i < Math.min(hi, ed.layout.chars.length); i++) {
       const c = ed.layout.chars[i];
       const cur = out[out.length - 1];
       if (cur && Math.abs(cur.y - c.top) < 0.5) { cur.w = Math.max(cur.w, c.right - cur.x); }
@@ -1538,7 +1540,8 @@
           {/if}
           {#if editing && view.elements[editing.index]}
             {@const r = editing.layout.rect ?? view.elements[editing.index].rect}
-            {@const c = editing.layout.chars[editing.caret]}
+            <!-- Clamped: a throw here would stop the whole canvas from updating. -->
+            {@const c = editing.layout.chars[Math.min(editing.caret, editing.layout.chars.length - 1)] ?? { x: r.x, top: r.y, bottom: r.y + 20 }}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <svg class="overlay text-editing" viewBox="0 0 {view.width} {view.height}" preserveAspectRatio="none"
                  onpointerdown={editorPointerDown} onpointermove={editorPointerMove} onpointerup={editorPointerUp} onpointercancel={editorPointerUp}

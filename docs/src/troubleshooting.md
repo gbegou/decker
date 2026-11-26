@@ -15,8 +15,9 @@ signing out, or after unpinning and pinning decker again.
 ## Editing
 
 **Typed text stays invisible until another slide is shown.** Fixed in November 2026: update
-decker. (The slide and the thumbnails shared glyph identifiers, which Windows resolved to the
-wrong ones.)
+decker. (After each key, the caret briefly pointed past the end of the text; drawing it
+failed, which stopped the canvas from updating. It showed most when typing into an empty
+box.)
 
 **A figure shows as a dashed red box.** Typst could not compile it; the box shows the
 message. **A formula shows its source** instead of the result: the same, for formulas. In text, LaTeX's `\alpha` works but `\frac{a}{b}` does not: write `frac(a, b)` or

@@ -361,9 +361,20 @@ pub struct Placeholder {
 impl Placeholder {
     /// An empty text box in this placeholder, showing the placeholder's
     /// name as its text.
+    /// The empty text box a slide fills this placeholder with: the
+    /// placeholder's style, no text (the editor shows a prompt in it).
     pub fn text_box(&self) -> TextBox {
+        self.text_box_with(String::new())
+    }
+
+    /// The box with the placeholder's name as its text: how a layout shows it.
+    pub fn sample_box(&self) -> TextBox {
+        self.text_box_with(self.name.clone())
+    }
+
+    fn text_box_with(&self, text: String) -> TextBox {
         let run = Run {
-            text: self.name.clone(),
+            text,
             bold: self.bold,
             size: self.size,
             color: self.color,

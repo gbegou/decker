@@ -19,12 +19,15 @@ from another deck.
   thumbnails.
 - The right panel shows the slide's layout, with a selector to change it. Changing it keeps
   the slide's elements: the text boxes that fill a placeholder move to where the new layout
-  puts it, and each placeholder the slide does not fill yet gets an empty text box, showing
-  the placeholder's name, ready to type in. Adding a placeholder to a layout in the design
-  view does the same on the slides that use it.
+  puts it, and each placeholder the slide does not fill yet gets an empty text box, ready to
+  type in. Adding a placeholder to a layout in the design view does the same on the slides
+  that use it.
 - **New slide** (right-click a thumbnail) creates the next slide from that slide's layout:
-  one text box per placeholder, at the placeholder's position and in its style, showing the
-  placeholder's name.
+  one empty text box per placeholder, at the placeholder's position and in its style.
+- An empty placeholder box shows a grey prompt on the canvas, such as *Double-click to add a
+  title*, as in PowerPoint: it disappears as soon as you double-click the box, and it never
+  appears in the thumbnails, the presentation or the exports. Boxes made by older versions,
+  which held the placeholder's name as their text, are emptied when the deck is opened.
 
 ## The design view
 

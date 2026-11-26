@@ -66,6 +66,33 @@ class Typing(EditorTest):
                 .filter(h => h && !v.querySelector(`[id="${h.slice(1)}"]`)));""")
         self.assertEqual(dangling, [])
 
+    def test_typing_into_an_empty_placeholder_box_shows_on_the_canvas(self):
+        e = self.e
+        e.s.js("""window.__errs = []; window.addEventListener('error', ev => window.__errs.push(String(ev.message)));
+                  return 1""")
+        e.s.call("new_deck", {})
+        e.s.call("new_layout", {"kind": "title-only", "theme": "Theme"})
+        e.s.call("edit_layout", {"name": None})
+        e.s.call("set_layout_of", {"slides": [0], "name": "Title only"})
+        e.goto(0)
+        e.settle(1.0)
+        title = self.view()["elements"][0]
+        self.assertEqual(title["text"], "", "an empty box, not the placeholder's name")
+        uses = lambda svg: svg.count("<use")
+        self.assertGreater(uses(self.canvas_svg()), 0, "its prompt is shown")
+        r = title["rect"]
+        e.click_slide(r["x"] + 40, r["y"] + 20, clicks=2)
+        e.settle(0.5)
+        self.assertEqual(uses(self.canvas_svg()), 0, "the prompt gives way to the caret")
+        for ch in "Hello":
+            e.keys(ch)
+        e.settle(1.0)
+        self.assertEqual(self.view()["elements"][0]["text"], "Hello")
+        # The caret once pointed past the old layout for a moment after each
+        # key: drawing it threw, and the canvas stopped updating (blank text).
+        self.assertEqual(e.s.js("return window.__errs"), [])
+        self.assertEqual(uses(self.canvas_svg()), uses(self.view()["svg"]), "the canvas shows what was typed")
+
     def test_a_formula_under_the_caret_shows_its_source_and_the_footer_stays(self):
         e = self.e
         e.goto(2)

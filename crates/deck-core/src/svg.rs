@@ -227,7 +227,7 @@ pub fn render_layout(deck: &Deck, layout: &Layout, math: &dyn MathRenderer) -> S
             fmt(r.w),
             fmt(r.h)
         );
-        let sample = ph.text_box();
+        let sample = ph.sample_box();
         text_body(&mut out, r, &sample.paragraphs, &deck.math_preamble, math, defaults);
         out.push_str("</g>");
     }

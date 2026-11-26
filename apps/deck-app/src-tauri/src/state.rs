@@ -8,8 +8,11 @@ use serde::Serialize;
 
 use deck_core::{
     native, svg, text, transfer, Color, Crop, Deck, Element, Layout, Mask, MathRenderer, Media, Paragraph, PathNode,
-    Placeholder, Play, Rect, Slide, Step, Stroke, TextBox, TextDefaults, Theme, ThemeSet,
+    Placeholder, Play, Rect, Run, Slide, Step, Stroke, TextBox, TextDefaults, Theme, ThemeSet,
 };
+
+/// The color of the prompt in an empty placeholder box.
+const PROMPT: Color = Color::rgb(0x9A, 0x9F, 0xAA);
 
 #[derive(Default)]
 pub struct AppState {
@@ -738,11 +741,41 @@ impl AppState {
     /// formula under the caret as its source.
     fn editor_copy(&self, slide: &Slide, step: u32) -> Option<Slide> {
         let raw = self.raw_slide(slide);
-        let all = self.editor_all
-            && !self.presenting
-            && step == 0
+        let canvas = !self.presenting
             && !self.editing_template()
             && self.current().is_some_and(|(_, cur)| std::ptr::eq(cur, slide));
+        // Empty placeholder boxes show a prompt on the canvas, as in
+        // PowerPoint, except the one being typed in.
+        let editing = self.raw.map(|(e, _)| e);
+        let empty = |i: usize, e: &Element| {
+            matches!(e, Element::Text(t) if t.placeholder.is_some() && Some(i) != editing
+                && t.paragraphs.iter().all(|p| p.text().is_empty()))
+        };
+        let raw = if canvas && slide.elements.iter().enumerate().any(|(i, e)| empty(i, e)) {
+            let mut copy = raw.unwrap_or_else(|| slide.clone());
+            for (i, e) in copy.elements.iter_mut().enumerate() {
+                if !empty(i, e) {
+                    continue;
+                }
+                let Element::Text(t) = e else { continue };
+                let what = match t.placeholder.as_deref().unwrap_or_default() {
+                    n if n.starts_with("subtitle") => "a subtitle",
+                    n if n.starts_with("title") => "a title",
+                    _ => "text",
+                };
+                let p = t.paragraphs.first_mut();
+                let style = p.as_ref().and_then(|p| p.runs.first().cloned()).unwrap_or_default();
+                let prompt = Run { text: format!("Double-click to add {what}"), color: Some(PROMPT), ..style };
+                match p {
+                    Some(p) => p.runs = vec![prompt],
+                    None => t.paragraphs = vec![Paragraph { runs: vec![prompt], ..Default::default() }],
+                }
+            }
+            Some(copy)
+        } else {
+            raw
+        };
+        let all = self.editor_all && canvas && step == 0;
         if !all {
             return raw;
         }
@@ -762,10 +795,13 @@ impl AppState {
     }
 
     /// Sets the caret of the text being edited (`None` when done); returns
-    /// whether the slide's look changed, a formula opening or closing.
+    /// whether the slide's look changed: a formula opening or closing, an
+    /// empty placeholder's prompt hidden or shown.
     pub fn set_caret(&mut self, raw: Option<(usize, usize)>) -> bool {
         let shown = |s: &Self| {
-            s.current().and_then(|(_, slide)| s.raw_slide(slide)).map(|s| serde_json::to_string(&s).unwrap_or_default())
+            s.current()
+                .and_then(|(_, slide)| s.editor_copy(slide, s.step))
+                .map(|s| serde_json::to_string(&s).unwrap_or_default())
         };
         let before = shown(self);
         self.raw = raw;
@@ -3034,6 +3070,17 @@ mod tests {
         assert_eq!(slide.elements[0].rect().y, 10.0, "the title moved to its placeholder");
         let Element::Text(body) = &slide.elements[1] else { panic!("a text box") };
         assert_eq!(body.placeholder.as_deref(), Some("body1"));
+        assert_eq!(body.paragraphs[0].text(), "", "empty: nothing to delete before typing");
+        // The body's group holds typeset text only while it shows its prompt.
+        let body_text = |s: &mut AppState| {
+            let svg = s.view().svg;
+            let g = &svg[svg.find(r#"<g id="e1""#).expect("the body")..];
+            g[..g.find(r#"<g id="e2""#).unwrap_or(g.len())].contains("data-text")
+        };
+        assert!(body_text(&mut s), "a prompt on the canvas");
+        assert!(s.set_caret(Some((1, 0))), "double-clicked: the canvas changes");
+        assert!(!body_text(&mut s), "the prompt gives way to the caret");
+        s.set_caret(None);
         s.edit_layout(Some("Two".into())).unwrap();
         s.add_placeholder("subtitle").unwrap();
         assert_eq!(s.deck.as_ref().unwrap().slides[0].elements.len(), 3, "a new placeholder reaches the slides");
