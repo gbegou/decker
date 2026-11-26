@@ -31,6 +31,8 @@ export interface ElementInfo {
   /** Shapes: their kind, and whether a line or arrow is flipped. */
   shape?: "rectangle" | "ellipse" | "line" | "arrow" | "path";
   flip: boolean;
+  /** Text boxes and shapes: where their text sits, top to bottom. */
+  valign: VAlign;
   /** Placeholders: their default text style. */
   placeholder?: PlaceholderStyle & { name: string; own?: string[] };
   /** Tables: the cells' texts and fills by row, and the settings. */
@@ -83,7 +85,10 @@ export interface ElementStyle {
   play?: "appear" | "button"; looping?: boolean; sound?: boolean;
   /** Lines and arrows: run bottom-left to top-right. */
   flip?: boolean;
+  /** Text boxes and shapes: where their text sits, top to bottom. */
+  valign?: VAlign;
 }
+export type VAlign = "top" | "middle" | "bottom";
 export interface MediaInfo { play: "on_appear" | "button"; looping: boolean; sound: boolean; duration: number | null; poster: string | null }
 
 export interface Theme {

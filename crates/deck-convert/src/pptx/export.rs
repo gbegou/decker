@@ -635,7 +635,7 @@ fn write_element_plain(
                 xfrm(&t.rect),
                 fill(t.fill),
                 line(t.stroke),
-                tx_body(&t.paragraphs)
+                tx_body_at(&t.paragraphs, t.valign)
             );
         }
         Element::Shape(s) => {
@@ -667,7 +667,7 @@ fn write_element_plain(
             let _ = write!(
                 xml,
                 r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Shape {id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>{frame}{geometry}{shape_fill}{outline}</p:spPr>{}</p:sp>"#,
-                tx_body(&s.paragraphs)
+                tx_body_at(&s.paragraphs, s.valign)
             );
         }
         Element::Group(g) => {
@@ -1032,8 +1032,19 @@ fn line(s: Option<Stroke>) -> String {
 }
 
 fn tx_body(paragraphs: &[Paragraph]) -> String {
-    let mut out =
-        String::from(r#"<p:txBody><a:bodyPr wrap="square" rtlCol="0"><a:normAutofit/></a:bodyPr><a:lstStyle/>"#);
+    tx_body_at(paragraphs, VAlign::Top)
+}
+
+/// A text body anchored at `valign` (PowerPoint's `bodyPr anchor`).
+fn tx_body_at(paragraphs: &[Paragraph], valign: VAlign) -> String {
+    let anchor = match valign {
+        VAlign::Top => "t",
+        VAlign::Middle => "ctr",
+        VAlign::Bottom => "b",
+    };
+    let mut out = format!(
+        r#"<p:txBody><a:bodyPr wrap="square" rtlCol="0" anchor="{anchor}"><a:normAutofit/></a:bodyPr><a:lstStyle/>"#
+    );
     if paragraphs.is_empty() {
         out.push_str("<a:p/>");
     }
@@ -1350,6 +1361,42 @@ mod tests {
         let Element::Text(m) = &s.elements[3] else { panic!("math as text") };
         assert_eq!(m.text(), "x^2");
         std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[test]
+    fn vertical_alignment_round_trips() {
+        let dir = std::env::temp_dir().join(format!("decker-valign-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut deck = Deck::new("valign");
+        let mut middle = TextBox::plain(Rect::new(10.0, 10.0, 200.0, 100.0), "middle");
+        middle.valign = VAlign::Middle;
+        let shape = Shape {
+            rect: Rect::new(10.0, 200.0, 200.0, 100.0),
+            fill: Some(Color::BLACK),
+            paragraphs: vec![Paragraph::plain("bottom")],
+            valign: VAlign::Bottom,
+            ..Default::default()
+        };
+        let top = TextBox::plain(Rect::new(300.0, 10.0, 200.0, 100.0), "top");
+        deck.slides.push(Slide {
+            elements: vec![Element::Text(middle), Element::Shape(shape), Element::Text(top)],
+            ..Default::default()
+        });
+        let pptx = dir.join("v.pptx");
+        export(&deck, &dir, &pptx).unwrap();
+        let (back, _) = super::super::import(&pptx, &dir.join("back.deck")).unwrap();
+        let valigns: Vec<VAlign> = back.slides[0]
+            .elements
+            .iter()
+            .map(|e| match e {
+                Element::Text(t) => t.valign,
+                Element::Shape(s) => s.valign,
+                _ => panic!("text or shape"),
+            })
+            .collect();
+        assert_eq!(valigns, [VAlign::Middle, VAlign::Bottom, VAlign::Top]);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

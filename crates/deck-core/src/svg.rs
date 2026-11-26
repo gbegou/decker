@@ -288,26 +288,27 @@ fn element_body(out: &mut String, ctx: &Ctx, element: &Element, step: u32, index
                 let prefix =
                     t.placeholder.as_deref().and_then(|n| ctx.slide_index.and_then(|i| deck.placeholder_prefix(i, n)));
                 match prefix {
-                    Some(p) => text_body(
+                    Some(p) => text_body_at(
                         out,
                         r,
                         &crate::text::with_prefix(&t.paragraphs, &p),
                         &deck.math_preamble,
                         math,
                         defaults,
+                        t.valign,
                     ),
-                    None => text_body(out, r, &t.paragraphs, &deck.math_preamble, math, defaults),
+                    None => text_body_at(out, r, &t.paragraphs, &deck.math_preamble, math, defaults, t.valign),
                 }
             }
             Element::Image(i) => image_body(out, r, i, index),
             Element::Media(m) => media_body(out, r, m, ctx.live),
             Element::Shape(s) if s.kind == ShapeKind::Path => {
                 path_body(out, r, s, st.fill.or(s.fill));
-                text_body(out, r, &s.paragraphs, &deck.math_preamble, math, defaults);
+                text_body_at(out, r, &s.paragraphs, &deck.math_preamble, math, defaults, s.valign);
             }
             Element::Shape(s) => {
                 shape_body_flipped(out, r, s.kind, st.fill.or(s.fill), s.stroke, s.flip, s.reverse);
-                text_body(out, r, &s.paragraphs, &deck.math_preamble, math, defaults);
+                text_body_at(out, r, &s.paragraphs, &deck.math_preamble, math, defaults, s.valign);
             }
             Element::Math(m) => math_body(out, r, m, &deck.math_preamble, math, defaults),
             Element::Figure(f) => figure_body(out, r, f, &deck.math_preamble, math, defaults),
@@ -770,8 +771,7 @@ fn path_body(out: &mut String, r: &Rect, shape: &Shape, fill: Option<Color>) {
     );
 }
 
-/// Text in a box: typeset by the renderer when it can, nested as an inner
-/// `<svg>` at the box's top-left inset; else the estimate below.
+/// Text in a box, from its top: see [`text_body_at`].
 fn text_body(
     out: &mut String,
     r: &Rect,
@@ -779,6 +779,29 @@ fn text_body(
     preamble: &str,
     math: &dyn MathRenderer,
     defaults: &TextDefaults,
+) {
+    text_body_at(out, r, paragraphs, preamble, math, defaults, VAlign::Top)
+}
+
+/// How far below the box's top inset text `height` tall starts, for
+/// `valign`: a share of the free height (negative when the text overflows
+/// a middle or bottom aligned box, which then overflows both ways or up,
+/// as in PowerPoint).
+pub fn valign_offset(r: &Rect, height: f64, valign: VAlign) -> f64 {
+    (r.h - 2.0 * PADDING - height) * valign.fraction()
+}
+
+/// Text in a box: typeset by the renderer when it can, nested as an inner
+/// `<svg>` at the box's left inset and at the height `valign` gives; else
+/// the estimate below.
+fn text_body_at(
+    out: &mut String,
+    r: &Rect,
+    paragraphs: &[Paragraph],
+    preamble: &str,
+    math: &dyn MathRenderer,
+    defaults: &TextDefaults,
+    valign: VAlign,
 ) {
     if paragraphs.iter().all(|p| p.text().is_empty()) {
         return;
@@ -790,7 +813,7 @@ fn text_body(
                 out,
                 r#"<svg x="{}" y="{}" width="{}" height="{}" viewBox="0 0 {} {}" overflow="visible" data-text="typeset">{}</svg>"#,
                 fmt(r.x + PADDING),
-                fmt(r.y + PADDING),
+                fmt(r.y + PADDING + valign_offset(r, img.height, valign)),
                 fmt(img.width),
                 fmt(img.height),
                 fmt(img.width),
@@ -800,11 +823,18 @@ fn text_body(
             return;
         }
     }
-    text_estimate(out, r, paragraphs, defaults);
+    if valign == VAlign::Top {
+        text_estimate(out, r, paragraphs, defaults);
+        return;
+    }
+    let mut body = String::new();
+    let height = text_estimate(&mut body, r, paragraphs, defaults);
+    let _ = write!(out, r#"<g transform="translate(0 {})">{body}</g>"#, fmt(valign_offset(r, height, valign)));
 }
 
-/// One `<text>` per line, wrapped on an estimated glyph width.
-fn text_estimate(out: &mut String, r: &Rect, paragraphs: &[Paragraph], defaults: &TextDefaults) {
+/// One `<text>` per line, wrapped on an estimated glyph width; returns the
+/// height used.
+fn text_estimate(out: &mut String, r: &Rect, paragraphs: &[Paragraph], defaults: &TextDefaults) -> f64 {
     let mut y = r.y + PADDING;
     let width = (r.w - 2.0 * PADDING).max(1.0);
     for p in paragraphs {
@@ -860,6 +890,7 @@ fn text_estimate(out: &mut String, r: &Rect, paragraphs: &[Paragraph], defaults:
             y += size * LINE_HEIGHT;
         }
     }
+    y - r.y - PADDING
 }
 
 /// Splits runs into lines of at most `max_chars` characters, breaking at
@@ -1149,6 +1180,22 @@ mod tests {
         assert!(svg.contains(r#"<svg x="104" y="54" width="392" height="30" viewBox="0 0 392 30" overflow="visible" data-text="typeset"><path d="Hello"/></svg>"#), "{svg}");
         let plain = render_step(&deck, &deck.slides[0], 0);
         assert!(plain.contains("<text "), "fallback without a typesetter");
+    }
+
+    #[test]
+    fn text_sits_where_its_vertical_alignment_puts_it() {
+        let mut deck = Deck::new("t");
+        let mut middle = TextBox::plain(Rect::new(100.0, 50.0, 400.0, 200.0), "Hello");
+        middle.valign = VAlign::Middle;
+        let mut bottom = middle.clone();
+        bottom.valign = VAlign::Bottom;
+        deck.slides.push(Slide { elements: vec![Element::Text(middle), Element::Text(bottom)], ..Default::default() });
+        let svg = render_step_with(&deck, &deck.slides[0], 0, &FakeMath);
+        // 200 high, insets of 4, 30 of text: 162 free.
+        assert!(svg.contains(r#"<svg x="104" y="135" width="392" height="30""#), "half the free height above: {svg}");
+        assert!(svg.contains(r#"<svg x="104" y="216" width="392" height="30""#), "all of it: {svg}");
+        let plain = render_step(&deck, &deck.slides[0], 0);
+        assert!(plain.contains(r#"<g transform="translate(0 "#), "the estimate moves too");
     }
 
     #[test]

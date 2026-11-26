@@ -36,7 +36,7 @@ Before a deck is open, the window shows the logo with **New deck**, **Open file�
    layout, or between thumbnails to add a slide, a plan slide or a section; see
    [Slides and sections](slides.md). Drag its edge to resize it; **«** collapses it.
 4. **The canvas**: the current slide, edited directly. Above it, one row of tools for the
-   selection: **Text** (font, size, color, alignment, bullets, fill and outline) and
+   selection: **Text** (font, size, color, horizontal and vertical alignment, bullets, fill and outline) and
    **Arrange** (align, distribute, mirror, order, stroke); for a text box or a shape, whose
    text tools take the row, the arrange tools open from their **Arrange ▾** button, so the row always fits. Right-click an element for cut,
    copy, paste, duplicate (Ctrl+D), delete, order, group, rename and a quick appear or
@@ -62,7 +62,8 @@ the slide to select everything the rubber band touches. Drag to move (edges and 
 Alt moves freely), drag the corner handle to resize, the round handle above to rotate. See
 [Arranging](arranging.md).
 
-Double-click a text box, a shape or a table cell to type in it; Escape ends editing. See
+Double-click a text box, a shape or a table cell to type in it; Escape, or a click outside
+it, ends editing. See
 [Text](text.md).
 
 The arrow keys move the selection by a point (ten with Shift), Ctrl+A selects everything,

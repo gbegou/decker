@@ -36,7 +36,8 @@ deck-convert pdf talk.deck --notes      # the handout
 accents) and
 the speaker notes. On the slides:
 
-- text boxes, bound to their layout placeholders when they fill one;
+- text boxes, bound to their layout placeholders when they fill one, with their vertical
+  alignment (PowerPoint's anchor), as for the text of shapes;
 - pictures with their crop, crop-to-shape and mirroring; shapes and arrows; tables as real
   tables; groups; rotation;
 - formulas and figures as pictures of decker's rendering (PNG at three pixels per point,

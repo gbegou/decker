@@ -15,7 +15,8 @@ caret inside the typeset text:
 - arrows, Home and End; Shift with any of those for a selection; Ctrl+A;
 - with the mouse: click places the caret, dragging selects, a double click selects the word
   and a triple click the paragraph, Shift+click extends;
-- Escape or a click outside to finish.
+- Escape, or a click anywhere outside the box being edited, to finish; that click then acts
+  as usual (it selects what it lands on, or starts a rubber band).
 
 Typing continues the style of the character before the caret. Pasting text while editing
 inserts it. The side panel also shows the text, one paragraph per line.
@@ -24,6 +25,14 @@ inserts it. The side panel also shows the text, one paragraph per line.
 
 With a text box selected, the style bar above the canvas sets bold, italic, size, color,
 font, alignment and bullet level: of the selection while editing, else of the whole box.
+
+- **Horizontal alignment** (left, center, right, justified) belongs to paragraphs: while
+  editing, it applies to the paragraphs the selection touches.
+- **Vertical alignment** (top, middle, bottom) belongs to the box, a text box or a shape: it
+  places the whole text at the top, the middle or the bottom of the box. Text taller than a
+  middle-aligned box overflows above and below; a bottom-aligned one, above. PowerPoint calls
+  it the text anchor, and it is kept on import and export.
+
 Ctrl+B and Ctrl+I work too. The round swatches are the theme's palette; the ⌀ buttons return
 to the theme's default. The box's own fill and outline are set there as well.
 

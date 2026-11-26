@@ -15,7 +15,7 @@ opening of the same file opens that folder. The command line does the same with
   an explicit position inherit it from the layout, then the master. The master's theme fonts
   and colors become the theme's fonts and colors.
 - Text: paragraphs with alignment and bullet level, runs with bold, italic, size, color and
-  font.
+  font; the vertical alignment (anchor) of the text boxes and shapes that set it.
 - Pictures (PNG, JPEG, GIF, BMP, SVG, WebP), copied into `assets/`, with their crop, their
   crop-to-shape (ellipse, rounded rectangle) and their mirroring.
 - Shapes: rectangles and rounded variants, ellipses, lines, connectors and arrows, with solid

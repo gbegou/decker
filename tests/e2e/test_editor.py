@@ -118,6 +118,34 @@ class Typing(EditorTest):
         self.assertTrue(self.view()["elements"][1]["text"].split("\n")[0].endswith("$x$"))
 
 
+    def test_a_click_outside_the_text_ends_editing(self):
+        e = self.e
+        e.goto(0)
+        e.click_slide(480, 215, clicks=2)  # the title
+        e.settle(0.5)
+        editing = "return !!document.querySelector('.text-editing')"
+        self.assertTrue(e.s.js(editing))
+        e.click_slide(480, 225)  # inside the box: the caret moves, editing goes on
+        e.settle(0.3)
+        self.assertTrue(e.s.js(editing))
+        e.click_slide(480, 290)  # the subtitle, outside the edited box
+        e.settle(0.5)
+        self.assertFalse(e.s.js(editing), "a click outside is Escape")
+        self.assertTrue(e.s.js("return document.querySelectorAll('.hit.selected').length === 1"), "and it selects what it hits")
+
+    def test_vertical_alignment(self):
+        e = self.e
+        e.goto(0)
+        e.click_slide(480, 215)  # the title
+        e.settle(0.5)
+        top = e.s.call("text_layout", {"element": 0})["chars"][0]["top"]
+        e.s.js("document.querySelector('.stylebar button[aria-label=\"Bottom of the box\"]').click(); return 1")
+        e.settle(1.0)
+        self.assertEqual(self.view()["elements"][0]["valign"], "bottom")
+        self.assertTrue(e.s.js("return document.querySelector('.stylebar button[aria-label=\"Bottom of the box\"]').classList.contains('on')"))
+        lower = e.s.call("text_layout", {"element": 0})["chars"][0]["top"]
+        self.assertGreater(lower, top, "the caret follows the text down")
+
 class Tables(EditorTest):
     def test_merge_split_and_undo(self):
         e = self.e

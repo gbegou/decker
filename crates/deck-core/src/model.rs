@@ -1104,6 +1104,9 @@ pub struct TextBox {
     pub placeholder: Option<String>,
     #[serde(default)]
     pub paragraphs: Vec<Paragraph>,
+    /// Where the text sits in the box, top to bottom.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub valign: VAlign,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill: Option<Color>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1130,6 +1133,27 @@ pub enum Align {
     Center,
     Right,
     Justify,
+}
+
+/// Where the text sits in its box, top to bottom (PowerPoint's anchor).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VAlign {
+    #[default]
+    Top,
+    Middle,
+    Bottom,
+}
+
+impl VAlign {
+    /// The share of the free height above the text.
+    pub fn fraction(self) -> f64 {
+        match self {
+            VAlign::Top => 0.0,
+            VAlign::Middle => 0.5,
+            VAlign::Bottom => 1.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -1599,6 +1623,9 @@ pub struct Shape {
     pub stroke: Option<Stroke>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paragraphs: Vec<Paragraph>,
+    /// Where the text sits in the shape, top to bottom.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub valign: VAlign,
     /// Lines and arrows: run from the bottom-left to the top-right.
     #[serde(default, skip_serializing_if = "is_default")]
     pub flip: bool,

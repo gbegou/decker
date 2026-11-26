@@ -2,7 +2,7 @@
   // The style bar above the canvas: run and paragraph styles of a text
   // element (the selection while editing, else the whole element), and
   // the colors and sizes of shapes, formulas and the plan.
-  import { api, type ElementInfo, type StyleInfo, type StyleChange, type ParagraphChange, type Align, type ThemeInfo } from "./api";
+  import { api, type ElementInfo, type StyleInfo, type StyleChange, type ParagraphChange, type Align, type ThemeInfo, type VAlign } from "./api";
 
   let { element, range, theme, onrun }: {
     element: ElementInfo;
@@ -40,6 +40,23 @@
     onrun(label, () => api.styleElement(element.index, change));
   }
   const hex = (c: string | null | undefined, fallback: string) => c ?? fallback;
+
+  // Alignment icons: lines of text within a 14×14 box.
+  const svg = (body: string) => `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">${body}</svg>`;
+  const lines = (xs: [number, number][], ys = [3, 6, 9, 12]) => xs.map(([a, b], i) => `<line x1="${a}" y1="${ys[i]}" x2="${b}" y2="${ys[i]}"/>`).join("");
+  const H_ICONS: Record<string, string> = {
+    left: svg(lines([[1, 13], [1, 9], [1, 12], [1, 7]])),
+    center: svg(lines([[1, 13], [3, 11], [2, 12], [4, 10]])),
+    right: svg(lines([[1, 13], [5, 13], [2, 13], [7, 13]])),
+    justify: svg(lines([[1, 13], [1, 13], [1, 13], [1, 8]])),
+  };
+  // A box, and two lines of text at its top, middle or bottom.
+  const box = `<rect x="1" y="1" width="12" height="12" rx="1.5" stroke-width="1.1" opacity="0.6"/>`;
+  const V_ICONS: Record<string, string> = {
+    top: svg(box + lines([[4, 10], [4, 10]], [4, 6.5])),
+    middle: svg(box + lines([[4, 10], [4, 10]], [5.8, 8.3])),
+    bottom: svg(box + lines([[4, 10], [4, 10]], [7.5, 10])),
+  };
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -55,7 +72,7 @@
     <label title="Text color">
       <input type="color" value={hex(info.color, "#000000")} onchange={(e) => runStyle({ color: e.currentTarget.value }, "Color")} />
     </label>
-    <button title="Default color" onclick={() => runStyle({ color: "" }, "Color reset")}>⌀</button>
+    <button class="compact" title="Default color" onclick={() => runStyle({ color: "" }, "Color reset")}>⌀</button>
     {#each swatches as c}
       <button class="swatch" style="background:{c}" title="Theme color {c}" aria-label="Theme color {c}" onclick={() => runStyle({ color: c }, "Color")}></button>
     {/each}
@@ -64,26 +81,34 @@
       {#each fonts as f}<option value={f}>{f}</option>{/each}
     </select>
     <span class="sep"></span>
-    {#each [["left", "⯇"], ["center", "☰"], ["right", "⯈"], ["justify", "≡"]] as [a, glyph]}
-      <button class:on={info.align === a} title={a} onclick={() => paraStyle({ align: a as Align }, "Align")}>{glyph}</button>
+    {#each [["left", "Align left"], ["center", "Center"], ["right", "Align right"], ["justify", "Justify"]] as [a, what]}
+      <button class="icon" class:on={info.align === a} title="{what} (the paragraphs)" aria-label={what}
+              onclick={() => paraStyle({ align: a as Align }, "Align")}>{@html H_ICONS[a]}</button>
     {/each}
+    {#if element.kind === "text" || element.kind === "shape"}
+      <span class="sep"></span>
+      {#each [["top", "Top"], ["middle", "Middle"], ["bottom", "Bottom"]] as [v, what]}
+        <button class="icon" class:on={element.valign === v} title="Text at the {what.toLowerCase()} of the box" aria-label="{what} of the box"
+                onclick={() => elementStyle({ valign: v as VAlign }, "Vertical alignment")}>{@html V_ICONS[v]}</button>
+      {/each}
+    {/if}
     <span class="sep"></span>
-    <button class:on={info.bullet !== null} title="Bullet on or off" onclick={() => paraStyle({ bullet: info!.bullet === null ? 0 : -1 }, "Bullet")}>•</button>
-    <button title="Outdent" disabled={info.bullet === null || info.bullet === 0} onclick={() => paraStyle({ bullet: (info!.bullet ?? 1) - 1 }, "Outdent")}>←</button>
-    <button title="Indent" disabled={info.bullet === null} onclick={() => paraStyle({ bullet: (info!.bullet ?? 0) + 1 }, "Indent")}>→</button>
+    <button class="compact" class:on={info.bullet !== null} title="Bullet on or off" onclick={() => paraStyle({ bullet: info!.bullet === null ? 0 : -1 }, "Bullet")}>•</button>
+    <button class="compact" title="Outdent" disabled={info.bullet === null || info.bullet === 0} onclick={() => paraStyle({ bullet: (info!.bullet ?? 1) - 1 }, "Outdent")}>←</button>
+    <button class="compact" title="Indent" disabled={info.bullet === null} onclick={() => paraStyle({ bullet: (info!.bullet ?? 0) + 1 }, "Indent")}>→</button>
     <span class="sep"></span>
   {/if}
   {#if element.kind === "text" || element.kind === "shape"}
     <label title="Fill color of the box">Fill
       <input type="color" value={hex(element.fill, "#ffffff")} onchange={(e) => elementStyle({ fill: e.currentTarget.value }, "Fill")} />
     </label>
-    <button title="No fill" onclick={() => elementStyle({ fill: "" }, "Fill removed")}>⌀</button>
+    <button class="compact" title="No fill" onclick={() => elementStyle({ fill: "" }, "Fill removed")}>⌀</button>
     <label title="Outline color of the box">Line
       <input type="color" value={hex(element.stroke?.color, "#000000")} onchange={(e) => elementStyle({ stroke: e.currentTarget.value }, "Outline")} />
     </label>
     <input type="number" title="Outline width in points" min="0.25" max="20" step="0.25" value={element.stroke?.width ?? ""} placeholder="pt"
            class="narrow" onchange={(e) => elementStyle({ stroke_width: +e.currentTarget.value }, "Outline width")} />
-    <button title="No outline" onclick={() => elementStyle({ stroke: "" }, "Outline removed")}>⌀</button>
+    <button class="compact" title="No outline" onclick={() => elementStyle({ stroke: "" }, "Outline removed")}>⌀</button>
   {:else if element.kind === "math"}
     <label>size <input type="number" min="0" max="200" value={element.size} class="narrow" onchange={(e) => elementStyle({ size: +e.currentTarget.value || 0 }, "Size")} /></label>
     <label>color <input type="color" value={hex(element.fill, "#000000")} onchange={(e) => elementStyle({ fill: e.currentTarget.value }, "Color")} /></label>
@@ -101,12 +126,14 @@
   .stylebar { display: flex; flex-wrap: nowrap; flex: none; align-items: center; gap: 4px; padding: 4px 8px; font-size: 12px; color: var(--muted); white-space: nowrap; }
   .stylebar button { padding: 2px 7px; min-width: 26px; }
   .stylebar button.on { border-color: var(--accent); color: var(--accent); }
-  .stylebar input[type="number"] { width: 58px; padding: 2px 4px; }
+  /* Compact: the row must fit without scrolling. */
+  .stylebar button.icon, .stylebar button.compact { display: inline-flex; align-items: center; justify-content: center; height: 24px; padding: 2px 4px; min-width: 22px; }
+  .stylebar input[type="number"] { width: 48px; padding: 2px 4px; }
   .stylebar input.narrow { width: 52px; }
   .stylebar input[type="color"] { width: 28px; height: 22px; padding: 0; border: 1px solid var(--border); background: none; }
   .stylebar button.swatch { width: 18px; min-width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid var(--border); }
-  .stylebar select { padding: 2px 4px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; width: 104px; flex: none; }
+  .stylebar select { padding: 2px 4px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; width: 92px; flex: none; }
   .stylebar label { display: inline-flex; align-items: center; gap: 3px; }
   .scope { padding-right: 4px; }
-  .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+  .sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
 </style>

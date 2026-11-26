@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use deck_core::{
     native, svg, text, transfer, Color, Crop, Deck, Element, Layout, Mask, MathRenderer, Media, Paragraph, PathNode,
-    Placeholder, Play, Rect, Run, Slide, Step, Stroke, TextBox, TextDefaults, Theme, ThemeSet,
+    Placeholder, Play, Rect, Run, Slide, Step, Stroke, TextBox, TextDefaults, Theme, ThemeSet, VAlign,
 };
 
 /// The color of the prompt in an empty placeholder box.
@@ -104,6 +104,9 @@ pub struct ElementStyle {
     /// Lines and arrows: flip the direction.
     #[serde(default)]
     pub flip: Option<bool>,
+    /// Text boxes and shapes: `top`, `middle` or `bottom`.
+    #[serde(default)]
+    pub valign: Option<VAlign>,
 }
 
 /// A theme edit (see [`AppState::set_theme`]): `Some("")` clears a field.
@@ -321,6 +324,8 @@ pub struct ElementInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shape: Option<&'static str>,
     pub flip: bool,
+    /// Text boxes and shapes: where their text sits, top to bottom.
+    pub valign: VAlign,
     /// Placeholders: their default text style.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub placeholder: Option<Placeholder>,
@@ -436,6 +441,15 @@ fn path_info(e: &Element, shown: &Rect) -> Option<PathInfo> {
             Some(PathInfo { nodes: s.path_points(shown), closed: s.closed })
         }
         _ => None,
+    }
+}
+
+/// Where a text box's or a shape's text sits, top to bottom.
+fn valign_of(e: &Element) -> VAlign {
+    match e {
+        Element::Text(t) => t.valign,
+        Element::Shape(s) => s.valign,
+        _ => VAlign::Top,
     }
 }
 
@@ -987,6 +1001,7 @@ impl AppState {
                     media: media_info(e),
                     shape: shape_info(e).0,
                     flip: shape_info(e).1,
+                    valign: valign_of(e),
                     placeholder: None,
                     table: table_info(e, &e.state_at(self.step).rect),
                     path: path_info(e, &e.state_at(self.step).rect),
@@ -1120,6 +1135,7 @@ impl AppState {
                 media: media_info(e),
                 shape: shape_info(e).0,
                 flip: shape_info(e).1,
+                valign: valign_of(e),
                 placeholder: None,
                 table: table_info(e, e.rect()),
                 path: path_info(e, e.rect()),
@@ -1150,6 +1166,7 @@ impl AppState {
                 media: None,
                 shape: None,
                 flip: false,
+                valign: VAlign::Top,
                 placeholder: Some(ph.clone()),
                 table: None,
                 path: None,
@@ -1924,9 +1941,16 @@ impl AppState {
         let shown = |e: &Element| if self.editing_template() { *e.rect() } else { e.state_at(self.step).rect };
         let mut size = None;
         let cell_paragraphs;
+        let mut valign = VAlign::Top;
         let (rect, paragraphs): (Rect, &[Paragraph]) = match elements.get(element) {
-            Some(e @ Element::Text(t)) => (shown(e), &t.paragraphs),
-            Some(e @ Element::Shape(s)) => (shown(e), &s.paragraphs),
+            Some(e @ Element::Text(t)) => {
+                valign = t.valign;
+                (shown(e), &t.paragraphs)
+            }
+            Some(e @ Element::Shape(s)) => {
+                valign = s.valign;
+                (shown(e), &s.paragraphs)
+            }
             Some(e @ Element::Table(t)) => match self.cell {
                 Some((el, row, column)) if el == element && row < t.rows.len() && column < t.column_count() => {
                     size = t.size;
@@ -1978,8 +2002,23 @@ impl AppState {
         let Some(mut boxes) = self.math.layout(&deck.math_preamble, laid_out, width, &defaults) else {
             return Ok(None);
         };
+        // Text aligned to the middle or the bottom: shifted as the slide draws it.
+        let shift = if valign == VAlign::Top {
+            0.0
+        } else {
+            let height = if laid_out.iter().all(|p| p.text().is_empty()) {
+                boxes.last().map(|b| b.bottom - b.top).unwrap_or(0.0)
+            } else {
+                self.math
+                    .0
+                    .render_text(&deck.math_preamble, laid_out, width, &defaults)
+                    .map(|img| img.height)
+                    .unwrap_or_else(|| boxes.iter().map(|b| b.bottom).fold(0.0, f64::max))
+            };
+            svg::valign_offset(&rect, height, valign)
+        };
         boxes.drain(..skip.min(boxes.len()));
-        let (ox, oy) = (rect.x + svg::PADDING, rect.y + svg::PADDING);
+        let (ox, oy) = (rect.x + svg::PADDING, rect.y + svg::PADDING + shift);
         Ok(Some(TextLayout {
             rect,
             text: text::flat_text(paragraphs).replace(text::RAW_DOLLAR, "$"),
@@ -2505,12 +2544,18 @@ impl AppState {
                     t.fill = f;
                 }
                 apply_stroke(&mut t.stroke);
+                if let Some(v) = change.valign {
+                    t.valign = v;
+                }
             }
             Element::Shape(sh) => {
                 if let Some(f) = fill {
                     sh.fill = f;
                 }
                 apply_stroke(&mut sh.stroke);
+                if let Some(v) = change.valign {
+                    sh.valign = v;
+                }
                 if let Some(f) = change.flip {
                     sh.flip = f;
                 }

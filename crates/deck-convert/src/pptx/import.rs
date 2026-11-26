@@ -268,6 +268,15 @@ fn import_layout(pkg: &Package, part: &str, images: &mut ImageStore, report: &mu
     Ok(layout)
 }
 
+/// Where a text body sits in its shape: its `bodyPr anchor` (top when unset).
+fn anchor(tx_body: Node) -> VAlign {
+    match child(tx_body, NS_A, "bodyPr").and_then(|b| b.attribute("anchor")) {
+        Some("ctr") => VAlign::Middle,
+        Some("b") => VAlign::Bottom,
+        _ => VAlign::Top,
+    }
+}
+
 /// Fills what the runs of a placeholder's text leave unset with the
 /// placeholder's style. Deeper bullet levels step down in size the way
 /// PowerPoint's body styles do (32, 28, 24, 20…).
@@ -915,6 +924,7 @@ fn import_shape(
     if let Some(tb) = child(node, NS_P, "txBody") {
         shrink_to_fit(tb, &mut paragraphs);
     }
+    let valign = child(node, NS_P, "txBody").map(anchor).unwrap_or_default();
     let is_text_box = child(node, NS_P, "nvSpPr")
         .and_then(|n| child(n, NS_P, "cNvSpPr"))
         .and_then(|n| n.attribute("txBox"))
@@ -923,7 +933,15 @@ fn import_shape(
         || ph.is_some();
     if is_text_box && geom == "rect" {
         let placeholder = ph.as_ref().map(PhRef::name);
-        return Some(Element::Text(TextBox { rect, paragraphs, fill, stroke, placeholder, ..Default::default() }));
+        return Some(Element::Text(TextBox {
+            rect,
+            paragraphs,
+            valign,
+            fill,
+            stroke,
+            placeholder,
+            ..Default::default()
+        }));
     }
     // Custom geometry: a path, editable.
     if let Some(cust) = sp_pr.and_then(|p| child(p, NS_A, "custGeom")) {
@@ -937,6 +955,7 @@ fn import_shape(
                 fill,
                 stroke,
                 paragraphs,
+                valign,
                 path,
                 closed,
                 ..Default::default()
@@ -957,7 +976,7 @@ fn import_shape(
         return None;
     }
     let (kind, flip, reverse) = line_ends(node, kind);
-    Some(Element::Shape(Shape { rect, kind, fill, stroke, paragraphs, flip, reverse, ..Default::default() }))
+    Some(Element::Shape(Shape { rect, kind, fill, stroke, paragraphs, valign, flip, reverse, ..Default::default() }))
 }
 
 /// The first path of custom geometry as nodes in fractions of the box,

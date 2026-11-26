@@ -1476,7 +1476,10 @@
                       onmoved={(ix) => { if (ix.length) { selected = ix[0]; also = ix.slice(1); } }} />
         </div>
       {/if}
-      <div class="canvas-wrap" class:zoomed={zoom !== null} bind:clientWidth={wrapW} bind:clientHeight={wrapH}>
+      <!-- A press outside the text being edited ends the editing, as Escape
+           does, before acting as usual (selecting, a rubber band…). -->
+      <div class="canvas-wrap" class:zoomed={zoom !== null} bind:clientWidth={wrapW} bind:clientHeight={wrapH}
+           onpointerdowncapture={(e) => { if (editing && e.button === 0 && !(e.target as Element).closest(".edit-catch, .ph-rename")) editing = null; }}>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div class="canvas" class:drop-hover={dropHover} bind:this={canvas} style="aspect-ratio: {view.width} / {view.height}; width: {zoom !== null ? view.width * zoom : fitWidth}px"
@@ -1546,6 +1549,8 @@
             <svg class="overlay text-editing" viewBox="0 0 {view.width} {view.height}" preserveAspectRatio="none"
                  onpointerdown={editorPointerDown} onpointermove={editorPointerMove} onpointerup={editorPointerUp} onpointercancel={editorPointerUp}
                  onclick={editorMultiClick}>
+              <!-- Only the frame catches the pointer: elsewhere goes to the slide. -->
+              <rect class="edit-catch" x={r.x} y={r.y} width={r.w} height={r.h} />
               <rect class="edit-frame" x={r.x} y={r.y} width={r.w} height={r.h} />
               {#each selectionRects(editing) as s}
                 <rect class="selection" x={s.x} y={s.y} width={s.w} height={s.h} />
@@ -2186,7 +2191,8 @@
   .rotate { fill: white; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; cursor: grab; pointer-events: all; }
   .rotate-stem { stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
   .band { fill: rgba(79, 140, 255, 0.12); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; stroke-dasharray: 4 3; pointer-events: none; }
-  .text-editing { cursor: text; }
+  .text-editing { cursor: text; pointer-events: none; }
+  .edit-catch { fill: transparent; pointer-events: all; }
   .edit-frame { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 3; }
   .selection { fill: rgba(79, 140, 255, 0.35); }
   .caret { stroke: black; stroke-width: 1.5; animation: blink 1s steps(2, start) infinite; }
