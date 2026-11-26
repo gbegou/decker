@@ -34,7 +34,8 @@ The editor is one window in five areas.
    [Slides and sections](slides.md). Drag its edge to resize it; **«** collapses it.
 4. **The canvas**: the current slide, edited directly. Above it, one row of tools for the
    selection: **Text** (font, size, color, alignment, bullets, fill and outline) and
-   **Arrange** (align, distribute, mirror, order, stroke). Right-click an element for cut,
+   **Arrange** (align, distribute, mirror, order, stroke); for a text box or a shape, whose
+   text tools take the row, the arrange tools open from their **Arrange ▾** button, so the row always fits. Right-click an element for cut,
    copy, paste, duplicate (Ctrl+D), delete, order, group, rename and a quick appear or
    disappear on the next click. Below it, **◀ ▶** show the slide at a given click of its
    [build steps](steps.md).

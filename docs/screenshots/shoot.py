@@ -63,6 +63,9 @@ def arrange(e):
     e.goto(4, 1)
     e.click_slide(300, 220)
     e.click_slide(820, 220, keys=("\ue008",))  # Shift: the note too
+    # With text tools in the row, the arrange tools open from their button.
+    e.s.js("document.querySelector('.fold-tools button')?.click(); return true")
+    e.settle(0.6)
     e.shot("arrange", crop=union(e.rect(".bars"), e.rect("svg.overlay")))
 
 

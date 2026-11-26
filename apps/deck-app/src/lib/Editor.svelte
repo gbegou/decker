@@ -239,6 +239,8 @@
     }
   }
 
+  /** The arrange tools, unfolded from their button. */
+  let arrangeOpen = $state(false);
   /** The File menu, open. */
   let fileMenu = $state(false);
   function fileAction(f: () => unknown) {
@@ -1254,11 +1256,31 @@
                   onrun={(label, f) => enqueue(() => run(label, f).then(() => refreshLayout()))} />
       {/if}
       {#if selection.length && !editing}
-        <ArrangeBar elements={selection.map((i) => view!.elements[i]).filter((e) => e && e.kind !== "placeholder")}
-                    onrun={(label, f) => enqueue(async () => { await run(label, f); })}
-                    onmoved={(ix) => { if (ix.length) { selected = ix[0]; also = ix.slice(1); } }} />
+        {#snippet arrange()}
+          <ArrangeBar elements={selection.map((i) => view!.elements[i]).filter((e) => e && e.kind !== "placeholder")}
+                      onrun={(label, f) => enqueue(async () => { await run(label, f); })}
+                      onmoved={(ix) => { if (ix.length) { selected = ix[0]; also = ix.slice(1); } }} />
+        {/snippet}
+        {#if sel && (sel.kind === "text" || sel.kind === "shape")}
+          <!-- With the full text tools in the row, the arrange tools fold into a button. -->
+          <div class="fold-tools">
+            <button class:on={arrangeOpen} aria-expanded={arrangeOpen} title="Align, distribute, mirror, order, stroke" onclick={() => (arrangeOpen = !arrangeOpen)}>Arrange ▾</button>
+          </div>
+        {:else}
+          {@render arrange()}
+        {/if}
       {/if}
       </div>
+      {#if arrangeOpen && sel && (sel.kind === "text" || sel.kind === "shape") && selection.length && !editing}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <div class="menu-backdrop" onclick={() => (arrangeOpen = false)}></div>
+        <div class="arrange-pop">
+          <ArrangeBar elements={selection.map((i) => view!.elements[i]).filter((e) => e && e.kind !== "placeholder")}
+                      onrun={(label, f) => enqueue(async () => { await run(label, f); })}
+                      onmoved={(ix) => { if (ix.length) { selected = ix[0]; also = ix.slice(1); } }} />
+        </div>
+      {/if}
       <div class="canvas-wrap" class:zoomed={zoom !== null} bind:clientWidth={wrapW} bind:clientHeight={wrapH}>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -1798,6 +1820,12 @@
   /* One row, always the same height: the slide does not jump when the
      selection changes; it scrolls sideways when the window is narrow. */
   .bars { flex: none; height: 40px; display: flex; flex-wrap: nowrap; align-items: center; overflow-x: auto; overflow-y: hidden; border-bottom: 1px solid var(--border); scrollbar-width: thin; }
+  .fold-tools { flex: none; padding: 0 8px; border-left: 1px solid var(--border); }
+  .fold-tools button { font-size: 12px; padding: 2px 8px; white-space: nowrap; }
+  .fold-tools button.on { border-color: var(--accent); color: var(--accent); }
+  main { position: relative; }
+  .arrange-pop { position: absolute; right: 12px; top: 44px; z-index: 41; width: 380px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); padding: 4px; }
+  .arrange-pop :global(.arrangebar) { flex-wrap: wrap; border-left: none; white-space: normal; row-gap: 6px; }
   .bars-hint { padding: 0 16px; color: var(--muted); font-size: 12px; white-space: nowrap; }
   .dialog.small { width: min(520px, 90vw); }
   .guide { stroke: #ff3b8d; stroke-width: 1; vector-effect: non-scaling-stroke; stroke-dasharray: 4 3; pointer-events: none; }

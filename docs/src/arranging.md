@@ -1,6 +1,6 @@
 # Arranging
 
-![Two elements selected: the arrange bar above the slide](images/screens/arrange.png)
+![Two elements selected: the arrange tools in the row above the slide](images/screens/arrange.png)
 
 ## Selecting
 
@@ -31,7 +31,9 @@ sets where the element is at that click, as a step.
 
 ## The arrange bar
 
-Under the style bar, for any selection:
+In the row of tools above the slide, for any selection; when a text box or a shape is the
+selection, its text tools take the row and the arrange tools open from the **Arrange ▾**
+button:
 
 - **Align** left, center, right, top, middle or bottom: to the selection's bounds, or to the
   slide when one element is selected.

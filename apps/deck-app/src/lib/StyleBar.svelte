@@ -45,7 +45,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="stylebar" onpointerdown={(e) => e.stopPropagation()}>
   {#if textual && info}
-    <span class="scope" title="What the text buttons act on">Text · {range && range.from !== range.to ? "selection" : range ? "at the caret" : "whole box"}</span>
+    <span class="scope" title="What the text buttons act on: the selected characters, the caret, or the whole box">{range && range.from !== range.to ? "Sel." : range ? "Caret" : "Box"}</span>
     <button class:on={info.bold} title="Bold (Ctrl+B)" onclick={() => runStyle({ toggle_bold: true }, "Bold")}><b>B</b></button>
     <button class:on={info.italic} title="Italic (Ctrl+I)" onclick={() => runStyle({ toggle_italic: true }, "Italic")}><i>I</i></button>
     <label title="Size in points, 0 for the default">
@@ -74,11 +74,11 @@
     <span class="sep"></span>
   {/if}
   {#if element.kind === "text" || element.kind === "shape"}
-    <label title="Fill color">fill
+    <label title="Fill color">▧
       <input type="color" value={hex(element.fill, "#ffffff")} onchange={(e) => elementStyle({ fill: e.currentTarget.value }, "Fill")} />
     </label>
     <button title="No fill" onclick={() => elementStyle({ fill: "" }, "Fill removed")}>⌀</button>
-    <label title="Outline color">outline
+    <label title="Outline color">▢
       <input type="color" value={hex(element.stroke?.color, "#000000")} onchange={(e) => elementStyle({ stroke: e.currentTarget.value }, "Outline")} />
     </label>
     <input type="number" title="Outline width in points" min="0.25" max="20" step="0.25" value={element.stroke?.width ?? ""} placeholder="w"
@@ -105,7 +105,7 @@
   .stylebar input.narrow { width: 52px; }
   .stylebar input[type="color"] { width: 28px; height: 22px; padding: 0; border: 1px solid var(--border); background: none; }
   .stylebar button.swatch { width: 18px; min-width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid var(--border); }
-  .stylebar select { padding: 2px 4px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; width: 140px; flex: none; }
+  .stylebar select { padding: 2px 4px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; width: 120px; flex: none; }
   .stylebar label { display: inline-flex; align-items: center; gap: 3px; }
   .scope { padding-right: 4px; }
   .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
