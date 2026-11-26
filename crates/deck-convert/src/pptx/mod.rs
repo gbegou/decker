@@ -29,3 +29,11 @@ pub const REL_NOTES: &str = "http://schemas.openxmlformats.org/officeDocument/20
 pub const REL_IMAGE: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
 pub const REL_THEME: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme";
 pub const REL_OFFICE_DOC: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument";
+
+/// Whether `path` names a PowerPoint file decker imports: `.pptx`, or
+/// `.pptm` (the same package with macros, which are left out).
+pub fn is_powerpoint(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("pptx") || e.eq_ignore_ascii_case("pptm"))
+}

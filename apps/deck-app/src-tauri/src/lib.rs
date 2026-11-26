@@ -72,7 +72,7 @@ fn open(app: AppHandle, state: Shared, path: String) -> Result<View, String> {
             let (deck, dir) = open_archive(&path)?;
             s.load(deck, dir);
             s.archive = Some(path);
-        } else if path.extension().map(|e| e.eq_ignore_ascii_case("pptx")).unwrap_or(false) {
+        } else if deck_convert::pptx::is_powerpoint(&path) {
             let dir = path.with_extension("deck");
             if dir.exists() {
                 s.load(deck_core::native::load(&dir).map_err(err)?, dir);
@@ -917,7 +917,35 @@ fn navigate(app: AppHandle, state: Shared, action: String) -> Result<View, Strin
         s.view()
     };
     changed(&app);
+    auto_start(&app);
     Ok(view)
+}
+
+/// On a slide whose first click starts by itself, the presentation moves
+/// on to it a moment after the slide is shown, so that its effects play.
+fn auto_start(app: &AppHandle) {
+    let due = app.state::<Mutex<AppState>>().lock().map(|s| s.auto_start_due()).unwrap_or(false);
+    if !due {
+        return;
+    }
+    let (slide, app) = (app.state::<Mutex<AppState>>().lock().map(|s| s.slide).unwrap_or(0), app.clone());
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        let state = app.state::<Mutex<AppState>>();
+        let moved = {
+            let Ok(mut s) = state.lock() else { return };
+            // Still there, and nobody moved meanwhile.
+            if s.slide == slide && s.auto_start_due() {
+                s.step = 1;
+                true
+            } else {
+                false
+            }
+        };
+        if moved {
+            changed(&app);
+        }
+    });
 }
 
 #[tauri::command]
@@ -1151,6 +1179,7 @@ fn start_presentation(app: AppHandle, state: Shared, with_presenter: Option<bool
     }
     deck_present::start(&app, "editor", with_presenter)?;
     changed(&app);
+    auto_start(&app);
     Ok(())
 }
 
@@ -1183,7 +1212,7 @@ pub fn run() {
                 initial.load(deck, dir);
                 initial.archive = Some(path);
             }
-        } else if path.extension().map(|e| e.eq_ignore_ascii_case("pptx")).unwrap_or(false) {
+        } else if deck_convert::pptx::is_powerpoint(&path) {
             let dir = path.with_extension("deck");
             if let Ok((deck, report)) = deck_convert::pptx::import(&path, &dir) {
                 initial.load(deck, dir);
@@ -1215,7 +1244,8 @@ pub fn run() {
         .setup(move |app| {
             // The presentation windows, hidden until "Present".
             deck_present::create_windows(app.handle(), "decker");
-            deck_present::set_icons(app.handle(), include_bytes!("../icons/128x128.png"));
+            // The simplified drawing: the detailed one is too busy at taskbar size.
+            deck_present::set_icons(app.handle(), include_bytes!("../icons/taskbar.png"));
             if let Some(mode) = present {
                 let handle = app.handle().clone();
                 let state = handle.state::<Mutex<AppState>>();

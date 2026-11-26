@@ -235,7 +235,8 @@ pub fn run() {
         .manage(Mutex::new(initial))
         .setup(move |app| {
             deck_present::create_windows(app.handle(), "decker viewer");
-            deck_present::set_icons(app.handle(), include_bytes!("../icons/128x128.png"));
+            // The simplified drawing: the detailed one is too busy at taskbar size.
+            deck_present::set_icons(app.handle(), include_bytes!("../icons/taskbar.png"));
             if let Some(mode) = present {
                 // The page loader has not reported the pages yet; the windows
                 // show them as soon as it does.

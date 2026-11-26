@@ -710,18 +710,30 @@ fn import_timing(
     let mut step = 0u32;
     let mut seq = 0u32;
     for click_par in root_par.children().filter(|n| n.has_tag_name((NS_P, "par"))) {
-        // A group that starts by itself (delay not "indefinite") runs with
-        // the slide or the previous click: it is no click of its own.
-        let on_click = click_par
+        // A group waits for a click when its conditions are "indefinite"
+        // alone. A delay, or an event ("onBegin": with the slide or the
+        // previous group), makes it start by itself: no click of its own.
+        let conds: Vec<Node> = click_par
             .children()
             .find(|n| n.has_tag_name((NS_P, "cTn")))
             .and_then(|c| child(c, NS_P, "stCondLst"))
-            .and_then(|l| child(l, NS_P, "cond"))
-            .and_then(|c| c.attribute("delay"))
-            .is_none_or(|d| d == "indefinite");
-        if on_click {
+            .map(|l| l.children().filter(|n| n.has_tag_name((NS_P, "cond"))).collect())
+            .unwrap_or_default();
+        let on_click = conds.is_empty()
+            || (conds.iter().any(|c| c.attribute("delay") == Some("indefinite"))
+                && !conds.iter().any(|c| c.attribute("evt").is_some()));
+        // Starting by itself before any click: the slide's first click
+        // starts by itself when the slide is shown.
+        // (A group that only starts videos makes no click.)
+        let visual = click_par.descendants().any(|n| {
+            n.has_tag_name((NS_P, "cTn"))
+                && matches!(n.attribute("presetClass"), Some("entr" | "exit" | "path" | "emph"))
+        });
+        let opens_by_itself = !on_click && step == 0 && visual;
+        if on_click || opens_by_itself {
             step += 1;
         }
+        let mut first_in_group = true;
         // Within a click: the first group starts on click, the others
         // after the previous one or with it; all land in the same step.
         for effect in
@@ -745,8 +757,12 @@ fn import_timing(
                 / 1000.0;
             // "With previous" or "after previous", its own delay, and its
             // place in the click's order (document order).
-            let trigger =
+            let mut trigger =
                 if effect.attribute("nodeType") == Some("afterEffect") { Trigger::After } else { Trigger::With };
+            if opens_by_itself && first_in_group {
+                trigger = Trigger::After;
+            }
+            first_in_group = false;
             let delay = child(effect, NS_P, "stCondLst")
                 .and_then(|l| child(l, NS_P, "cond"))
                 .and_then(|c| c.attribute("delay"))
@@ -1725,6 +1741,44 @@ mod tests {
         resolve_shrunk(&mut loose);
         let Element::Text(t) = &loose[0] else { unreachable!() };
         assert_eq!(t.paragraphs[0].runs[1].size, Some(11.25), "without a placeholder: the default size, scaled");
+    }
+
+    #[test]
+    fn a_pptm_imports_as_a_pptx_without_its_macros() {
+        // A .pptm: the same package, its main part typed as macro-enabled,
+        // with a VBA project; the slides import, the macros are left out.
+        let dir = std::env::temp_dir().join(format!("decker-pptm-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = std::fs::File::open(fixture()).unwrap();
+        let mut zin = zip::ZipArchive::new(src).unwrap();
+        let pptm = dir.join("macros.pptm");
+        let mut zout = zip::ZipWriter::new(std::fs::File::create(&pptm).unwrap());
+        let opts = zip::write::SimpleFileOptions::default();
+        for i in 0..zin.len() {
+            let mut f = zin.by_index(i).unwrap();
+            let name = f.name().to_string();
+            let mut bytes = vec![];
+            std::io::Read::read_to_end(&mut f, &mut bytes).unwrap();
+            if name == "[Content_Types].xml" {
+                let text = String::from_utf8(bytes).unwrap().replace(
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml",
+                    "application/vnd.ms-powerpoint.presentation.macroEnabled.main+xml",
+                );
+                bytes = text.into_bytes();
+            }
+            zout.start_file(name, opts).unwrap();
+            std::io::Write::write_all(&mut zout, &bytes).unwrap();
+        }
+        zout.start_file("ppt/vbaProject.bin", opts).unwrap();
+        std::io::Write::write_all(&mut zout, b"not run").unwrap();
+        zout.finish().unwrap();
+        assert!(super::super::is_powerpoint(&pptm));
+        let (deck, _) = import(&pptm, &dir.join("macros.deck")).unwrap();
+        let (plain, _) = import(&fixture(), &dir.join("plain.deck")).unwrap();
+        assert_eq!(deck.slides.len(), plain.slides.len());
+        assert!(!dir.join("macros.deck/assets/vbaProject.bin").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

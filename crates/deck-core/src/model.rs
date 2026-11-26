@@ -857,6 +857,13 @@ impl Slide {
     /// The effects of click `at` in playing order (`seq`, then element and
     /// step order), each with its start time: "with" effects start with the
     /// one before, "after" effects when it has ended, plus their own delay.
+    /// Whether the slide's first click starts by itself when the slide is
+    /// shown: its first effect is "after previous" (PowerPoint's effects
+    /// that start with or after the slide).
+    pub fn starts_by_itself(&self) -> bool {
+        self.click_order(1).first().is_some_and(|t| self.elements[t.element].steps()[t.step].trigger == Trigger::After)
+    }
+
     pub fn click_order(&self, at: u32) -> Vec<Timed> {
         let mut entries: Vec<(u32, usize, usize)> = vec![];
         for (e, element) in self.elements.iter().enumerate() {
@@ -871,6 +878,8 @@ impl Slide {
         let mut out = vec![];
         for (n, (_, e, k)) in entries.into_iter().enumerate() {
             let s = &self.elements[e].steps()[k];
+            // The first effect of a click starts on the click (or with the
+            // slide when it starts by itself): its trigger sets no wait.
             if n > 0 && s.trigger == Trigger::After {
                 base = end;
             }

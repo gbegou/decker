@@ -62,7 +62,7 @@ The same list as the editor's help (**F1** or **?**). Generated from the editor'
 | Element · Slide · Animations (side panel) | The selection's settings; the slide's (section, layout, theme, fonts and colors, macros); the timeline |
 | Fit · 100% · − + (status bar) · Ctrl+0 · Ctrl+- · Ctrl++ | Zoom: fit the slide in the window, actual size, out, in |
 | All · ◀ ▶ under the slide | Every element shown, for editing (the default) · the slide at each click |
-| on click · with previous · after previous (timeline) | When an effect starts: a click of its own, with the effect before it, or when that one has ended |
+| on click · with previous · after previous (timeline) | When an effect starts: a click of its own, with the effect before it, or when that one has ended; the first effect of a slide can start with the slide |
 | Arrows · Shift+arrows · Ctrl+A · Tab · Escape | Move the selection by 1 or 10 points; select everything; next element; deselect |
 | ● after File | Unsaved changes: New, Open and closing the window ask whether to save |
 
@@ -70,7 +70,7 @@ The same list as the editor's help (**F1** or **?**). Generated from the editor'
 
 | Key or control | Does |
 | --- | --- |
-| Slides \| Design (header) | The design view, like PowerPoint's slide master: themes and their layouts on the left, edited on the canvas; right-click for new layouts and themes, save, load, delete |
+| Slides \| Design (header) | The design view, like PowerPoint's slide master: themes and their layouts on the left, edited on the canvas; right-click for new layouts and themes, rename (or double-click), save, load, delete |
 | Layout selector (Slide tab) · Layout ▸ (thumbnail menu) | The slide's layout, grouped by theme |
 | theme · ↺ · ⇪ (placeholder style) | The value comes from the theme; set by the layout: back to the theme's, or make it the theme's |
 | Reset to theme · hide the theme's elements | Drop all of a layout's overrides; leave out the theme's logo, footer… |

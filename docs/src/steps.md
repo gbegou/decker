@@ -45,7 +45,10 @@ Each entry says **when it starts**, as in PowerPoint and Google Slides:
 - **with previous**: together with the effect before it;
 - **after previous**: when the effect before it has ended.
 
-A step's delay adds to that. The first effect of a click always starts on the click;
+A step's delay adds to that. The first effect of a click starts on the click, except the
+first effect of a slide, which can start **with the slide**: it then plays by itself as soon
+as the slide is shown, as PowerPoint's "after previous" on a slide's first effect.
+Otherwise,
 choosing "with" or "after previous" for it joins it to the click before. Clicks that end up
 empty are removed, so the clicks stay numbered 1, 2, 3… An entry's click selects its element;
 a row's ▶ shows the slide at that click.

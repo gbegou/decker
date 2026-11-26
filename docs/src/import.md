@@ -1,6 +1,7 @@
 # Importing PowerPoint
 
-**File ▸ Open file…** (Ctrl+O) imports a `.pptx` into a `.deck` folder next to it, and opens it; a second
+**File ▸ Open file…** (Ctrl+O) imports a `.pptx` (or a `.pptm`: its macros are left out,
+its slides import the same) into a `.deck` folder next to it, and opens it; a second
 opening of the same file opens that folder. The command line does the same with
 `deck-convert import talk.pptx`. After an import, the side panel lists what was skipped.
 
@@ -30,7 +31,8 @@ opening of the same file opens that folder. The command line does the same with
 - Embedded videos, with their poster; one started automatically plays when it appears.
 - Groups, with their child-to-slide transform.
 - Animations: entrance and exit effects of the main sequence become build steps, with
-  their start (on click, with previous, after previous), delay and order; motion
+  their start (on click, with previous, after previous), delay and order; effects that
+  PowerPoint starts with the slide play by themselves when the slide is shown; motion
   paths become moves (to the path's end point), Spin a turn, Grow/Shrink a size change.
 - Formulas and figures exported by decker come back editable.
 

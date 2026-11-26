@@ -126,12 +126,16 @@
                onpointerdown={(e) => down(e, entry)} title="Drag to reorder: within the click, to another click, or between two clicks for a click of its own">
             <span class="text"><b>{entry.label}</b> {entry.what}{entry.duration ? ` · ${entry.duration} s` : ""}</span>
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <select class="when" title="When it starts" value={k === 0 ? "click" : entry.trigger}
+            <select class="when" title="When it starts" value={k === 0 ? (i === 0 && entry.trigger === "after" ? "after" : "click") : entry.trigger}
                     onpointerdown={(e) => e.stopPropagation()}
                     onchange={(e) => ontrigger(entry.element, entry.step, e.currentTarget.value as "click" | "with" | "after")}>
               <option value="click">on click</option>
-              <option value="with" disabled={k === 0 && i === 0}>with previous</option>
-              <option value="after" disabled={k === 0 && i === 0}>after previous</option>
+              {#if k === 0 && i === 0}
+                <option value="after" title="Plays by itself when the slide is shown">with the slide</option>
+              {:else}
+                <option value="with">with previous</option>
+                <option value="after">after previous</option>
+              {/if}
             </select>
           </div>
         {/each}

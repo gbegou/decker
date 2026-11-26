@@ -238,6 +238,9 @@ fn timing_xml(slide: &Slide, slide_no: usize, size: (f64, f64), warnings: &mut V
         id += 1;
         id
     };
+    // The main sequence's id, known first: a click that starts by itself
+    // refers to it.
+    let main_seq = next();
     // Videos that play when they appear: PowerPoint's "Automatically", a
     // media call after the effect that shows them (or with the slide).
     let autoplay = |k: usize, at: u32, next: &mut dyn FnMut() -> u32| -> Option<String> {
@@ -282,7 +285,10 @@ fn timing_xml(slide: &Slide, slide_no: usize, size: (f64, f64), warnings: &mut V
                     groups.push((group_delay, std::mem::take(&mut effects)));
                     group_delay = ((timed.start - s.delay.max(0.0)) * 1000.0).round() as u64;
                 }
-                let first_type = if !any {
+                let first_type = if !any && step == 1 && slide.starts_by_itself() {
+                    // The slide's first effect, starting with the slide.
+                    "afterEffect"
+                } else if !any {
                     "clickEffect"
                 } else if after {
                     "afterEffect"
@@ -386,8 +392,14 @@ fn timing_xml(slide: &Slide, slide_no: usize, size: (f64, f64), warnings: &mut V
         }
         let _ = write!(
             clicks,
-            r#"<p:par><p:cTn id="{}" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst>{inner}</p:childTnLst></p:cTn></p:par>"#,
-            next()
+            r#"<p:par><p:cTn id="{}" fill="hold"><p:stCondLst><p:cond delay="indefinite"/>{}</p:stCondLst><p:childTnLst>{inner}</p:childTnLst></p:cTn></p:par>"#,
+            next(),
+            // The first click starting by itself: with the slide, as PowerPoint writes it.
+            if step == 1 && slide.starts_by_itself() {
+                format!(r#"<p:cond evt="onBegin" delay="0"><p:tn val="{main_seq}"/></p:cond>"#)
+            } else {
+                String::new()
+            }
         );
     }
     // Each embedded video gets the media node that lets a slideshow play it.
@@ -413,8 +425,7 @@ fn timing_xml(slide: &Slide, slide_no: usize, size: (f64, f64), warnings: &mut V
         String::new()
     } else {
         format!(
-            r#"<p:seq concurrent="1" nextAc="seek"><p:cTn id="{}" dur="indefinite" nodeType="mainSeq"><p:childTnLst>{clicks}</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq>"#,
-            next()
+            r#"<p:seq concurrent="1" nextAc="seek"><p:cTn id="{main_seq}" dur="indefinite" nodeType="mainSeq"><p:childTnLst>{clicks}</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq>"#
         )
     };
     format!(
@@ -1527,6 +1538,21 @@ mod tests {
             assert_eq!(key(a), key(b), "click {click}: same order and start times");
         }
         assert_eq!(b.elements[0].steps()[1].trigger, Trigger::After);
+        assert!(!b.starts_by_itself());
+
+        // A first click that starts by itself, as PowerPoint writes "after
+        // previous" for the first effect of a slide: it stays so.
+        let mut auto = deck.clone();
+        let steps = auto.slides[0].elements[1].steps_mut();
+        steps[1].trigger = Trigger::After;
+        assert!(auto.slides[0].starts_by_itself());
+        let pptx = dir.join("auto.pptx");
+        assert!(export(&auto, &dir, &pptx).unwrap().is_empty());
+        let xml = super::super::package::Package::open(&pptx).unwrap().xml("ppt/slides/slide1.xml").unwrap();
+        assert!(xml.contains(r#"evt="onBegin""#), "written with PowerPoint's onBegin condition");
+        let (back, _) = super::super::import(&pptx, &dir.join("auto.deck")).unwrap();
+        assert!(back.slides[0].starts_by_itself(), "the first click still starts by itself");
+        assert_eq!(back.slides[0].last_step(), 2, "and is not an extra click");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

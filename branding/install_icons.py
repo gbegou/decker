@@ -41,6 +41,26 @@ const {{ chromium }} = require('playwright');
     subprocess.run(["node", "-e", script], check=True, cwd=APPS[0])
 
 
+# Sizes drawn from the simplified icon (taskbar, title bar, small views);
+# larger ones from the detailed icon.
+SMALL_SIZES = [16, 20, 24, 32, 40, 48, 64]
+LARGE_SIZES = [128, 256]
+
+
+def write_ico(pngs: list[pathlib.Path], ico: pathlib.Path) -> None:
+    """An .ico holding the given PNG images (one per size), as Windows reads it."""
+    import struct
+    datas = [p.read_bytes() for p in pngs]
+    sizes = [struct.unpack(">II", d[16:24]) for d in datas]
+    header = struct.pack("<HHH", 0, 1, len(datas))
+    offset = 6 + 16 * len(datas)
+    entries = b""
+    for (w, h), d in zip(sizes, datas):
+        entries += struct.pack("<BBBBHHII", w % 256, h % 256, 0, 0, 1, 32, len(d), offset)
+        offset += len(d)
+    ico.write_bytes(header + entries + b"".join(datas))
+
+
 def main() -> int:
     missing = [n for n in NEEDED if not (BRAND / n).is_file()]
     if missing:
@@ -54,8 +74,20 @@ def main() -> int:
         for app in APPS:
             icons = app / "src-tauri" / "icons"
             subprocess.run(["npx", "tauri", "icon", str(big), "-o", str(icons)], check=True, cwd=app)
-            # Tauri draws every size from the detailed icon: the 32 px one is the simplified drawing.
-            shutil.copy(small, icons / "32x32.png")
+            # Tauri draws every size from the detailed icon, too busy when small:
+            # the small sizes, the .ico (taskbar, title bar, file explorer) and
+            # the window icon use the simplified drawing.
+            sized = {}
+            for n in SMALL_SIZES:
+                sized[n] = tmp / f"small-{n}.png"
+                rasterize(BRAND / "decker_icon_small.svg", sized[n], n)
+            for n in LARGE_SIZES:
+                sized[n] = tmp / f"large-{n}.png"
+                rasterize(BRAND / "decker_icon.svg", sized[n], n)
+            shutil.copy(sized[32], icons / "32x32.png")
+            shutil.copy(sized[64], icons / "64x64.png")
+            shutil.copy(sized[64], icons / "taskbar.png")
+            write_ico([sized[n] for n in SMALL_SIZES + LARGE_SIZES], icons / "icon.ico")
             # Only the desktop sizes are used: drop the mobile and Store sets tauri icon adds.
             for extra in ["android", "ios"]:
                 shutil.rmtree(icons / extra, ignore_errors=True)

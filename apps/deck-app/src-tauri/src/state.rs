@@ -1695,6 +1695,15 @@ impl AppState {
         (self.slide, self.step, self.blank) = (show.page, show.step, show.blank);
     }
 
+    /// Whether the presentation, now at the start of a slide whose first
+    /// click starts by itself, should move on to that click.
+    pub fn auto_start_due(&self) -> bool {
+        self.presenting
+            && self.step == 0
+            && self.blank.is_empty()
+            && self.current().is_some_and(|(_, slide)| slide.starts_by_itself())
+    }
+
     /// Shows slide `slide` in the editor with every element visible.
     pub fn goto_all(&mut self, slide: usize) {
         self.goto(slide, 0);
@@ -2245,11 +2254,11 @@ impl AppState {
                 }
                 deck_core::Trigger::With
             }
+            // The first effect of the slide "after previous" (or "with"): the
+            // first click starts by itself when the slide is shown.
+            "with" | "after" if ci == 0 && si == 0 => deck_core::Trigger::After,
             "with" | "after" => {
                 if si == 0 {
-                    if ci == 0 {
-                        return Err("the first effect of a slide starts on a click".into());
-                    }
                     let tail = clicks.remove(ci);
                     clicks[ci - 1].extend(tail);
                 }
@@ -2970,7 +2979,13 @@ mod tests {
         let slide = &s.deck.as_ref().unwrap().slides[0];
         assert_eq!(slide.elements[0].steps()[1].trigger, deck_core::Trigger::After);
         assert!(slide.click_order(2)[1].start > 0.0, "it starts when the one before has ended");
-        assert!(s.set_trigger(1, 1, "with").is_err(), "the first effect of the slide starts on a click");
+        s.set_trigger(1, 1, "after").unwrap();
+        assert!(
+            s.deck.as_ref().unwrap().slides[0].starts_by_itself(),
+            "the first effect of the slide: when the slide opens"
+        );
+        s.set_trigger(1, 1, "click").unwrap();
+        assert!(!s.deck.as_ref().unwrap().slides[0].starts_by_itself());
         assert!(s.move_step(0, 1, 0, false, None).is_err());
         assert!(s.dirty || !s.dirty);
     }

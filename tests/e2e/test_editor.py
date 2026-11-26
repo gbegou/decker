@@ -383,6 +383,17 @@ class DesignView(EditorTest):
         v = self.view()
         self.assertEqual(v["editing_layout"], "Two contents")
         self.assertEqual(v["layout_meta"]["parent"], "Waves", "made in the theme right-clicked")
+        # Rename a layout from its menu.
+        x, y = e.s.js("const r = [...document.querySelectorAll('.design-item.layout')].find(b => b.textContent.includes('Two contents')).getBoundingClientRect(); return [r.x + 30, r.y + 20]")
+        e.pointer(x, y, button=2)
+        e.s.js("[...document.querySelectorAll('.context-menu button')].find(b => b.textContent.trim().startsWith('Rename')).click(); return true")
+        e.settle(0.5)
+        e.s.js("""const i = document.querySelector('.rename-dialog input'); i.value = 'Side by side';
+                  i.dispatchEvent(new Event('input', {bubbles: true})); return true""")
+        e.s.js("[...document.querySelectorAll('.rename-dialog button')].find(b => b.textContent.trim() === 'Rename').click(); return true")
+        e.settle(1.5)
+        self.assertIn("Side by side", self.view()["layouts"])
+        self.assertNotIn("Two contents", self.view()["layouts"])
         e.s.js("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Close design view').click(); return true")
         e.settle(1.5)
         v = self.view()

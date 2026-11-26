@@ -280,6 +280,23 @@
     ["title", "Title slide"], ["content", "Title and content"], ["section", "Section header"], ["two", "Two contents"],
     ["compare", "Comparison"], ["title-only", "Title only"], ["blank", "Blank"],
   ];
+  /** A theme or layout being renamed from the tree's menu. */
+  let renamingItem = $state<{ kind: "theme" | "layout"; name: string; value: string } | null>(null);
+  function renameItem() {
+    const r = renamingItem;
+    renamingItem = null;
+    if (!r || !r.value.trim() || r.value.trim() === r.name) return;
+    const value = r.value.trim();
+    enqueue(async () => {
+      if (r.kind === "theme") {
+        await api.editTheme(r.name);
+        await run("Theme renamed", () => api.renameTheme(value));
+      } else {
+        await api.editLayout(r.name);
+        await run("Layout renamed", () => api.renameLayout(value));
+      }
+    });
+  }
   function treeAction(f: () => unknown) {
     treeMenu = null;
     f();
@@ -335,7 +352,7 @@
     const picked = await openDialog({
       multiple: false,
       directory: false,
-      filters: [{ name: "Presentations", extensions: ["pptx", "deckz", "json"] }],
+      filters: [{ name: "Presentations", extensions: ["pptx", "pptm", "deckz", "json"] }],
     });
     if (!picked) return;
     // A deck is a folder: opening its deck.json selects the folder.
@@ -1266,7 +1283,7 @@
         <div class="menu-backdrop" onclick={() => (fileMenu = false)} oncontextmenu={(e) => { e.preventDefault(); fileMenu = false; }}></div>
         <div class="context-menu file" role="menu">
           <button role="menuitem" onclick={() => fileAction(() => guarded(() => run("New deck", api.newDeck)))}>New <kbd>Ctrl+N</kbd></button>
-          <button role="menuitem" title="A PowerPoint file, a single-file deck (.deckz) or a deck.json" onclick={() => fileAction(() => guarded(openFile))}>Open file… <kbd>Ctrl+O</kbd></button>
+          <button role="menuitem" title="A PowerPoint file (.pptx, .pptm), a single-file deck (.deckz) or a deck.json" onclick={() => fileAction(() => guarded(openFile))}>Open file… <kbd>Ctrl+O</kbd></button>
           <button role="menuitem" onclick={() => fileAction(() => guarded(openFolder))}>Open .deck folder…</button>
           <hr />
           <button role="menuitem" disabled={!view?.slide_count} onclick={() => fileAction(save)}>Save <kbd>Ctrl+S</kbd></button>
@@ -1339,7 +1356,8 @@
           {@const current = item.kind === "theme" ? view.editing_theme === item.name : view.editing_layout === item.name}
           <button class="design-item {item.kind}" class:current class:loose={item.kind === "layout" && !item.theme}
                   title={item.kind === "theme" ? `Theme “${item.name}”: background, shared elements, placeholder styles, fonts and colors` : `Layout “${item.name}”${item.used ? `, used by ${item.used} slide${item.used > 1 ? "s" : ""}` : ", not used"}`}
-                  onclick={() => openDesignItem(item)} oncontextmenu={(e) => openTreeMenu(e, item)}>
+                  onclick={() => openDesignItem(item)} oncontextmenu={(e) => openTreeMenu(e, item)}
+                  ondblclick={() => { renamingItem = { kind: item.kind, name: item.name, value: item.name }; queueMicrotask(() => { const i = document.querySelector<HTMLInputElement>(".rename-dialog input"); i?.focus(); i?.select(); }); }}>
             <SlideView svg={item.svg} width={view.width} height={view.height} />
             <span class="design-name">{item.kind === "theme" ? "◆ " : ""}{item.name}{#if item.kind === "layout" && item.used}<span class="used">{item.used}</span>{/if}</span>
           </button>
@@ -1781,7 +1799,7 @@
       <img class="logo" src={lockup} alt="decker: Efficient Cross-platform Keynote Editor and Renderer" />
       <div class="row">
         <button class="primary" onclick={() => run("New deck", api.newDeck)}>New deck</button>
-        <button onclick={openFile} title="A PowerPoint file, a single-file deck (.deckz) or a deck.json">Open file…</button>
+        <button onclick={openFile} title="A PowerPoint file (.pptx, .pptm), a single-file deck (.deckz) or a deck.json">Open file…</button>
         <button onclick={openFolder}>Open .deck folder…</button>
       </div>
       <p class="muted">Ctrl+N · Ctrl+O · F1 for the commands and keys</p>
@@ -1830,6 +1848,13 @@
         {/each}
         <hr />
       {/if}
+      {#if m.item}
+        {@const it = m.item}
+        <button role="menuitem" onclick={() => { const { kind, name } = it; treeAction(() => {
+          renamingItem = { kind, name, value: name };
+          queueMicrotask(() => { const i = document.querySelector<HTMLInputElement>(".rename-dialog input"); i?.focus(); i?.select(); });
+        }); }}>Rename “{it.name}”…</button>
+      {/if}
       {#if m.item?.kind === "theme"}
         <button role="menuitem" onclick={() => { const n = m.item!.name; treeAction(async () => { await api.editTheme(n); run("Theme deleted", api.deleteTheme); }); }}>Delete theme “{m.item.name}”</button>
       {:else if m.item?.kind === "layout"}
@@ -1868,6 +1893,21 @@
         <button role="menuitem" onclick={() => onElement(() => { panelOpen = true; panelTab = "anim"; })}>Animations…</button>
       {/if}
       {#if sel.shape === "path"}<button role="menuitem" onclick={() => onElement(() => startEdit(sel!.index))}>Edit points</button>{/if}
+    </div>
+  {/if}
+
+  {#if renamingItem}
+    <div class="modal">
+      <div class="dialog confirm rename-dialog">
+        <h3>Rename the {renamingItem.kind}</h3>
+        <input type="text" bind:value={renamingItem.value}
+               onkeydown={(e) => { if (e.key === "Enter") renameItem(); if (e.key === "Escape") renamingItem = null; e.stopPropagation(); }} />
+        <p class="muted">{renamingItem.kind === "layout" ? "The slides using it follow." : "Its layouts follow."}</p>
+        <div class="row">
+          <button class="primary" onclick={renameItem}>Rename</button>
+          <button onclick={() => (renamingItem = null)}>Cancel</button>
+        </div>
+      </div>
     </div>
   {/if}
 
@@ -1980,6 +2020,7 @@
   .dirty { color: var(--accent); }
   .dialog.confirm { width: 360px; }
   .dialog.confirm h3 { margin: 0 0 6px; }
+  .rename-dialog input { width: 100%; box-sizing: border-box; margin: 6px 0; }
   header { grid-area: head; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); align-items: center; }
   header button { white-space: nowrap; }
   .spacer { flex: 1; }

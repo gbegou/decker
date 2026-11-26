@@ -8,7 +8,7 @@ allows this). `install_icons.py` puts it in place.
 | File | Use |
 | --- | --- |
 | `decker_icon.svg` | the detailed icon, 64 px and up |
-| `decker_icon_small.svg` | the simplified icon, 16 to 32 px |
+| `decker_icon_small.svg` | the simplified icon, up to 64 px: taskbar, title bar, the small sizes of the `.ico` |
 | `decker_lockup.svg`, `decker_lockup_dark.svg` | icon and wordmark, for light and dark backgrounds |
 
 To regenerate and install (the apps' `npm install` done):

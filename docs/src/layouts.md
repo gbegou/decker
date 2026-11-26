@@ -35,7 +35,8 @@ slide's layout; **Slides**, or **Close design view**, returns to the slide.
   each layout, how many slides use it. Click one to edit it on the canvas.
 - **Right-click** in that pane: on a theme or one of its layouts, a **new layout** in that
   theme from PowerPoint's usual dispositions (title slide, title and content, section
-  header, two contents, comparison, title only, blank); on a theme, **delete** it (its
+  header, two contents, comparison, title only, blank); on either, **rename** it (also by
+  double-clicking it; its slides or layouts follow); on a theme, **delete** it (its
   layouts keep their look and lose the theme); on a layout, **save it to a file** or
   **delete** it (its slides keep their elements); anywhere, a **new theme** or **load a
   layout from a file**.

@@ -86,11 +86,15 @@
         </summary>
         {#if s.at > 0}
           <label class="line">starts
-            <select value={firstOfClick(s) ? "click" : (s.trigger ?? "with")}
+            <select value={firstOfClick(s) ? (s.at === 1 && s.trigger === "after" ? "after" : "click") : (s.trigger ?? "with")}
                     onchange={(e) => { const mode = e.currentTarget.value as "click" | "with" | "after"; onrun("Start of the effect", () => api.setTrigger(element.index, i, mode)); }}>
               <option value="click">on click</option>
-              <option value="with">with previous</option>
-              <option value="after">after previous</option>
+              {#if firstOfClick(s) && s.at === 1}
+                <option value="after">with the slide</option>
+              {:else}
+                <option value="with">with previous</option>
+                <option value="after">after previous</option>
+              {/if}
             </select>
           </label>
         {/if}
