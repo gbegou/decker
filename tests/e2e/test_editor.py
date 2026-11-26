@@ -196,6 +196,27 @@ class Themes(EditorTest):
         self.assertEqual(title["placeholder"]["size"], 36, "the theme's new title size reaches the layout")
 
 
+class FileMenu(EditorTest):
+    def test_the_file_menu_and_ctrl_s(self):
+        e = self.e
+        self.assertFalse(e.s.js("return [...document.querySelectorAll('header > button')].some(b => /^(Save|New|Export)/.test(b.textContent.trim()))"),
+                         "the file commands are in the menu")
+        e.s.js("[...document.querySelectorAll('header button')].find(b => b.textContent.startsWith('File')).click(); return true")
+        e.settle(0.5)
+        items = e.s.js("return [...document.querySelectorAll('.context-menu.file button')].map(b => b.textContent.trim())")
+        self.assertEqual([i.split(" Ctrl")[0] for i in items],
+                         ["New", "Open file…", "Open .deck folder…", "Save", "Save as…", "Insert slides from deck…",
+                          "Export PowerPoint…", "Export PDF…"])
+        e.escape()
+        e.s.js("document.querySelector('.menu-backdrop')?.click(); return true")
+        # Ctrl+S saves the deck in place: deck.json changes on disk.
+        deck_json = Path(self.deck) / "deck.json"
+        before = deck_json.stat().st_mtime
+        time.sleep(1.1)
+        e.chord(decker_app.CTRL, "s")
+        self.assertGreater(deck_json.stat().st_mtime, before)
+
+
 class Presenting(EditorTest):
     def env(self):
         return {"DECKER_PRESENT": "both", "DECKER_WINDOWED": "1"}

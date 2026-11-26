@@ -175,6 +175,13 @@
     }
   }
 
+  /** The File menu, open. */
+  let fileMenu = $state(false);
+  function fileAction(f: () => unknown) {
+    fileMenu = false;
+    f();
+  }
+
   async function openFile() {
     const picked = await openDialog({
       multiple: false,
@@ -832,6 +839,17 @@
   function onKey(e: KeyboardEvent) {
     const tag = (e.target as HTMLElement).tagName;
     if (e.key === "F1") { help = !help; e.preventDefault(); return; }
+    // File shortcuts, as in every editor (also from a text field).
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+      const k = e.key.toLowerCase();
+      const file: Record<string, (() => unknown) | undefined> = {
+        n: e.shiftKey ? undefined : () => run("New deck", api.newDeck),
+        o: e.shiftKey ? undefined : openFile,
+        s: view?.slide_count ? (e.shiftKey ? saveAs : save) : undefined,
+      };
+      const f = file[k];
+      if (f) { e.preventDefault(); fileMenu = false; f(); return; }
+    }
     if (tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return;
     if (e.key === "?" ) { help = !help; return; }
     if (e.key === "Escape" && help) { help = false; return; }
@@ -913,13 +931,27 @@
 
 <div class="editor">
   <header>
-    <button onclick={() => run("New deck", api.newDeck)}>New</button>
-    <button onclick={openFile} title="A PowerPoint file, a single-file deck (.deckz) or a deck.json">Open file…</button>
-    <button onclick={openFolder}>Open .deck folder…</button>
-    <button onclick={save} disabled={!view?.slide_count}>Save</button>
-    <button onclick={saveAs} disabled={!view?.slide_count}>Save as…</button>
-    <button onclick={exportPptx} disabled={!view?.slide_count}>Export PPTX…</button>
-    <button onclick={() => (pdfDialog = true)} disabled={!view?.slide_count}>Export PDF…</button>
+    <div class="file-menu">
+      <button aria-haspopup="menu" aria-expanded={fileMenu} onclick={() => (fileMenu = !fileMenu)}>File ▾</button>
+      {#if fileMenu}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <div class="menu-backdrop" onclick={() => (fileMenu = false)} oncontextmenu={(e) => { e.preventDefault(); fileMenu = false; }}></div>
+        <div class="context-menu file" role="menu">
+          <button role="menuitem" onclick={() => fileAction(() => run("New deck", api.newDeck))}>New <kbd>Ctrl+N</kbd></button>
+          <button role="menuitem" title="A PowerPoint file, a single-file deck (.deckz) or a deck.json" onclick={() => fileAction(openFile)}>Open file… <kbd>Ctrl+O</kbd></button>
+          <button role="menuitem" onclick={() => fileAction(openFolder)}>Open .deck folder…</button>
+          <hr />
+          <button role="menuitem" disabled={!view?.slide_count} onclick={() => fileAction(save)}>Save <kbd>Ctrl+S</kbd></button>
+          <button role="menuitem" disabled={!view?.slide_count} onclick={() => fileAction(saveAs)}>Save as… <kbd>Ctrl+Shift+S</kbd></button>
+          <hr />
+          <button role="menuitem" disabled={!view?.dir} title="Copy slides from another deck, with their images, layouts and themes" onclick={() => fileAction(pickDeck)}>Insert slides from deck…</button>
+          <hr />
+          <button role="menuitem" disabled={!view?.slide_count} onclick={() => fileAction(exportPptx)}>Export PowerPoint…</button>
+          <button role="menuitem" disabled={!view?.slide_count} onclick={() => fileAction(() => (pdfDialog = true))}>Export PDF…</button>
+        </div>
+      {/if}
+    </div>
     <span class="spacer"></span>
     <button title="Undo (Ctrl+Z)" disabled={!view?.can_undo} onclick={() => undoRedo(false)}>↶</button>
     <button title="Redo (Ctrl+Y)" disabled={!view?.can_redo} onclick={() => undoRedo(true)}>↷</button>
@@ -974,7 +1006,6 @@
       <button onclick={() => run("Added figure", api.addFigure)} title="A Typst figure: CeTZ drawings and plots, edited as source in the panel">+ Figure</button>
       {#if selection.length >= 2}<button onclick={groupSelection} title="Group the selected elements (Ctrl+G)">Group</button>{/if}
       {#if sel?.kind === "group"}<button onclick={ungroupSelection} title="Ungroup (Ctrl+Shift+G)">Ungroup</button>{/if}
-      <button onclick={pickDeck} disabled={!view.dir}>Insert from deck…</button>
       {#if view.presenting}
         <button class="primary" onclick={() => api.stopPresentation()}>Stop (Esc)</button>
       {:else}
@@ -1496,6 +1527,9 @@
   .heading input { font-size: 12px; padding: 2px 4px; }
   .thumb { padding: 2px; position: relative; background: none; width: 100%; }
   .thumb.picked { outline: 2px dashed var(--accent); outline-offset: 1px; }
+  .file-menu { position: relative; }
+  .context-menu.file { position: absolute; left: 0; top: calc(100% + 4px); min-width: 240px; }
+  .context-menu kbd { float: right; margin-left: 16px; color: var(--muted); font: inherit; font-size: 11px; }
   .menu-group { color: var(--muted); font-size: 11px; text-transform: uppercase; padding: 4px 8px 0; }
   details.kind summary { cursor: pointer; padding: 3px 0; text-transform: capitalize; }
   .menu-list { max-height: 40vh; overflow-y: auto; padding-left: 12px; display: flex; flex-direction: column; }

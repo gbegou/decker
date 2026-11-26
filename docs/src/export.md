@@ -2,7 +2,7 @@
 
 ## PDF
 
-**Export PDF…** asks how the pages are made:
+**File ▸ Export PDF…** asks how the pages are made:
 
 - **One page per slide**, as each slide looks at its last build step: for reading and
   printing.
@@ -31,7 +31,7 @@ deck-convert pdf talk.deck --notes      # the handout
 
 ## PowerPoint
 
-**Export PPTX…** writes a package with one master, one PowerPoint layout per decker
+**File ▸ Export PowerPoint…** writes a package with one master, one PowerPoint layout per decker
 [layout](layouts.md) plus a blank one, the fonts and colors of the deck's first theme (fonts, text color,
 accents) and
 the speaker notes. On the slides:

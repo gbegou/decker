@@ -6,8 +6,8 @@ The editor is one window in five areas.
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────┐
-│ ① New  Open file…  Open .deck folder…  Save  Save as…  Export…   ↶ ↷ ?    │
-│ ② + Text + Shape + Table + Video… + Figure  Insert from deck…  Present     │
+│ ① File ▾                                                          ↶ ↷ ?    │
+│ ② + Text + Shape + Table + Video… + Figure                       Present     │
 ├──────────┬──────────────────────────────────────────────┬──────────────────┤
 │ ③        │ ④ style bar · arrange bar                    │ ⑤                │
 │ thumb-   │ ┌──────────────────────────────────────────┐ │ properties of    │
@@ -19,9 +19,10 @@ The editor is one window in five areas.
 └──────────┴──────────────────────────────────────────────┴──────────────────┘
 ```
 
-1. **The deck bar**: open, save and export the deck; undo and redo; **?** opens the list of
+1. **The deck bar**: the **File** menu (new, open, save, insert slides from another deck,
+   export; Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Shift+S); undo and redo; **?** opens the list of
    [commands and keys](keys.md) (also **F1**).
-2. **The insert bar**: add elements to the slide, insert slides from another deck, start the
+2. **The insert bar**: add elements to the slide, start the
    presentation. While a layout is being edited, it holds the layout's own commands
    (placeholders, save and load, **Done**).
 3. **The thumbnail pane**: one thumbnail per slide under its section headers. Click to go,

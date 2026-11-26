@@ -5,9 +5,9 @@ Ten minutes from an empty window to a presented, exported talk. It assumes decke
 
 ## 1. A new deck
 
-Start decker and click **New**: one empty slide. Click **Save as…** and choose a folder name
+Start decker: a new deck, with one empty slide. Choose **File ▸ Save as…** (Ctrl+Shift+S) and choose a folder name
 such as `talk.deck`: a deck is a folder, with `deck.json` and an `assets/` folder for
-pictures (see [the deck format](format.md)). From now on, **Save** writes it.
+pictures (see [the deck format](format.md)). From now on, **File ▸ Save** (Ctrl+S) writes it.
 
 ## 2. A layout
 
@@ -67,6 +67,6 @@ two windows open. Space or a click goes forward, Backspace back, B blacks out, E
 
 ## 9. Share it
 
-**Export PDF…** writes a PDF with bookmarks per section, selectable text and, if you want,
-one page per click or a handout with notes. **Export PPTX…** writes a PowerPoint file for
+**File ▸ Export PDF…** writes a PDF with bookmarks per section, selectable text and, if you want,
+one page per click or a handout with notes. **File ▸ Export PowerPoint…** writes a PowerPoint file for
 colleagues who need one. See [Exporting](export.md).

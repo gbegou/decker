@@ -1,6 +1,6 @@
 # Importing PowerPoint
 
-**Open file…** imports a `.pptx` into a `.deck` folder next to it, and opens it; a second
+**File ▸ Open file…** (Ctrl+O) imports a `.pptx` into a `.deck` folder next to it, and opens it; a second
 opening of the same file opens that folder. The command line does the same with
 `deck-convert import talk.pptx`. After an import, the side panel lists what was skipped.
 

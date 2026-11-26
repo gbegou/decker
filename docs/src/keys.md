@@ -9,9 +9,10 @@ The same list as the editor's help (**F1** or **?**). Generated from the editor'
 
 | Key or control | Does |
 | --- | --- |
-| New · Open file… · Open .deck folder… | Start a deck; import a PowerPoint file or open a single-file deck (.deckz); open a deck folder |
-| Save · Save as… | Write the deck folder (deck.json + assets/), or a single .deckz file when saved under that extension |
-| Export PPTX… · Export PDF… | PowerPoint file; PDF with bookmarks for sections and slides |
+| File menu | Everything about the deck as a file: new, open, save, insert slides from another deck, export |
+| New · Open file… · Open .deck folder… (Ctrl+N · Ctrl+O) | Start a deck; import a PowerPoint file or open a single-file deck (.deckz); open a deck folder |
+| Save · Save as… (Ctrl+S · Ctrl+Shift+S) | Write the deck folder (deck.json + assets/), or a single .deckz file when saved under that extension |
+| Export PowerPoint… · Export PDF… | PowerPoint file; PDF with bookmarks for sections and slides |
 
 ## Slides
 
@@ -23,7 +24,7 @@ The same list as the editor's help (**F1** or **?**). Generated from the editor'
 | Right-click a thumbnail | Layout of the slide (or of the picked slides); new slide or plan slide after, duplicate, delete, start or remove a section or subsection |
 | Drag a thumbnail · Ctrl+Up / Ctrl+Down | Reorder slides; sections travel with their first slide |
 | Page Up / Page Down | Previous or next slide |
-| Insert from deck… | Copy slides from another deck, with their images and layouts |
+| File ▸ Insert slides from deck… | Copy slides from another deck, with their images, layouts and themes |
 | + section · + subsection (hover a thumbnail) | Start a section there; click a header to rename, clear to remove |
 
 ## Elements

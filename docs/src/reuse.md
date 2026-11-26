@@ -8,7 +8,7 @@ into the other deck's `assets/` across decks.
 
 ## Inserting slides from another deck
 
-**Insert from deck…** asks for the `deck.json` of the other deck, shows its slides as
+**File ▸ Insert slides from deck…** asks for the `deck.json` of the other deck, shows its slides as
 thumbnails, and inserts the ticked ones after the current slide. The current deck must have
 been saved once, so that images have a folder to be copied into.
 
@@ -39,8 +39,8 @@ A layout saves to a `.deck_layout` folder and loads into any deck; see
 ## Sending a deck as one file
 
 A deck is a folder; a `.deckz` file is that folder zipped, to send it as one file. The editor
-opens it (**Open file…**), works in a temporary folder and packs it again on every save;
-**Save as…** with a `.deckz` name turns a folder deck into one, and with a folder name turns
+opens it (**File ▸ Open file…**), works in a temporary folder and packs it again on every save;
+**File ▸ Save as…** with a `.deckz` name turns a folder deck into one, and with a folder name turns
 it back.
 
 ```bash
