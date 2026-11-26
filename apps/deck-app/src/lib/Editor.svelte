@@ -239,6 +239,50 @@
     }
   }
 
+  // ----- the design view: themes and layouts, like PowerPoint's master view -----
+  type DesignItem = { kind: "theme" | "layout"; name: string; theme: string | null; svg: string; used: number };
+  let tree = $state<DesignItem[]>([]);
+  let treeMenu = $state<{ item: DesignItem | null; x: number; y: number } | null>(null);
+  $effect(() => {
+    if (view && editingTemplate) {
+      void view.svg; // refreshed with every change
+      api.designTree().then((t) => (tree = t)).catch(() => {});
+    }
+  });
+  /** Opens the design view on the current slide's layout (else its theme). */
+  function enterDesign() {
+    if (!view) return;
+    const layout = view.layout;
+    const theme = view.theme.of_theme ?? view.layout_groups.find((g) => g.theme)?.theme ?? null;
+    enqueue(async () => {
+      if (layout) await run("Design view", () => api.editLayout(layout));
+      else if (theme) await run("Design view", () => api.editTheme(theme));
+      else await run("Design view", api.newTheme);
+    });
+  }
+  function exitDesign() {
+    enqueue(async () => {
+      await api.editLayout(null);
+      await run("Back to the slides", () => api.editTheme(null));
+    });
+  }
+  function openDesignItem(item: DesignItem) {
+    run(item.kind === "theme" ? "Editing theme" : "Editing layout", () => (item.kind === "theme" ? api.editTheme(item.name) : api.editLayout(item.name)));
+  }
+  function openTreeMenu(e: MouseEvent, item: DesignItem | null) {
+    e.preventDefault();
+    e.stopPropagation();
+    treeMenu = { item, x: e.clientX, y: Math.min(e.clientY, window.innerHeight - 320) };
+  }
+  const PRESETS: [string, string][] = [
+    ["title", "Title slide"], ["content", "Title and content"], ["section", "Section header"], ["two", "Two contents"],
+    ["compare", "Comparison"], ["title-only", "Title only"], ["blank", "Blank"],
+  ];
+  function treeAction(f: () => unknown) {
+    treeMenu = null;
+    f();
+  }
+
   /** The arrange tools, unfolded from their button. */
   let arrangeOpen = $state(false);
   /** The File menu, open. */
@@ -1164,6 +1208,12 @@
     <button class="end" title="Undo (Ctrl+Z)" disabled={!view?.can_undo} onclick={() => undoRedo(false)}>↶</button>
     <button class="end" title="Redo (Ctrl+Y)" disabled={!view?.can_redo} onclick={() => undoRedo(true)}>↷</button>
     <button class="end" title="Commands and keys (F1)" onclick={() => (help = !help)}>?</button>
+    {#if view?.slide_count}
+      <div class="views" role="group" aria-label="View">
+        <button class:on={!editingTemplate} title="Edit the slides" onclick={() => { if (editingTemplate) exitDesign(); }}>Slides</button>
+        <button class:on={editingTemplate} title="Edit the themes and layouts: backgrounds, shared elements, placeholders, fonts and colors" onclick={() => { if (!editingTemplate) enterDesign(); }}>Design</button>
+      </div>
+    {/if}
     {#if view?.editing_theme !== null && view?.editing_theme !== undefined}
       <span class="banner">Theme
         <input class="layout-name" value={view.editing_theme} onchange={(e) => run("Theme renamed", () => api.renameTheme(e.currentTarget.value))} />
@@ -1171,7 +1221,7 @@
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
       <MenuButton label="+ Shape" title="Add a shape, or draw a path" items={SHAPES} onpick={addShapeOf} />
       <button title="Its layouts keep their look and lose the theme" onclick={() => run("Theme deleted", api.deleteTheme)}>Delete theme</button>
-      <button class="primary" onclick={() => run("Back to slides", () => api.editTheme(null))}>Done</button>
+      <button class="primary" onclick={exitDesign}>Close design view</button>
     {:else if view?.editing_layout !== null && view?.editing_layout !== undefined}
       <span class="banner">Layout
         <input class="layout-name" value={view.editing_layout} onchange={(e) => run("Layout renamed", () => api.renameLayout(e.currentTarget.value))} />
@@ -1187,7 +1237,7 @@
       </select>
       <button onclick={saveLayoutAs} disabled={!view.dir}>Save layout…</button>
       <button onclick={() => run("Layout deleted", api.deleteLayout)}>Delete layout</button>
-      <button class="primary" onclick={() => run("Back to slides", () => api.editLayout(null))}>Done</button>
+      <button class="primary" onclick={exitDesign}>Close design view</button>
     {:else if view?.slide_count}
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
       <MenuButton label="+ Shape" title="Add a shape, or draw a path" items={SHAPES} onpick={addShapeOf} />
@@ -1211,6 +1261,23 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="pane-resizer" title="Drag to resize the slides" onpointerdown={startResizeSlides}></div>
     {/if}
+    {#if editingTemplate}
+    <aside class="slides design" class:collapsed={!slidesOpen} oncontextmenu={(e) => openTreeMenu(e, null)}>
+      <button class="pane-toggle" title={slidesOpen ? "Collapse the pane" : "Show the themes and layouts"} onclick={() => (slidesOpen = !slidesOpen)}>{slidesOpen ? "«" : "»"}</button>
+      {#if slidesOpen}
+        {#each tree as item (item.kind + ":" + item.name)}
+          {@const current = item.kind === "theme" ? view.editing_theme === item.name : view.editing_layout === item.name}
+          <button class="design-item {item.kind}" class:current class:loose={item.kind === "layout" && !item.theme}
+                  title={item.kind === "theme" ? `Theme “${item.name}”: background, shared elements, placeholder styles, fonts and colors` : `Layout “${item.name}”${item.used ? `, used by ${item.used} slide${item.used > 1 ? "s" : ""}` : ", not used"}`}
+                  onclick={() => openDesignItem(item)} oncontextmenu={(e) => openTreeMenu(e, item)}>
+            <SlideView svg={item.svg} width={view.width} height={view.height} />
+            <span class="design-name">{item.kind === "theme" ? "◆ " : ""}{item.name}{#if item.kind === "layout" && item.used}<span class="used">{item.used}</span>{/if}</span>
+          </button>
+        {/each}
+        <p class="muted pane-hint">Right-click for new layouts and themes.</p>
+      {/if}
+    </aside>
+    {:else}
     <aside class="slides" class:collapsed={!slidesOpen} oncontextmenu={openGapMenu}>
       <button class="pane-toggle" title={slidesOpen ? "Collapse the slides: more room for the slide" : "Show the slides"} onclick={() => (slidesOpen = !slidesOpen)}>{slidesOpen ? "«" : "»"}</button>
       {#if slidesOpen}
@@ -1245,6 +1312,7 @@
       {/each}
       {/if}
     </aside>
+    {/if}
 
     <main>
       <!-- The toolbars keep their place whether or not something is selected, so the canvas never jumps under the pointer. -->
@@ -1353,7 +1421,7 @@
         </div>
       </div>
       <div class="steps">
-        Slide {view.slide + 1} / {view.slide_count}
+        {#if editingTemplate}{view.editing_theme !== null ? `Theme “${view.editing_theme}”` : `Layout “${view.editing_layout}”`}{:else}Slide {view.slide + 1} / {view.slide_count}{/if}
         {#if view.last_step > 0 || view.step > 0}
           · click {view.step} / {view.last_step}
           <button onclick={() => api.goto(view!.slide, Math.max(0, view!.step - 1))}>◀</button>
@@ -1374,12 +1442,14 @@
       <div class="tabs" class:vertical={!panelOpen}>
         <button class:on={panelOpen && panelTab === "element"} title="The selected element: name, position, its own settings" onclick={() => showTab("element")}>{panelOpen ? "Element" : "◻"}</button>
         <button class:on={panelOpen && panelTab === "slide"} title="The slide: section, layout, theme, fonts and colors, macros" onclick={() => showTab("slide")}>{panelOpen ? (view.editing_theme !== null ? "Theme" : view.editing_layout !== null ? "Layout" : "Slide") : "☰"}</button>
-        <button class:on={panelOpen && panelTab === "anim"} title="Animations: the timeline of the slide's clicks" onclick={() => showTab("anim")}>{panelOpen ? "Animations" : "▶"}</button>
+        {#if !editingTemplate}
+          <button class:on={panelOpen && panelTab === "anim"} title="Animations: the timeline of the slide's clicks" onclick={() => showTab("anim")}>{panelOpen ? "Animations" : "▶"}</button>
+        {/if}
         {#if panelOpen}<button class="collapse" title="Collapse the panel: more room for the slide" onclick={() => (panelOpen = false)}>⟩</button>{/if}
       </div>
       {#if !panelOpen}
         <!-- collapsed: only the tabs -->
-      {:else if panelTab === "anim"}
+      {:else if panelTab === "anim" && !editingTemplate}
         {#if editingTemplate}
           <p class="muted">Layouts and themes have no animation: steps belong to slides.</p>
         {:else}
@@ -1559,28 +1629,14 @@
           </select>
           <p class="muted">"New slide" (right-click a thumbnail) starts from this layout's placeholders.</p>
         {:else}
-          <p class="muted">No layouts in this deck. Importing a PPTX brings its masters along.</p>
+          <p class="muted">No layouts yet: make some in the design view.</p>
         {/if}
         <div class="row">
-          {#if view.layout}<button onclick={() => run("Editing layout", () => api.editLayout(view!.layout))}>Edit layout</button>{/if}
-          {#if view.layout && view.layout_groups.find((g) => g.theme && g.layouts.includes(view!.layout ?? ""))}
-            {@const t = view.layout_groups.find((g) => g.theme && g.layouts.includes(view!.layout ?? ""))!.theme}
-            <button onclick={() => run("Editing theme", () => api.editTheme(t))}>Edit theme</button>
-          {/if}
-          <select class="add-shape" title="A new layout from a disposition, in this slide's theme" value="" onchange={(e) => { const k = e.currentTarget.value; e.currentTarget.value = ""; if (k) run("New layout", () => api.newLayout(k)); }}>
-            <option value="">+ New layout</option>
-            <option value="title">Title slide</option>
-            <option value="content">Title and content</option>
-            <option value="section">Section header</option>
-            <option value="two">Two contents</option>
-            <option value="compare">Comparison</option>
-            <option value="title-only">Title only</option>
-            <option value="blank">Blank</option>
-          </select>
-          <button onclick={() => run("New theme", api.newTheme)} title="A theme: shared background, elements and placeholder styles for a family of layouts">+ New theme</button>
-          <button onclick={loadLayoutFrom} disabled={!view.dir}>Load layout…</button>
+          <button title="Edit the themes and layouts: backgrounds, shared elements, placeholders, fonts and colors" onclick={enterDesign}>Design view…</button>
         </div>
+        <p class="muted">Backgrounds, logos, placeholders, fonts and colors are edited in the design view.</p>
       {/if}
+      {#if editingTemplate}
       <h3>Fonts and colors{view.editing_theme !== null ? " of this theme" : view.editing_layout !== null ? " of this layout" : view.theme.of_theme ? ` of theme “${view.theme.of_theme}”` : ""}</h3>
       <p class="muted">
         {#if view.editing_theme !== null}
@@ -1625,6 +1681,8 @@
           {/if}
         </div>
       </div>
+      {/if}
+      {#if !editingTemplate}
       <h3>Macros</h3>
       {#if scripts?.python}
         {#if scripts.scripts.length}
@@ -1640,6 +1698,7 @@
         {#if scriptOutput}<pre class="output">{scriptOutput}</pre>{/if}
       {:else}
         <p class="muted">No Python found on this machine. Install one (python.org, conda) or point <code>DECKER_PYTHON</code> at it to run macros.</p>
+      {/if}
       {/if}
       {#if view.warnings.length}
         <h3>Import warnings</h3>
@@ -1678,6 +1737,32 @@
       <button role="menuitem" title="A slide listing the sections, the current one highlighted" onclick={() => onGap("plan")}>New plan slide</button>
       <button role="menuitem" onclick={() => onGap("section")}>New section</button>
       <button role="menuitem" onclick={() => onGap("subsection")}>New subsection</button>
+    </div>
+  {/if}
+
+  {#if treeMenu && view}
+    {@const m = treeMenu}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div class="menu-backdrop" onclick={() => (treeMenu = null)} oncontextmenu={(e) => { e.preventDefault(); treeMenu = null; }}></div>
+    <div class="context-menu" role="menu" style="left: {m.x}px; top: {m.y}px">
+      {#if m.item?.kind === "theme" || (m.item?.kind === "layout" && m.item.theme)}
+        {@const theme = m.item.kind === "theme" ? m.item.name : m.item.theme}
+        <div class="menu-title">New layout in “{theme}”</div>
+        {#each PRESETS as [kind, label]}
+          <button role="menuitem" onclick={() => { const t = theme; treeAction(() => run("New layout", () => api.newLayout(kind, t))); }}>{label}</button>
+        {/each}
+        <hr />
+      {/if}
+      {#if m.item?.kind === "theme"}
+        <button role="menuitem" onclick={() => { const n = m.item!.name; treeAction(async () => { await api.editTheme(n); run("Theme deleted", api.deleteTheme); }); }}>Delete theme “{m.item.name}”</button>
+      {:else if m.item?.kind === "layout"}
+        <button role="menuitem" disabled={!view.dir} onclick={() => { const n = m.item!.name; treeAction(async () => { await api.editLayout(n); saveLayoutAs(); }); }}>Save layout to a file…</button>
+        <button role="menuitem" onclick={() => { const n = m.item!.name; treeAction(async () => { await api.editLayout(n); run("Layout deleted", api.deleteLayout); }); }}>Delete layout “{m.item.name}”</button>
+      {/if}
+      {#if !m.item}<div class="menu-title">Design</div>{/if}
+      <button role="menuitem" onclick={() => treeAction(() => run("New theme", api.newTheme))}>New theme</button>
+      <button role="menuitem" disabled={!view.dir} onclick={() => treeAction(loadLayoutFrom)}>Load a layout from a file…</button>
     </div>
   {/if}
 
@@ -1808,7 +1893,7 @@
   .banner { color: var(--muted); display: flex; align-items: center; gap: 6px; }
   .layout-name { width: 160px; padding: 3px 6px; }
   .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-  .props .row button, .props .row select { white-space: nowrap; font-size: 12px; padding: 3px 8px; width: auto; flex: none; }
+  .props .row button { white-space: nowrap; font-size: 12px; padding: 3px 8px; width: auto; flex: none; }
   .macros { display: flex; flex-wrap: wrap; gap: 6px; }
   .menu-backdrop { position: fixed; inset: 0; z-index: 40; }
   .context-menu { position: fixed; z-index: 41; min-width: 220px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.45); display: flex; flex-direction: column; }
@@ -1820,6 +1905,18 @@
   /* One row, always the same height: the slide does not jump when the
      selection changes; it scrolls sideways when the window is narrow. */
   .bars { flex: none; height: 40px; display: flex; flex-wrap: nowrap; align-items: center; overflow-x: auto; overflow-y: hidden; border-bottom: 1px solid var(--border); scrollbar-width: thin; }
+  .views { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-left: 8px; }
+  .views button { border: none; border-radius: 0; padding: 4px 10px; }
+  .views button.on { background: var(--accent); color: white; }
+  .design-item { display: flex; flex-direction: column; gap: 3px; background: none; padding: 3px; border: 1px solid transparent; border-radius: 6px; text-align: left; }
+  .design-item.layout { margin-left: 18px; }
+  .design-item.layout.loose { margin-left: 0; }
+  .design-item.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .design-item :global(.slide-svg) { width: 100%; }
+  .design-name { font-size: 11px; color: var(--muted); display: flex; gap: 4px; align-items: center; }
+  .design-item.theme .design-name { color: var(--fg); font-weight: 600; }
+  .design-item .used { margin-left: auto; background: var(--bg); border-radius: 8px; padding: 0 5px; }
+  .pane-hint { font-size: 11px; }
   .fold-tools { flex: none; padding: 0 8px; border-left: 1px solid var(--border); }
   .fold-tools button { font-size: 12px; padding: 2px 8px; white-space: nowrap; }
   .fold-tools button.on { border-color: var(--accent); color: var(--accent); }

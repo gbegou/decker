@@ -473,6 +473,19 @@ fn element_style_info(e: &Element) -> (Option<Color>, Option<Stroke>, Option<Col
 }
 
 /// The deck and where the user was, restored by undo.
+/// A theme or a layout in the design view's tree.
+#[derive(Debug, Clone, Serialize)]
+pub struct DesignItem {
+    /// `"theme"` or `"layout"`.
+    pub kind: &'static str,
+    pub name: String,
+    /// A layout's theme.
+    pub theme: Option<String>,
+    pub svg: String,
+    /// A layout: how many slides use it.
+    pub used: usize,
+}
+
 /// The layouts of one theme.
 #[derive(Debug, Clone, Serialize)]
 pub struct LayoutGroup {
@@ -933,6 +946,45 @@ impl AppState {
 
     /// The view of a layout under edit: its static elements, then its
     /// placeholders as elements of kind `placeholder` whose text is the name.
+    /// The design view's tree: each theme, then its layouts, then the
+    /// layouts without a theme, each with a small rendering.
+    pub fn design_tree(&mut self) -> Vec<DesignItem> {
+        let Some(deck) = self.deck.take() else { return vec![] };
+        for t in &deck.themes {
+            let fake = Slide { elements: t.elements.clone(), ..Default::default() };
+            self.cache_assets(&fake);
+        }
+        for l in &deck.layouts {
+            let fake = Slide { elements: l.elements.clone(), ..Default::default() };
+            self.cache_assets(&fake);
+        }
+        let mut out = vec![];
+        let layout_item = |l: &Layout, s: &Self| DesignItem {
+            kind: "layout",
+            name: l.name.clone(),
+            theme: l.parent.clone(),
+            svg: inline_assets(&svg::render_layout(&deck, l, &*s.math.0), &s.dir, &s.assets),
+            used: deck.slides.iter().filter(|x| x.layout.as_deref() == Some(l.name.as_str())).count(),
+        };
+        for t in &deck.themes {
+            out.push(DesignItem {
+                kind: "theme",
+                name: t.name.clone(),
+                theme: None,
+                svg: inline_assets(&svg::render_theme(&deck, t, &*self.math.0), &self.dir, &self.assets),
+                used: 0,
+            });
+            for l in deck.layouts_of_theme(&t.name) {
+                out.push(layout_item(l, self));
+            }
+        }
+        for l in deck.layouts.iter().filter(|l| l.parent.as_deref().is_none_or(|p| deck.theme_set(p).is_none())) {
+            out.push(layout_item(l, self));
+        }
+        self.deck = Some(deck);
+        out
+    }
+
     fn layout_view(&self, deck: &Deck, layout: &Layout) -> View {
         let (can_undo, can_redo) = self.can_undo_redo();
         let svg = inline_assets(&svg::render_layout(deck, layout, &*self.math.0), &self.dir, &self.assets);
@@ -1348,7 +1400,8 @@ impl AppState {
     /// A new empty layout, entered for editing. Returns its name.
     /// A new layout from a preset disposition (see [`Layout::PRESETS`]),
     /// named after it, entered for editing. Returns its name.
-    pub fn new_layout(&mut self, kind: &str) -> Result<String, String> {
+    /// In theme `theme`, else the current slide's, else the first one.
+    pub fn new_layout_in(&mut self, kind: &str, theme: Option<&str>) -> Result<String, String> {
         let deck = self.deck.as_mut().ok_or("no deck")?;
         let base = Layout::PRESETS
             .iter()
@@ -1365,7 +1418,11 @@ impl AppState {
         // In the theme of the current slide's layout (else the first one):
         // its placeholders take the theme's styles.
         let current = deck.slides.get(self.slide).and_then(|s| s.layout.as_deref()).and_then(|n| deck.layout(n));
-        let theme = current.and_then(|l| l.parent.clone()).or_else(|| deck.themes.first().map(|t| t.name.clone()));
+        let theme = theme
+            .filter(|t| deck.theme_set(t).is_some())
+            .map(str::to_string)
+            .or_else(|| current.and_then(|l| l.parent.clone()))
+            .or_else(|| deck.themes.first().map(|t| t.name.clone()));
         if let Some(t) = theme.as_deref().and_then(|t| deck.theme_set(t)) {
             for p in &mut layout.placeholders {
                 if t.placeholder_for(&p.name).is_none() {

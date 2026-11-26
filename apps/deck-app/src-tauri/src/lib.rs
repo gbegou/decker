@@ -55,6 +55,12 @@ fn get_thumbnails(state: Shared) -> Result<Vec<String>, String> {
     Ok(state.lock().map_err(err)?.thumbnails())
 }
 
+/// The design view's tree of themes and layouts, with small renderings.
+#[tauri::command]
+fn design_tree(state: Shared) -> Result<Vec<state::DesignItem>, String> {
+    Ok(state.lock().map_err(err)?.design_tree())
+}
+
 /// Opens a `.deck` folder or imports a `.pptx` next to it.
 #[tauri::command]
 fn open(app: AppHandle, state: Shared, path: String) -> Result<View, String> {
@@ -470,11 +476,11 @@ fn edit_layout(app: AppHandle, state: Shared, name: Option<String>) -> Result<Vi
 }
 
 #[tauri::command]
-fn new_layout(app: AppHandle, state: Shared, kind: Option<String>) -> Result<View, String> {
+fn new_layout(app: AppHandle, state: Shared, kind: Option<String>, theme: Option<String>) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
         s.checkpoint("new_layout", false);
-        s.new_layout(kind.as_deref().unwrap_or("blank"))?;
+        s.new_layout_in(kind.as_deref().unwrap_or("blank"), theme.as_deref())?;
         s.view()
     };
     edited(&app);
@@ -1228,6 +1234,7 @@ pub fn run() {
             duplicate_slide,
             set_layout,
             set_layout_of,
+            design_tree,
             add_path,
             set_name,
             move_step,

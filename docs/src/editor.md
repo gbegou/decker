@@ -26,8 +26,9 @@ The editor is one window in five areas.
    [commands and keys](keys.md) (also **F1**), and **Present** (from this slide; F5 starts
    from the first).
 2. **Insert**: a text box (key T), a shape (key R for a rectangle; the menu also draws
-   freehand and Bézier paths), a table, a video, a figure. While a layout or a theme is being
-   edited, the bar holds its own commands (placeholders, save and load, **Done**).
+   freehand and Bézier paths), a table, a video, a figure. **Slides | Design** switches to the
+   [design view](layouts.md#the-design-view) of the themes and layouts, where the bar holds
+   their commands (placeholders, delete, **Close design view**) and the left pane their tree.
 3. **The thumbnail pane**: one thumbnail per slide under its section headers. Click to go,
    drag to reorder; right-click a thumbnail to add, duplicate or delete slides or give them a
    layout, or between thumbnails to add a slide, a plan slide or a section; see

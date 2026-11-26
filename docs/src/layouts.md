@@ -12,8 +12,6 @@ takes back.
 A slide names its layout. A deck can have several themes, for instance after pasting slides
 from another deck.
 
-![The layout editor: the title slide's title overrides its theme's size and alignment](images/screens/layout-editor.png)
-
 ## Choosing a slide's layout
 
 - Right-click a thumbnail, **Layout ▸**, and pick one (the list is grouped by theme). To give
@@ -25,49 +23,57 @@ from another deck.
   one text box per placeholder, at the placeholder's position and in its style, showing the
   placeholder's name.
 
-## Editing a layout
+## The design view
 
-**Edit layout**, under the layout selector, shows the layout on the canvas instead of a
-slide: its theme's elements, dimmed and not selectable; its own elements, editable like slide
-elements; and its placeholders as dashed boxes with their name, which move and resize the
-same way and are renamed in the panel (slides that fill the placeholder follow the new name).
-**+ Text**, **+ Shape**, **+ Table** and **+ Placeholder** add elements, **Delete layout**
-removes the layout (its slides keep their elements), the name field renames it, **Done**
-returns to the slides.
+Themes and layouts are edited in the **design view**, as PowerPoint's slide master view:
+**Design** in the header (or **Design view…** in the Slide tab) opens it on the current
+slide's layout; **Slides**, or **Close design view**, returns to the slide.
 
-Selecting a placeholder shows its text style in the panel: size, bold, color, font,
+![The design view: the theme and its layouts on the left, the theme on the canvas](images/screens/theme-editor.png)
+
+- **On the left**, instead of the slides: each theme (◆), with its layouts under it and, for
+  each layout, how many slides use it. Click one to edit it on the canvas.
+- **Right-click** in that pane: on a theme or one of its layouts, a **new layout** in that
+  theme from PowerPoint's usual dispositions (title slide, title and content, section
+  header, two contents, comparison, title only, blank); on a theme, **delete** it (its
+  layouts keep their look and lose the theme); on a layout, **save it to a file** or
+  **delete** it (its slides keep their elements); anywhere, a **new theme** or **load a
+  layout from a file**.
+- **The header** holds the name field (renames the theme or layout; slides follow),
+  **+ Text**, **+ Shape**, **+ Table**, **+ Placeholder** (a title, a subtitle or a body,
+  named `subtitle2`, `body2`… for a second one), and **Delete**.
+- **The side panel** shows, for a theme, its **placeholder styles** (one per kind: `title`,
+  `subtitle`, `body`…; a body style serves `body1`, `body2`…), its **fonts and colors** and
+  its layouts; for a layout, its theme and overrides (below) and its own fonts and colors.
+
+### Editing a layout
+
+![A layout in the design view: the title slide's title overrides its theme's size and alignment](images/screens/layout-editor.png)
+
+The canvas shows the layout: its theme's elements, dimmed and not selectable; its own
+elements, editable like slide elements; and its placeholders as dashed boxes with their name,
+which move and resize the same way and are renamed in the Element tab (slides that fill the
+placeholder follow the new name).
+
+Selecting a placeholder shows its text style in the Element tab: size, bold, color, font,
 alignment, bullets. In a layout with a theme, each field says where its value comes from:
 
 - **theme**: the theme's value, which follows the theme when it changes;
 - in bold, with **↺** and **⇪**: set by this layout. **↺** drops the override and returns to
   the theme's value; **⇪** makes this value the theme's, for all its layouts.
 
-The panel's **Theme** section shows the layout's theme (a selector moves the layout to
-another theme, or to none, keeping its look), **hide the theme's elements** (for a title
-slide without the footer, say), and what the layout changes of its theme, with
-**Reset to theme** to drop every override at once. Placeholder positions and the layout's
-own elements are its own, not overrides.
+The Layout tab shows the layout's theme (a selector moves the layout to another theme, or to
+none, keeping its look), **hide the theme's elements** (for a title slide without the footer,
+say), and what the layout changes of its theme, with **Reset to theme** to drop every
+override at once. Placeholder positions and the layout's own elements are its own, not
+overrides.
 
-## Editing a theme
+### Editing a theme
 
-![The theme editor: the theme's band and footer on the canvas, the placeholder styles in the panel](images/screens/theme-editor.png)
-
-**Edit theme** (next to **Edit layout**, or from the layout editor) shows the theme: its
-background and its elements on the canvas, editable like a layout's. The panel holds the
-**placeholder styles**, one per kind (`title`, `subtitle`, `body`…, a body style serving
-`body1`, `body2`…), the theme's **fonts and colors**, and buttons to open each of its layouts. The
-name field renames the theme, **Delete theme** removes it (its layouts keep their look and
-lose the theme), **Done** returns to the slides. **+ New theme**, under the layout selector,
-starts one with the usual placeholder styles.
-
-## Creating a layout
-
-**+ New layout** offers PowerPoint's usual dispositions: title slide (title and subtitle),
-title and content, section header, two contents, comparison (two headings over two bodies),
-title only, and blank. The new layout joins the theme of the current slide's layout (or the
-deck's first theme) and takes its placeholder styles. Its placeholders are named `title`,
-`subtitle`, `heading1`, `body1`… In the layout editor, **+ Placeholder** adds a title, a
-subtitle or a body, named the same way (`subtitle2` for a second one).
+The canvas shows the theme's background and its elements (a logo, a footer, a band), editable
+like a layout's; they are drawn on every slide of its layouts. A new layout joins the theme it
+was made in and takes its placeholder styles; a new theme starts with the usual placeholder
+styles.
 
 ## Fonts and colors
 
@@ -97,7 +103,7 @@ in [Variables](variables.md).
 
 ## Reusing a layout: `.deck_layout`
 
-**Save layout…** in the layout editor writes the layout, merged with its theme so that it
+**Save layout to a file…** (right-click a layout in the design view) writes the layout, merged with its theme so that it
 stands on its own, as a folder:
 
 ```text
@@ -106,7 +112,7 @@ Corp.deck_layout/
   assets/       # its images
 ```
 
-**Load layout…** (under the layout selector) reads such a folder into the current deck,
+**Load a layout from a file…** (right-click in the design view) reads such a folder into the current deck,
 copying its images, under its name or a numbered one if the name is taken, and opens it for
 editing; it has no theme until one is chosen in its panel. A folder of `.deck_layout` folders
 is a layout library. The deck must have been saved once, so that images have a folder to be

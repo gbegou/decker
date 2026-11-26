@@ -11,12 +11,13 @@ pictures (see [the deck format](format.md)). From now on, **File ▸ Save** (Ctr
 
 ## 2. A layout
 
-Layouts give slides their placeholders, background and footer, like PowerPoint's masters. In
-the side panel, open **+ New layout** and pick **Title and content**: the layout editor
-opens. Click **+ Text** and type `{{section}} — {{slide}} / {{slides}}` in the new box; drag it
-to the bottom of the slide. Click **Done**. Back on the slide, choose the new layout in the
-side panel's **Layout** selector. See [Themes and layouts](layouts.md) and
-[Variables](variables.md).
+Layouts give slides their placeholders, background and footer, like PowerPoint's masters.
+Click **Design** in the header: the design view shows the deck's theme on the left. Right-click
+it and choose **Title and content**: the new layout opens on the canvas. Click **+ Text** and
+type `{{section}} — {{slide}} / {{slides}}` in the new box; drag it to the bottom of the
+slide. Click **Close design view**. Back on the slide, choose the new layout in the Slide tab's
+**Layout** selector (or right-click the thumbnail, **Layout ▸**). See
+[Themes and layouts](layouts.md) and [Variables](variables.md).
 
 ## 3. Bullets and a formula
 

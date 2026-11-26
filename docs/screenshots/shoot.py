@@ -82,7 +82,7 @@ def layout_editor(e):
     # The title slide's layout: its title overrides the theme's size and
     # alignment, the panel says so.
     e.goto(0)
-    e.s.js("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Edit layout').click(); return true")
+    e.s.js("[...document.querySelectorAll('.views button')].find(b => b.textContent.trim() === 'Design').click(); return true")
     e.settle(1.5)
     e.click_slide(480, 215)
     e.shot("layout-editor")
@@ -90,7 +90,9 @@ def layout_editor(e):
 
 def theme_editor(e):
     e.goto(2)
-    e.s.js("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Edit theme').click(); return true")
+    e.s.js("[...document.querySelectorAll('.views button')].find(b => b.textContent.trim() === 'Design').click(); return true")
+    e.settle(1.5)
+    e.s.js("document.querySelector('.design-item.theme').click(); return true")
     e.settle(1.5)
     e.s.js("document.querySelector('details.kind').open = true; return true")
     e.settle(0.5)

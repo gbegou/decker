@@ -177,7 +177,8 @@ export const api = {
   moveSlide: (from: number, to: number) => invoke<View>("move_slide", { from, to }),
   editLayout: (name: string | null) => invoke<View>("edit_layout", { name }),
   /** A layout from a preset: title, content, section, two, compare, title-only, blank. */
-  newLayout: (kind = "blank") => invoke<View>("new_layout", { kind }),
+  newLayout: (kind = "blank", theme: string | null = null) => invoke<View>("new_layout", { kind, theme }),
+  designTree: () => invoke<{ kind: "theme" | "layout"; name: string; theme: string | null; svg: string; used: number }[]>("design_tree"),
   renameLayout: (name: string) => invoke<View>("rename_layout", { name }),
   deleteLayout: () => invoke<View>("delete_layout"),
   /** A placeholder named after its kind: title, subtitle or body. */

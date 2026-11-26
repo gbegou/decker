@@ -177,7 +177,7 @@ class Themes(EditorTest):
     def test_override_reset_and_theme_change(self):
         e = self.e
         e.goto(2)
-        self.button("Edit layout")
+        self.button("Design")
         e.click_slide(400, 60)  # the title placeholder
         self.assertEqual(e.s.js("return document.querySelectorAll('.props .mark').length"), 6, "all from the theme")
         self.set_field(".props .fields input[type=number]", "40")
@@ -191,9 +191,9 @@ class Themes(EditorTest):
         self.assertEqual(self.view()["editing_theme"], "Waves")
         e.s.js("document.querySelector('details.kind').open = true; return true")
         self.set_field("details.kind .fields input[type=number]", "36")
-        self.button("Done")
+        self.button("Close design view")
         e.goto(2)
-        self.button("Edit layout")
+        self.button("Design")
         title = next(x for x in self.view()["elements"] if x["kind"] == "placeholder" and x["text"] == "title")
         self.assertEqual(title["placeholder"]["size"], 36, "the theme's new title size reaches the layout")
 
@@ -360,6 +360,35 @@ class Ergonomics(EditorTest):
         e.s.cmd("DELETE", "/actions")
         e.settle(0.5)
         self.assertAlmostEqual(e.rect("aside.slides")[2], w + 80, delta=4)
+
+
+class DesignView(EditorTest):
+    def test_the_design_view_tree(self):
+        e = self.e
+        e.goto(2)
+        e.s.js("[...document.querySelectorAll('.views button')].find(b => b.textContent.trim() === 'Design').click(); return true")
+        e.settle(1.5)
+        v = self.view()
+        self.assertEqual(v["editing_layout"], "Title and content", "opens on the slide's layout")
+        names = e.s.js("return [...document.querySelectorAll('.design-item .design-name')].map(n => n.textContent)")
+        self.assertEqual(names[0].strip(), "◆ Waves", names)
+        self.assertEqual(len(names), 4, "the theme and its three layouts")
+        e.s.js("document.querySelector('.design-item.theme').click(); return true")
+        e.settle(1.0)
+        self.assertEqual(self.view()["editing_theme"], "Waves")
+        x, y = e.s.js("const r = document.querySelector('.design-item.theme').getBoundingClientRect(); return [r.x + 30, r.y + 20]")
+        e.pointer(x, y, button=2)
+        e.s.js("[...document.querySelectorAll('.context-menu button')].find(b => b.textContent.trim() === 'Two contents').click(); return true")
+        e.settle(1.5)
+        v = self.view()
+        self.assertEqual(v["editing_layout"], "Two contents")
+        self.assertEqual(v["layout_meta"]["parent"], "Waves", "made in the theme right-clicked")
+        e.s.js("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Close design view').click(); return true")
+        e.settle(1.5)
+        v = self.view()
+        self.assertIsNone(v["editing_layout"])
+        self.assertIsNone(v["editing_theme"])
+        self.assertEqual(v["slide"], 2, "back on the slide")
 
 
 class Presenting(EditorTest):
