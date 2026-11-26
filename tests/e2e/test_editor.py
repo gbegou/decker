@@ -217,6 +217,54 @@ class FileMenu(EditorTest):
         self.assertGreater(deck_json.stat().st_mtime, before)
 
 
+class Paths(EditorTest):
+    def tool(self, value):
+        self.e.s.js("""const sel = [...document.querySelectorAll('select.add-shape')].find(s => s.querySelector('option[value=bezier]'));
+            sel.value = arguments[0]; sel.dispatchEvent(new Event('change', {bubbles: true})); return true""", value)
+        self.e.settle(0.5)
+
+    def last(self):
+        return self.view()["elements"][-1]
+
+    def test_a_bezier_path_closed_on_itself(self):
+        e = self.e
+        e.goto(1)
+        self.tool("bezier")
+        e.click_slide(200, 200)
+        e.drag_slide([(500, 200), (560, 300)])  # a smooth point
+        e.click_slide(350, 420)
+        e.click_slide(200, 200)  # the first point: closes
+        el = self.last()
+        self.assertEqual((el["shape"], el["path"]["closed"], len(el["path"]["nodes"])), ("path", True, 3))
+        smooth = el["path"]["nodes"][1]
+        self.assertTrue(smooth.get("in") and smooth.get("out"), smooth)
+        self.assertIsNotNone(el["fill"], "a closed path is filled")
+
+    def test_freehand_closes_near_its_start_and_edits(self):
+        e = self.e
+        e.goto(1)
+        self.tool("free")
+        import math
+        loop = [(480 + 150 * math.cos(t / 12 * 2 * math.pi), 300 + 100 * math.sin(t / 12 * 2 * math.pi)) for t in range(13)]
+        e.drag_slide(loop, steps=3)
+        el = self.last()
+        self.assertEqual((el["shape"], el["path"]["closed"]), ("path", True))
+        n = len(el["path"]["nodes"])
+        self.assertGreaterEqual(n, 4)
+        # Edit: drag the first point outwards, then delete it.
+        first = el["path"]["nodes"][0]
+        x0 = el["rect"]["x"]
+        e.click_slide(el["rect"]["x"] + el["rect"]["w"] / 2, el["rect"]["y"] + el["rect"]["h"] / 2, clicks=2)
+        e.drag_slide([(first["x"], first["y"]), (first["x"] + 60, first["y"])])
+        moved = self.last()
+        self.assertAlmostEqual(moved["path"]["nodes"][0]["x"], first["x"] + 60, delta=3)
+        self.assertGreater(moved["rect"]["w"] + moved["rect"]["x"], el["rect"]["w"] + x0, "the box follows")
+        e.keys("\ue017")  # Delete: the picked point
+        self.assertEqual(len(self.last()["path"]["nodes"]), n - 1)
+        e.escape()
+        self.assertEqual(len(self.view()["elements"]), len(self.view()["elements"]), "still there")
+
+
 class Presenting(EditorTest):
     def env(self):
         return {"DECKER_PRESENT": "both", "DECKER_WINDOWED": "1"}

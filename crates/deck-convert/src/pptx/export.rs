@@ -385,6 +385,44 @@ fn timing_xml(slide: &Slide, slide_no: usize, size: (f64, f64), warnings: &mut V
     )
 }
 
+/// A path shape as PowerPoint custom geometry, in the shape's own box.
+fn cust_geom(s: &Shape) -> String {
+    let (w, h) = (emu(s.rect.w).max(1), emu(s.rect.h).max(1));
+    let pt = |x: f64, y: f64| {
+        format!(r#"<a:pt x="{}" y="{}"/>"#, (x * w as f64).round() as i64, (y * h as f64).round() as i64)
+    };
+    let mut path = String::new();
+    let segment = |path: &mut String, a: &PathNode, b: &PathNode| {
+        if a.handle_out.is_none() && b.handle_in.is_none() {
+            let _ = write!(path, "<a:lnTo>{}</a:lnTo>", pt(b.x, b.y));
+        } else {
+            let (ox, oy) = a.handle_out.unwrap_or((0.0, 0.0));
+            let (ix, iy) = b.handle_in.unwrap_or((0.0, 0.0));
+            let _ = write!(
+                path,
+                "<a:cubicBezTo>{}{}{}</a:cubicBezTo>",
+                pt(a.x + ox, a.y + oy),
+                pt(b.x + ix, b.y + iy),
+                pt(b.x, b.y)
+            );
+        }
+    };
+    if let Some(first) = s.path.first() {
+        let _ = write!(path, "<a:moveTo>{}</a:moveTo>", pt(first.x, first.y));
+        for w in s.path.windows(2) {
+            segment(&mut path, &w[0], &w[1]);
+        }
+        if s.closed && s.path.len() > 1 {
+            segment(&mut path, &s.path[s.path.len() - 1], first);
+            path.push_str("<a:close/>");
+        }
+    }
+    let fill = if s.closed { "" } else { r#" fill="none""# };
+    format!(
+        r#"<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l="0" t="0" r="r" b="b"/><a:pathLst><a:path w="{w}" h="{h}"{fill}>{path}</a:path></a:pathLst></a:custGeom>"#
+    )
+}
+
 /// A slide or layout part being written: its XML and its relationships.
 struct Part {
     xml: String,
@@ -546,6 +584,7 @@ fn write_element_plain(
                 ShapeKind::Rectangle => "rect",
                 ShapeKind::Ellipse => "ellipse",
                 ShapeKind::Line | ShapeKind::Arrow => "line",
+                ShapeKind::Path => "",
             };
             // A flipped line is PowerPoint's flipV; an arrow is a line with a tail end.
             let mut frame = xfrm(&s.rect);
@@ -557,10 +596,17 @@ fn write_element_plain(
                 let end = if s.reverse { "headEnd" } else { "tailEnd" };
                 outline = outline.replacen("</a:ln>", &format!(r#"<a:{end} type="triangle"/></a:ln>"#), 1);
             }
+            let geometry = if s.kind == ShapeKind::Path {
+                cust_geom(s)
+            } else {
+                format!(r#"<a:prstGeom prst="{prst}"><a:avLst/></a:prstGeom>"#)
+            };
+            // An open path is never filled.
+            let shape_fill =
+                if s.kind == ShapeKind::Path && !s.closed { "<a:noFill/>".to_string() } else { fill(s.fill) };
             let _ = write!(
                 xml,
-                r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Shape {id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>{frame}<a:prstGeom prst="{prst}"><a:avLst/></a:prstGeom>{}{outline}</p:spPr>{}</p:sp>"#,
-                fill(s.fill),
+                r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Shape {id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>{frame}{geometry}{shape_fill}{outline}</p:spPr>{}</p:sp>"#,
                 tx_body(&s.paragraphs)
             );
         }
@@ -1344,6 +1390,56 @@ mod tests {
             assert!(close(x.rotation, y.rotation), "step {step}: rotation {} came back as {}", x.rotation, y.rotation);
         }
         assert_eq!(b.steps()[0].duration, 1.0);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn paths_round_trip() {
+        let dir = std::env::temp_dir().join(format!("decker-paths-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let node = |x: f64, y: f64| PathNode { x, y, ..Default::default() };
+        let mut closed = Shape::path_from_points(
+            &[
+                node(100.0, 100.0),
+                PathNode { handle_out: Some((50.0, 80.0)), ..node(300.0, 100.0) },
+                PathNode { handle_in: Some((40.0, -40.0)), ..node(200.0, 300.0) },
+            ],
+            true,
+        );
+        closed.fill = Some(Color::rgb(0xAA, 0xBB, 0xCC));
+        closed.stroke = Some(Stroke { color: Color::BLACK, width: 2.0 });
+        let mut open = Shape::path_from_points(&[node(500.0, 100.0), node(700.0, 200.0), node(600.0, 400.0)], false);
+        open.stroke = Some(Stroke { color: Color::BLACK, width: 1.0 });
+        let mut deck = Deck::new("paths");
+        deck.slides.push(Slide {
+            elements: vec![Element::Shape(closed.clone()), Element::Shape(open.clone())],
+            ..Default::default()
+        });
+        let pptx = dir.join("p.pptx");
+        let warnings = export(&deck, &dir, &pptx).unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let (back, report) = super::super::import(&pptx, &dir.join("back.deck")).unwrap();
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        for (k, original) in [closed, open].iter().enumerate() {
+            let Element::Shape(b) = &back.slides[0].elements[k] else { panic!("a shape") };
+            assert_eq!(
+                (b.kind, b.closed, b.path.len()),
+                (ShapeKind::Path, original.closed, original.path.len()),
+                "path {k}"
+            );
+            for (p, q) in original.path_points(&original.rect).iter().zip(b.path_points(&b.rect)) {
+                assert!((p.x - q.x).abs() < 0.01 && (p.y - q.y).abs() < 0.01, "path {k}: {p:?} came back as {q:?}");
+                let close = |a: Option<(f64, f64)>, c: Option<(f64, f64)>| match (a, c) {
+                    (Some(a), Some(c)) => (a.0 - c.0).abs() < 0.01 && (a.1 - c.1).abs() < 0.01,
+                    (None, None) | (Some((0.0, 0.0)), None) | (None, Some(_)) => true,
+                    _ => false,
+                };
+                assert!(close(p.handle_out, q.handle_out), "path {k}: handle {p:?} vs {q:?}");
+            }
+        }
+        let Element::Shape(b) = &back.slides[0].elements[0] else { unreachable!() };
+        assert_eq!(b.fill, Some(Color::rgb(0xAA, 0xBB, 0xCC)));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

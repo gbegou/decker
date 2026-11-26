@@ -26,11 +26,13 @@ export interface ElementInfo {
   subsections?: boolean;
   media?: MediaInfo;
   /** Shapes: their kind, and whether a line or arrow is flipped. */
-  shape?: "rectangle" | "ellipse" | "line" | "arrow";
+  shape?: "rectangle" | "ellipse" | "line" | "arrow" | "path";
   flip: boolean;
   /** Placeholders: their default text style. */
   placeholder?: PlaceholderStyle & { name: string; own?: string[] };
   /** Tables: the cells' texts and fills by row, and the settings. */
+  /** Paths: the nodes in slide points (handles as offsets), closed or not. */
+  path?: { nodes: import("./paths").PathNode[]; closed: boolean } | null;
   table?: { cells: string[][]; fills: (string | null)[][]; header: boolean; columns: number[]; rects: Rect[][]; spans: [number, number][][] };
 }
 /** An edit of a table: one cell, the grid, the header, the column widths. */
@@ -201,6 +203,8 @@ export const api = {
   styleElement: (element: number, change: ElementStyle) => invoke<View>("style_element", { element, change }),
   saveLayout: (path: string) => invoke<string>("save_layout", { path }),
   loadLayout: (path: string) => invoke<View>("load_layout", { path }),
+  addPath: (nodes: import("./paths").PathNode[], closed: boolean) => invoke<number>("add_path", { nodes, closed }),
+  setPath: (element: number, nodes: import("./paths").PathNode[], closed: boolean) => invoke<View>("set_path", { element, nodes, closed }),
   setLayoutOf: (slides: number[], name: string | null) => invoke<View>("set_layout_of", { slides, name }),
   editTheme: (name: string | null) => invoke<View>("edit_theme", { name }),
   newTheme: () => invoke<View>("new_theme"),

@@ -96,12 +96,27 @@ def theme_editor(e):
     e.shot("theme-editor")
 
 
+def path_editing(e):
+    e.goto(1)
+    e.s.js("""const sel = [...document.querySelectorAll('select.add-shape')].find(s => s.querySelector('option[value=bezier]'));
+        sel.value = 'bezier'; sel.dispatchEvent(new Event('change', {bubbles: true})); return true""")
+    e.settle(0.5)
+    e.click_slide(620, 150)
+    e.drag_slide([(860, 200), (900, 300)])
+    e.click_slide(800, 450)
+    e.drag_slide([(640, 400), (600, 330)])
+    e.click_slide(620, 150)
+    e.click_slide(860, 200, clicks=2)  # edit its points
+    e.click_slide(860, 200)  # pick the smooth one: its handles show
+    e.shot("path-editing", crop=e.rect("svg.overlay"))
+
+
 def help_dialog(e):
     e.keys("\ue031")  # F1
     e.shot("help", crop=e.rect(".dialog"))
 
 
-SHOTS = [window, text_editing, slide_menu, arrange, build_steps, layout_editor, theme_editor, help_dialog]
+SHOTS = [window, text_editing, slide_menu, arrange, build_steps, layout_editor, theme_editor, path_editing, help_dialog]
 
 
 def editor_shots(app: str, out: Path):

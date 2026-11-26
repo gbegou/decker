@@ -878,6 +878,24 @@ fn import_shape(
         let placeholder = ph.as_ref().map(PhRef::name);
         return Some(Element::Text(TextBox { rect, paragraphs, fill, stroke, steps: vec![], placeholder }));
     }
+    // Custom geometry: a path, editable.
+    if let Some(cust) = sp_pr.and_then(|p| child(p, NS_A, "custGeom")) {
+        if let Some((path, closed, more)) = custom_path(cust) {
+            if more {
+                report.warnings.push(format!("shape {:?}: only the first of its paths kept", shape_name(node)));
+            }
+            return Some(Element::Shape(Shape {
+                rect,
+                kind: ShapeKind::Path,
+                fill,
+                stroke,
+                paragraphs,
+                path,
+                closed,
+                ..Default::default()
+            }));
+        }
+    }
     let kind = match geom {
         "ellipse" => ShapeKind::Ellipse,
         "line" | "straightConnector1" => ShapeKind::Line,
@@ -892,7 +910,80 @@ fn import_shape(
         return None;
     }
     let (kind, flip, reverse) = line_ends(node, kind);
-    Some(Element::Shape(Shape { rect, kind, fill, stroke, paragraphs, steps: vec![], flip, reverse }))
+    Some(Element::Shape(Shape { rect, kind, fill, stroke, paragraphs, flip, reverse, ..Default::default() }))
+}
+
+/// The first path of custom geometry as nodes in fractions of the box,
+/// whether it is closed, and whether more paths were left out. Quadratic
+/// curves become cubic ones; arcs become straight segments.
+fn custom_path(cust: Node) -> Option<(Vec<PathNode>, bool, bool)> {
+    let paths: Vec<Node> =
+        child(cust, NS_A, "pathLst")?.children().filter(|n| n.has_tag_name((NS_A, "path"))).collect();
+    let path = *paths.first()?;
+    let num = |n: Node, a: &str| n.attribute(a).and_then(|v| v.parse::<f64>().ok());
+    let (w, h) =
+        (num(path, "w").filter(|v| *v > 0.0).unwrap_or(1.0), num(path, "h").filter(|v| *v > 0.0).unwrap_or(1.0));
+    let pts = |n: Node| -> Vec<(f64, f64)> {
+        n.children()
+            .filter(|c| c.has_tag_name((NS_A, "pt")))
+            .map(|c| (num(c, "x").unwrap_or(0.0) / w, num(c, "y").unwrap_or(0.0) / h))
+            .collect()
+    };
+    let mut nodes: Vec<PathNode> = vec![];
+    let mut closed = false;
+    let mut subpaths = 0;
+    for cmd in path.children().filter(Node::is_element) {
+        let p = pts(cmd);
+        match cmd.tag_name().name() {
+            "moveTo" => {
+                subpaths += 1;
+                if subpaths > 1 {
+                    break;
+                }
+                if let Some(&(x, y)) = p.first() {
+                    nodes.push(PathNode { x, y, ..Default::default() });
+                }
+            }
+            "lnTo" | "arcTo" => {
+                if let Some(&(x, y)) = p.first() {
+                    nodes.push(PathNode { x, y, ..Default::default() });
+                }
+            }
+            "cubicBezTo" | "quadBezTo" if !nodes.is_empty() => {
+                let prev = *nodes.last().unwrap();
+                let (c1, c2, end) = match p.as_slice() {
+                    [c1, c2, end] => (*c1, *c2, *end),
+                    // A quadratic curve as the cubic with the same shape.
+                    [q, end] => (
+                        (prev.x + 2.0 / 3.0 * (q.0 - prev.x), prev.y + 2.0 / 3.0 * (q.1 - prev.y)),
+                        (end.0 + 2.0 / 3.0 * (q.0 - end.0), end.1 + 2.0 / 3.0 * (q.1 - end.1)),
+                        *end,
+                    ),
+                    _ => continue,
+                };
+                nodes.last_mut().unwrap().handle_out = Some((c1.0 - prev.x, c1.1 - prev.y));
+                nodes.push(PathNode {
+                    x: end.0,
+                    y: end.1,
+                    handle_in: Some((c2.0 - end.0, c2.1 - end.1)),
+                    handle_out: None,
+                });
+            }
+            "close" => {
+                closed = true;
+                // A closing segment drawn back to the start: one node, not two.
+                if nodes.len() > 1 {
+                    let (first, last) = (nodes[0], nodes[nodes.len() - 1]);
+                    if (first.x - last.x).abs() < 1e-6 && (first.y - last.y).abs() < 1e-6 {
+                        nodes.pop();
+                        nodes[0].handle_in = last.handle_in;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    (nodes.len() >= 2).then_some((nodes, closed, paths.len() > 1 || subpaths > 1))
 }
 
 /// For a line: an arrow when its outline has an end marker, and whether

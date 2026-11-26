@@ -104,6 +104,20 @@ class Editor:
         self.s.cmd("DELETE", "/actions")
         self.settle(0.6)
 
+    def drag_slide(self, points, steps: int = 6):
+        """Presses at the first slide point, moves through the others, releases."""
+        vp = [self.point(x, y) for x, y in points]
+        acts = [{"type": "pointerMove", "x": int(vp[0][0]), "y": int(vp[0][1]), "origin": "viewport"},
+                {"type": "pointerDown", "button": 0}]
+        for (ax, ay), (bx, by) in zip(vp, vp[1:]):
+            for k in range(1, steps + 1):
+                acts.append({"type": "pointerMove", "duration": 15, "origin": "viewport",
+                             "x": int(ax + (bx - ax) * k / steps), "y": int(ay + (by - ay) * k / steps)})
+        acts.append({"type": "pointerUp", "button": 0})
+        self.s.cmd("POST", "/actions", {"actions": [{"type": "pointer", "id": "mouse", "parameters": {"pointerType": "mouse"}, "actions": acts}]})
+        self.s.cmd("DELETE", "/actions")
+        self.settle(0.8)
+
     def click_slide(self, x, y, clicks=1, keys=()):
         self.pointer(*self.point(x, y), clicks=clicks, keys=keys)
 

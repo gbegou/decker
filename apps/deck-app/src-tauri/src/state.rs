@@ -7,8 +7,8 @@ use base64::Engine;
 use serde::Serialize;
 
 use deck_core::{
-    native, svg, text, transfer, Color, Crop, Deck, Element, Layout, Mask, MathRenderer, Media, Paragraph, Placeholder,
-    Play, Rect, Slide, Step, Stroke, TextBox, TextDefaults, Theme, ThemeSet,
+    native, svg, text, transfer, Color, Crop, Deck, Element, Layout, Mask, MathRenderer, Media, Paragraph, PathNode,
+    Placeholder, Play, Rect, Slide, Step, Stroke, TextBox, TextDefaults, Theme, ThemeSet,
 };
 
 #[derive(Default)]
@@ -308,6 +308,9 @@ pub struct ElementInfo {
     /// Tables: the cells' texts by row, and the settings.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub table: Option<TableInfo>,
+    /// Paths: the nodes in slide points (handles as offsets), and whether
+    /// the path is closed.
+    pub path: Option<PathInfo>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -402,6 +405,21 @@ pub enum TableEdit {
     },
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct PathInfo {
+    pub nodes: Vec<PathNode>,
+    pub closed: bool,
+}
+
+fn path_info(e: &Element, shown: &Rect) -> Option<PathInfo> {
+    match e {
+        Element::Shape(s) if s.kind == deck_core::ShapeKind::Path => {
+            Some(PathInfo { nodes: s.path_points(shown), closed: s.closed })
+        }
+        _ => None,
+    }
+}
+
 fn shape_info(e: &Element) -> (Option<&'static str>, bool) {
     match e {
         Element::Shape(s) => (
@@ -410,6 +428,7 @@ fn shape_info(e: &Element) -> (Option<&'static str>, bool) {
                 deck_core::ShapeKind::Ellipse => "ellipse",
                 deck_core::ShapeKind::Line => "line",
                 deck_core::ShapeKind::Arrow => "arrow",
+                deck_core::ShapeKind::Path => "path",
             }),
             s.flip,
         ),
@@ -870,6 +889,7 @@ impl AppState {
                     flip: shape_info(e).1,
                     placeholder: None,
                     table: table_info(e, &e.state_at(self.step).rect),
+                    path: path_info(e, &e.state_at(self.step).rect),
                 })
                 .collect(),
             presenting: self.presenting,
@@ -955,6 +975,7 @@ impl AppState {
                 flip: shape_info(e).1,
                 placeholder: None,
                 table: table_info(e, e.rect()),
+                path: path_info(e, e.rect()),
             })
             .collect();
         let resolved = deck.resolve(layout);
@@ -982,6 +1003,7 @@ impl AppState {
                 flip: false,
                 placeholder: Some(ph.clone()),
                 table: None,
+                path: None,
             });
         }
         let starts = deck
@@ -2013,6 +2035,42 @@ impl AppState {
         let elements = self.elements_mut()?;
         elements.push(Element::Shape(shape));
         Ok(elements.len() - 1)
+    }
+
+    /// Adds a path through `nodes` (slide points), stroked in the theme's
+    /// accent, filled with it when closed. Returns its index.
+    pub fn add_path(&mut self, nodes: &[PathNode], closed: bool) -> Result<usize, String> {
+        if nodes.len() < 2 {
+            return Err("a path needs two points".into());
+        }
+        self.touch_target();
+        let (deck, slide) = self.current().ok_or("no slide")?;
+        let accent = deck.theme_of(slide).accent.unwrap_or(Color::rgb(0x3F, 0x74, 0xE0));
+        let mut shape = deck_core::Shape::path_from_points(nodes, closed);
+        shape.stroke = Some(Stroke { color: accent, width: 2.0 });
+        // A light tint of the accent, so that the outline stays visible.
+        let tint = |c: u8| (255.0 * 0.65 + f64::from(c) * 0.35).round() as u8;
+        shape.fill = closed.then(|| Color::rgb(tint(accent.r), tint(accent.g), tint(accent.b)));
+        let elements = self.elements_mut()?;
+        elements.push(Element::Shape(shape));
+        Ok(elements.len() - 1)
+    }
+
+    /// Replaces the nodes of path `element` (slide points) and whether it is
+    /// closed; its box follows.
+    pub fn set_path(&mut self, element: usize, nodes: &[PathNode], closed: bool) -> Result<(), String> {
+        if nodes.len() < 2 {
+            return Err("a path needs two points".into());
+        }
+        self.touch_target();
+        match self.elements_mut()?.get_mut(element) {
+            Some(Element::Shape(s)) if s.kind == deck_core::ShapeKind::Path => {
+                s.set_path_points(nodes, closed);
+                // Opening a filled path drops nothing: the fill shows again when closed.
+                Ok(())
+            }
+            _ => Err("not a path".into()),
+        }
     }
 
     /// Styles a placeholder of the layout under edit (`element` counts

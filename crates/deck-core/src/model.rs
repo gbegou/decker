@@ -476,6 +476,19 @@ impl Element {
     /// group mirrors its children's positions too; text stays readable.
     pub fn mirror(&mut self, horizontal: bool) {
         match self {
+            Element::Shape(s) if s.kind == ShapeKind::Path => {
+                for n in &mut s.path {
+                    if horizontal {
+                        n.x = 1.0 - n.x;
+                        n.handle_in = n.handle_in.map(|(x, y)| (-x, y));
+                        n.handle_out = n.handle_out.map(|(x, y)| (-x, y));
+                    } else {
+                        n.y = 1.0 - n.y;
+                        n.handle_in = n.handle_in.map(|(x, y)| (x, -y));
+                        n.handle_out = n.handle_out.map(|(x, y)| (x, -y));
+                    }
+                }
+            }
             Element::Shape(s) if matches!(s.kind, ShapeKind::Line | ShapeKind::Arrow) => {
                 s.flip = !s.flip;
                 if horizontal {
@@ -1341,6 +1354,24 @@ pub enum ShapeKind {
     Line,
     /// A line ending in an arrowhead.
     Arrow,
+    /// A path of straight and Bézier segments through the shape's
+    /// `path` nodes; filled when closed.
+    Path,
+}
+
+/// A node of a path: a point and the Bézier handles around it (offsets
+/// from the point; none for a corner), all in fractions of the shape's
+/// box, so that the path follows the box when it moves or resizes.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+pub struct PathNode {
+    pub x: f64,
+    pub y: f64,
+    /// The handle the curve arrives along, from the previous node.
+    #[serde(default, rename = "in", skip_serializing_if = "Option::is_none")]
+    pub handle_in: Option<(f64, f64)>,
+    /// The handle the curve leaves along, to the next node.
+    #[serde(default, rename = "out", skip_serializing_if = "Option::is_none")]
+    pub handle_out: Option<(f64, f64)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -1370,6 +1401,70 @@ pub struct Shape {
     /// Arrows: the head is at the start (the left end) instead of the end.
     #[serde(default, skip_serializing_if = "is_default")]
     pub reverse: bool,
+    /// Paths: the nodes, in fractions of `rect`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub path: Vec<PathNode>,
+    /// Paths: the last node joins the first, and the shape is filled.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub closed: bool,
+}
+
+impl Shape {
+    /// A path shape through `nodes` given in slide points (handles as
+    /// offsets in points): its box is the bounding box of the nodes and
+    /// handles, the nodes stored in fractions of it.
+    pub fn path_from_points(nodes: &[PathNode], closed: bool) -> Shape {
+        let mut shape = Shape { kind: ShapeKind::Path, closed, ..Default::default() };
+        shape.set_path_points(nodes, closed);
+        shape
+    }
+
+    /// Replaces the path with `nodes` in slide points; the box becomes
+    /// their bounding box.
+    pub fn set_path_points(&mut self, nodes: &[PathNode], closed: bool) {
+        let mut pts: Vec<(f64, f64)> = vec![];
+        for n in nodes {
+            pts.push((n.x, n.y));
+            for h in [n.handle_in, n.handle_out].into_iter().flatten() {
+                pts.push((n.x + h.0, n.y + h.1));
+            }
+        }
+        let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for (x, y) in &pts {
+            x0 = x0.min(*x);
+            y0 = y0.min(*y);
+            x1 = x1.max(*x);
+            y1 = y1.max(*y);
+        }
+        if pts.is_empty() {
+            (x0, y0, x1, y1) = (0.0, 0.0, 0.0, 0.0);
+        }
+        let (w, h) = ((x1 - x0).max(1e-6), (y1 - y0).max(1e-6));
+        self.rect = Rect::new(x0, y0, x1 - x0, y1 - y0);
+        self.path = nodes
+            .iter()
+            .map(|n| PathNode {
+                x: (n.x - x0) / w,
+                y: (n.y - y0) / h,
+                handle_in: n.handle_in.map(|(dx, dy)| (dx / w, dy / h)),
+                handle_out: n.handle_out.map(|(dx, dy)| (dx / w, dy / h)),
+            })
+            .collect();
+        self.closed = closed;
+    }
+
+    /// The path's nodes in slide points, for a box `r` (handles as offsets).
+    pub fn path_points(&self, r: &Rect) -> Vec<PathNode> {
+        self.path
+            .iter()
+            .map(|n| PathNode {
+                x: r.x + n.x * r.w,
+                y: r.y + n.y * r.h,
+                handle_in: n.handle_in.map(|(dx, dy)| (dx * r.w, dy * r.h)),
+                handle_out: n.handle_out.map(|(dx, dy)| (dx * r.w, dy * r.h)),
+            })
+            .collect()
+    }
 }
 
 pub(crate) fn is_default<T: Default + PartialEq>(v: &T) -> bool {

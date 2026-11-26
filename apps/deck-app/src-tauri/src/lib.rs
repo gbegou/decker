@@ -708,6 +708,35 @@ fn add_shape(app: AppHandle, state: Shared, kind: String) -> Result<usize, Strin
 }
 
 #[tauri::command]
+fn add_path(app: AppHandle, state: Shared, nodes: Vec<deck_core::PathNode>, closed: bool) -> Result<usize, String> {
+    let index = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint("add_path", false);
+        s.add_path(&nodes, closed)?
+    };
+    edited(&app);
+    Ok(index)
+}
+
+#[tauri::command]
+fn set_path(
+    app: AppHandle,
+    state: Shared,
+    element: usize,
+    nodes: Vec<deck_core::PathNode>,
+    closed: bool,
+) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint(&format!("set_path:{element}"), true);
+        s.set_path(element, &nodes, closed)?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+#[tauri::command]
 fn style_placeholder(app: AppHandle, state: Shared, element: usize, change: PlaceholderStyle) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
@@ -1168,6 +1197,8 @@ pub fn run() {
             duplicate_slide,
             set_layout,
             set_layout_of,
+            add_path,
+            set_path,
             edit_theme,
             new_theme,
             rename_theme,

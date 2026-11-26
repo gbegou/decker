@@ -39,6 +39,8 @@ The same list as the editor's help (**F1** or **?**). Generated from the editor'
 | Group · Ungroup (Ctrl+G · Ctrl+Shift+G) | Several elements become one, moved, resized and animated together |
 | + Table | A table with a header row; double-click a cell to type in it (Tab: next cell); rows, columns, widths and fills in the panel, the rules in the arrange bar |
 | + Shape | A rectangle, an ellipse, a line or an arrow in the theme's accent color; the style bar sets fill, outline and, for lines, the direction |
+| + Shape ▸ Freehand · Bézier path | Drag to draw freehand; or click corners and drag curves; end on the first point to close it into a shape (Enter: leave it open) |
+| Double-click a path | Edit its points: drag points and handles (Alt: break a smooth point), double-click a point for corner / curve, Delete removes it, Escape ends |
 | + Text · + Figure | A text box; a Typst figure (CeTZ plots and drawings) edited as source |
 | Ctrl+Z · Ctrl+Y (or Ctrl+Shift+Z) | Undo and redo any edit of the deck; a run of typing in one box is one step |
 | Ctrl+C · Ctrl+X · Ctrl+V | Copy or cut the selected elements; paste them (also into another deck or slide, images shared within a deck, copied across decks), a clipboard image, or text into the box being edited |

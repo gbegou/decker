@@ -272,6 +272,10 @@ fn element_body(out: &mut String, ctx: &Ctx, element: &Element, step: u32, index
             }
             Element::Image(i) => image_body(out, r, i, index),
             Element::Media(m) => media_body(out, r, m, ctx.live),
+            Element::Shape(s) if s.kind == ShapeKind::Path => {
+                path_body(out, r, s, st.fill.or(s.fill));
+                text_body(out, r, &s.paragraphs, &deck.math_preamble, math, defaults);
+            }
             Element::Shape(s) => {
                 shape_body_flipped(out, r, s.kind, st.fill.or(s.fill), s.stroke, s.flip, s.reverse);
                 text_body(out, r, &s.paragraphs, &deck.math_preamble, math, defaults);
@@ -682,8 +686,59 @@ fn shape_body_flipped(
             fmt(r.w / 2.0),
             fmt(r.h / 2.0)
         ),
-        ShapeKind::Line | ShapeKind::Arrow => Ok(()),
+        ShapeKind::Line | ShapeKind::Arrow | ShapeKind::Path => Ok(()),
     };
+}
+
+/// The SVG path data of a path shape in box `r`: lines between corners,
+/// cubic Béziers where a node has a handle, `Z` when closed.
+pub fn path_data(shape: &Shape, r: &Rect) -> String {
+    let pts = shape.path_points(r);
+    let Some(first) = pts.first() else { return String::new() };
+    let mut d = format!("M{} {}", fmt(first.x), fmt(first.y));
+    let segment = |d: &mut String, a: &PathNode, b: &PathNode| {
+        if a.handle_out.is_none() && b.handle_in.is_none() {
+            let _ = write!(d, "L{} {}", fmt(b.x), fmt(b.y));
+        } else {
+            let (ox, oy) = a.handle_out.unwrap_or((0.0, 0.0));
+            let (ix, iy) = b.handle_in.unwrap_or((0.0, 0.0));
+            let _ = write!(
+                d,
+                "C{} {} {} {} {} {}",
+                fmt(a.x + ox),
+                fmt(a.y + oy),
+                fmt(b.x + ix),
+                fmt(b.y + iy),
+                fmt(b.x),
+                fmt(b.y)
+            );
+        }
+    };
+    for w in pts.windows(2) {
+        segment(&mut d, &w[0], &w[1]);
+    }
+    if shape.closed && pts.len() > 1 {
+        segment(&mut d, &pts[pts.len() - 1], &pts[0]);
+        d.push('Z');
+    }
+    d
+}
+
+/// A path shape: filled only when closed.
+fn path_body(out: &mut String, r: &Rect, shape: &Shape, fill: Option<Color>) {
+    let fill = fill.filter(|_| shape.closed).map(Color::to_hex).unwrap_or_else(|| "none".into());
+    let (sc, sw) = match shape.stroke {
+        Some(s) => (s.color.to_hex(), s.width),
+        // A path without a stroke or a fill would be invisible: a thin line.
+        None if fill == "none" => ("#000000".to_string(), 1.0),
+        None => ("none".to_string(), 0.0),
+    };
+    let _ = write!(
+        out,
+        r#"<path d="{}" fill="{fill}" stroke="{sc}" stroke-width="{}" stroke-linejoin="round" stroke-linecap="round"/>"#,
+        path_data(shape, r),
+        fmt(sw)
+    );
 }
 
 /// Text in a box: typeset by the renderer when it can, nested as an inner
@@ -834,6 +889,27 @@ fn fmt(v: f64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn paths_draw_lines_and_curves_and_close() {
+        let nodes = [
+            PathNode { x: 100.0, y: 100.0, ..Default::default() },
+            PathNode { x: 300.0, y: 100.0, handle_out: Some((0.0, 100.0)), ..Default::default() },
+            PathNode { x: 300.0, y: 300.0, handle_in: Some((0.0, -50.0)), ..Default::default() },
+        ];
+        let mut shape = Shape::path_from_points(&nodes, false);
+        assert_eq!(shape.rect, Rect::new(100.0, 100.0, 200.0, 200.0), "the box of nodes and handles");
+        assert_eq!(path_data(&shape, &shape.rect), "M100 100L300 100C300 200 300 250 300 300");
+        assert_eq!(shape.path_points(&shape.rect), nodes, "back to points");
+        shape.closed = true;
+        assert!(path_data(&shape, &shape.rect).ends_with("L100 100Z"));
+        let moved = Rect::new(0.0, 0.0, 100.0, 100.0);
+        assert!(path_data(&shape, &moved).starts_with("M0 0L100 0C100 50"), "it follows its box");
+        let mut e = Element::Shape(shape);
+        e.mirror(true);
+        let Element::Shape(m) = &e else { unreachable!() };
+        assert_eq!((m.path[0].x, m.path[1].x), (1.0, 0.0));
+    }
+
     use super::*;
 
     #[test]

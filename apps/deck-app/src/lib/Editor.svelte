@@ -5,6 +5,8 @@
   import { api, watchView, watchThumbnails, presentationKeys, type View, type Rect, type Crop, type Mask, type TextLayout } from "./api";
   import { SlideView, captureFrame } from "$shared";
   import StyleBar from "./StyleBar.svelte";
+  import PathTool from "./PathTool.svelte";
+  import type { PathNode } from "./paths";
   import ArrangeBar from "./ArrangeBar.svelte";
   import PlaceholderFields from "./PlaceholderFields.svelte";
   import TablePanel from "./TablePanel.svelte";
@@ -504,9 +506,43 @@
     editing = { ...editing, layout, anchor: 0, caret: layout.chars.length - 1 };
   }
 
+  /** Drawing a path (the Shape menu's freehand and Bézier tools). */
+  let pathMode = $state<"free" | "bezier" | null>(null);
+  /** The path whose nodes are being edited (double-click on a path). */
+  let pathEdit = $state<number | null>(null);
+  function addShapeOf(k: string) {
+    if (k === "free" || k === "bezier") {
+      selected = null;
+      also = [];
+      pathMode = k;
+      status = k === "free" ? "Drag to draw; end near the start to close the shape" : "Click for corners, drag for curves; click the first point to close, Enter to end";
+    } else if (k) {
+      enqueue(() => run("Added shape", () => api.addShape(k as "rectangle" | "ellipse" | "line" | "arrow")).then(selectAdded));
+    }
+  }
+  function pathDrawn(nodes: PathNode[], closed: boolean) {
+    enqueue(async () => {
+      const index = await run("Added path", () => api.addPath(nodes, closed));
+      if (typeof index === "number") selected = index;
+    });
+  }
+  function pathEdited(nodes: PathNode[], closed: boolean) {
+    const index = pathEdit;
+    if (index === null) return;
+    enqueue(async () => { await run("Path edited", () => api.setPath(index, nodes, closed)); });
+  }
+  /** Slide points per screen pixel on the canvas. */
+  const unit = () => (view && canvas ? view.width / Math.max(canvas.getBoundingClientRect().width, 1) : 1);
+
   async function startEdit(index: number, at?: { x: number; y: number }) {
     if (!view) return;
     const el = view.elements[index];
+    if (el.shape === "path" && el.path) {
+      selected = index;
+      pathEdit = index;
+      status = "Drag points and handles; double-click a point for a corner or a curve; Delete removes it; Escape ends";
+      return;
+    }
     if (el.kind === "image" || el.kind === "math" || el.kind === "placeholder" || el.kind === "outline" || el.kind === "media" || el.kind === "figure") return;
     selected = index;
     if (el.kind === "table" && el.table) {
@@ -838,6 +874,8 @@
 
   function onKey(e: KeyboardEvent) {
     const tag = (e.target as HTMLElement).tagName;
+    // The path tools take the keys while they are active.
+    if (pathMode !== null || pathEdit !== null) return;
     if (e.key === "F1") { help = !help; e.preventDefault(); return; }
     // File shortcuts, as in every editor (also from a text field).
     if ((e.ctrlKey || e.metaKey) && !e.altKey) {
@@ -961,12 +999,14 @@
         <input class="layout-name" value={view.editing_theme} onchange={(e) => run("Theme renamed", () => api.renameTheme(e.currentTarget.value))} />
       </span>
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
-      <select class="add-shape" title="Add a shape" value="" onchange={(e) => { const k = e.currentTarget.value as "rectangle" | "ellipse" | "line" | "arrow"; e.currentTarget.value = ""; if (k) enqueue(() => run("Added shape", () => api.addShape(k)).then(selectAdded)); }}>
+      <select class="add-shape" title="Add a shape" value="" onchange={(e) => { const k = e.currentTarget.value; e.currentTarget.value = ""; addShapeOf(k); }}>
         <option value="">+ Shape</option>
         <option value="rectangle">▭ Rectangle</option>
         <option value="ellipse">◯ Ellipse</option>
         <option value="line">╱ Line</option>
         <option value="arrow">→ Arrow</option>
+        <option value="free" title="Drag to draw; end near the start to close it">✎ Freehand</option>
+        <option value="bezier" title="Click for corners, click and drag for curves; click the first point to close">✒ Bézier path</option>
       </select>
       <button title="Its layouts keep their look and lose the theme" onclick={() => run("Theme deleted", api.deleteTheme)}>Delete theme</button>
       <button class="primary" onclick={() => run("Back to slides", () => api.editTheme(null))}>Done</button>
@@ -975,12 +1015,14 @@
         <input class="layout-name" value={view.editing_layout} onchange={(e) => run("Layout renamed", () => api.renameLayout(e.currentTarget.value))} />
       </span>
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
-      <select class="add-shape" title="Add a shape" value="" onchange={(e) => { const k = e.currentTarget.value as "rectangle" | "ellipse" | "line" | "arrow"; e.currentTarget.value = ""; if (k) enqueue(() => run("Added shape", () => api.addShape(k)).then(selectAdded)); }}>
+      <select class="add-shape" title="Add a shape" value="" onchange={(e) => { const k = e.currentTarget.value; e.currentTarget.value = ""; addShapeOf(k); }}>
         <option value="">+ Shape</option>
         <option value="rectangle">▭ Rectangle</option>
         <option value="ellipse">◯ Ellipse</option>
         <option value="line">╱ Line</option>
         <option value="arrow">→ Arrow</option>
+        <option value="free" title="Drag to draw; end near the start to close it">✎ Freehand</option>
+        <option value="bezier" title="Click for corners, click and drag for curves; click the first point to close">✒ Bézier path</option>
       </select>
       <button onclick={() => enqueue(() => run("Added table", () => api.addTable(3, 3)).then(selectAdded))} title="A table of 3 by 3 cells with a header row; edit it in the panel">+ Table</button>
       <select class="add-shape" title="Add a named placeholder" value="" onchange={(e) => { const k = e.currentTarget.value as "title" | "subtitle" | "body"; e.currentTarget.value = ""; if (k) run("Added placeholder", () => api.addPlaceholder(k)); }}>
@@ -994,12 +1036,14 @@
       <button class="primary" onclick={() => run("Back to slides", () => api.editLayout(null))}>Done</button>
     {:else if view?.slide_count}
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
-      <select class="add-shape" title="Add a shape" value="" onchange={(e) => { const k = e.currentTarget.value as "rectangle" | "ellipse" | "line" | "arrow"; e.currentTarget.value = ""; if (k) enqueue(() => run("Added shape", () => api.addShape(k)).then(selectAdded)); }}>
+      <select class="add-shape" title="Add a shape" value="" onchange={(e) => { const k = e.currentTarget.value; e.currentTarget.value = ""; addShapeOf(k); }}>
         <option value="">+ Shape</option>
         <option value="rectangle">▭ Rectangle</option>
         <option value="ellipse">◯ Ellipse</option>
         <option value="line">╱ Line</option>
         <option value="arrow">→ Arrow</option>
+        <option value="free" title="Drag to draw; end near the start to close it">✎ Freehand</option>
+        <option value="bezier" title="Click for corners, click and drag for curves; click the first point to close">✒ Bézier path</option>
       </select>
       <button onclick={() => enqueue(() => run("Added table", () => api.addTable(3, 3)).then(selectAdded))} title="A table of 3 by 3 cells with a header row; edit it in the panel">+ Table</button>
       <button onclick={addMedia} title="A video or an animated GIF; images and clips can also be pasted or dropped">+ Video…</button>
@@ -1109,6 +1153,15 @@
             {#each guides.v as x}<line class="guide" x1={x} y1="0" x2={x} y2={view.height} />{/each}
             {#each guides.h as y}<line class="guide" x1="0" y1={y} x2={view.width} y2={y} />{/each}
           </svg>
+          {#if pathMode !== null}
+            <PathTool mode={pathMode} width={view.width} height={view.height} unit={unit()} toSlide={slidePoint}
+                      oncommit={pathDrawn} ondone={() => { pathMode = null; status = ""; }} />
+          {:else if pathEdit !== null && view.elements[pathEdit]?.path}
+            {@const pe = view.elements[pathEdit]}
+            <PathTool mode="edit" width={view.width} height={view.height} unit={unit()} toSlide={slidePoint}
+                      edit={{ nodes: pe.path!.nodes, closed: pe.path!.closed, rotation: pe.rotation, rect: pe.rect }}
+                      oncommit={pathEdited} ondone={() => { pathEdit = null; status = ""; }} />
+          {/if}
           {#if editing && view.elements[editing.index]}
             {@const r = editing.layout.rect ?? view.elements[editing.index].rect}
             {@const c = editing.layout.chars[editing.caret]}
@@ -1142,6 +1195,15 @@
         <label>y <input type="number" value={Math.round(sel.rect.y)} onchange={(e) => api.setRect(sel!.index, { ...sel!.rect, y: +e.currentTarget.value })} /></label>
         <label>w <input type="number" value={Math.round(sel.rect.w)} onchange={(e) => api.setRect(sel!.index, { ...sel!.rect, w: +e.currentTarget.value })} /></label>
         <label>h <input type="number" value={Math.round(sel.rect.h)} onchange={(e) => api.setRect(sel!.index, { ...sel!.rect, h: +e.currentTarget.value })} /></label>
+        {#if sel.path}
+          {@const path = sel.path}
+          <h3>Path</h3>
+          <label class="check"><input type="checkbox" checked={path.closed}
+                 onchange={(e) => { const c = e.currentTarget.checked; const i = sel!.index; run(c ? "Path closed" : "Path opened", () => api.setPath(i, path.nodes, c)); }} />
+            closed: the last point joins the first, and the shape is filled</label>
+          <div class="row"><button onclick={() => startEdit(sel!.index)}>Edit points</button></div>
+          <p class="muted">{path.nodes.length} points. Double-click the path to edit them: drag points and handles, double-click a point for a corner or a curve, Delete removes it.</p>
+        {/if}
         {#if sel.kind === "media" && sel.media}
           <h3>Playback</h3>
           <label><input type="radio" name="play" checked={sel.media.play === "on_appear"} onchange={() => run("Play on appearance", () => api.styleElement(sel!.index, { play: "appear" }))} /> play when it appears</label>
