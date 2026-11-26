@@ -272,6 +272,9 @@ pub struct SlideStart {
 pub struct ElementInfo {
     pub index: usize,
     pub kind: &'static str,
+    /// The name given to it (empty for none), and what lists show for it.
+    pub name: String,
+    pub label: String,
     pub rect: Rect,
     /// Degrees clockwise about the box's center, as shown at the viewed click.
     pub rotation: f64,
@@ -842,6 +845,8 @@ impl AppState {
                 .enumerate()
                 .map(|(index, e)| ElementInfo {
                     index,
+                    name: e.name().to_string(),
+                    label: e.label(),
                     kind: match e {
                         Element::Text(_) => "text",
                         Element::Image(_) => "image",
@@ -937,6 +942,8 @@ impl AppState {
             .enumerate()
             .map(|(index, e)| ElementInfo {
                 index,
+                name: e.name().to_string(),
+                label: e.label(),
                 kind: match e {
                     Element::Text(_) => "text",
                     Element::Image(_) => "image",
@@ -986,6 +993,8 @@ impl AppState {
             elements.push(ElementInfo {
                 index: layout.elements.len() + k,
                 kind: "placeholder",
+                name: String::new(),
+                label: format!("Placeholder {}", ph.name),
                 rect: ph.rect,
                 rotation: 0.0,
                 text: ph.name.clone(),
@@ -2035,6 +2044,13 @@ impl AppState {
         let elements = self.elements_mut()?;
         elements.push(Element::Shape(shape));
         Ok(elements.len() - 1)
+    }
+
+    /// Names element `element` (an empty name removes it).
+    pub fn set_name(&mut self, element: usize, name: &str) -> Result<(), String> {
+        self.touch_target();
+        self.elements_mut()?.get_mut(element).ok_or("no such element")?.set_name(name);
+        Ok(())
     }
 
     /// Adds a path through `nodes` (slide points), stroked in the theme's

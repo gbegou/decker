@@ -110,7 +110,7 @@ application; `DECKER_PYTHONPATH` overrides where it is looked for.
 | `Deck` | `title`, `width`, `height`, `slides`, `slide`, `themes`, `layouts`, `theme`, `add_slide(layout=, at=, section=, subsection=)`, `layout(name)`, `placeholders(layout)` (resolved against the theme), `add_asset(path)`, `save(path=)`, `commit()`, `discard()` |
 | `Slide` | `index`, `elements`, `selected`, `layout`, `section`, `subsection`, `notes`, `background`, `add_text(...)`, `add_math(...)`, `add_shape(kind, ...)`, `add_image(path, x, y, w=, h=)`, `add_video(path, ..., play=, loop=, sound=)`, `add_figure(source, ...)`, `add_table(rows, ..., header=, columns=, size=, rules=)`, `add_plot(*series, ...)`, `add_bars(labels, values, ...)`, `add_outline(...)`, `add(dict)`, `duplicate()`, `remove()` |
 | `Series` | `Series(ys, xs=None, label=, mark=, style=)` |
-| `Element` | `kind`, `rect` (`x`, `y`, `w`, `h`, `move(dx, dy)`), `text`, `style(bold=, italic=, size=, color=, font=)`, `steps`, `appear(at)`, `disappear(at)`, `move_to(at, x=, y=, w=, h=)`, `remove()`, `data` |
+| `Element` | `name`, `kind`, `rect` (`x`, `y`, `w`, `h`, `move(dx, dy)`), `text`, `style(bold=, italic=, size=, color=, font=)`, `steps`, `appear(at)`, `disappear(at)`, `move_to(at, x=, y=, w=, h=)`, `remove()`, `data` |
 
 Sizes are in points on a 960 × 540 slide; colors are `"#RRGGBB"`; `align` is `left`,
 `center`, `right` or `justify`.

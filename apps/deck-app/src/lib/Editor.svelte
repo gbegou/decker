@@ -1191,6 +1191,14 @@
     <aside class="props">
       {#if sel}
         <h3>{sel.kind} #{sel.index}</h3>
+        {#if sel.kind !== "placeholder"}
+          <label class="name">name
+            <input type="text" value={sel.name} placeholder={sel.label}
+                   title="Shown in the animation timeline, and kept by PowerPoint in its selection pane"
+                   onchange={(e) => { const i = sel!.index; const v = e.currentTarget.value; run(v ? "Named" : "Name removed", () => api.setName(i, v)); }}
+                   onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+          </label>
+        {/if}
         <label>x <input type="number" value={Math.round(sel.rect.x)} onchange={(e) => api.setRect(sel!.index, { ...sel!.rect, x: +e.currentTarget.value })} /></label>
         <label>y <input type="number" value={Math.round(sel.rect.y)} onchange={(e) => api.setRect(sel!.index, { ...sel!.rect, y: +e.currentTarget.value })} /></label>
         <label>w <input type="number" value={Math.round(sel.rect.w)} onchange={(e) => api.setRect(sel!.index, { ...sel!.rect, w: +e.currentTarget.value })} /></label>

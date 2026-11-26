@@ -708,6 +708,18 @@ fn add_shape(app: AppHandle, state: Shared, kind: String) -> Result<usize, Strin
 }
 
 #[tauri::command]
+fn set_name(app: AppHandle, state: Shared, element: usize, name: String) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint("set_name", false);
+        s.set_name(element, &name)?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+#[tauri::command]
 fn add_path(app: AppHandle, state: Shared, nodes: Vec<deck_core::PathNode>, closed: bool) -> Result<usize, String> {
     let index = {
         let mut s = state.lock().map_err(err)?;
@@ -1198,6 +1210,7 @@ pub fn run() {
             set_layout,
             set_layout_of,
             add_path,
+            set_name,
             set_path,
             edit_theme,
             new_theme,

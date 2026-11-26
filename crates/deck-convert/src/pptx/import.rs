@@ -484,7 +484,7 @@ fn import_tree(
                     elements.push(Element::Figure(deck_core::Figure {
                         rect,
                         source: source.to_string(),
-                        steps: vec![],
+                        ..Default::default()
                     }));
                 } else if let Some(source) = described.and_then(|d| d.strip_prefix("typst:")) {
                     elements.push(Element::Math(MathBlock { rect, source: source.to_string(), ..Default::default() }));
@@ -654,6 +654,14 @@ fn import_tree(
                     ..Default::default()
                 };
                 steps_mut(&mut elements[before]).insert(0, turn);
+            }
+        }
+        // A name given in PowerPoint (its selection pane) is kept; the ones
+        // PowerPoint makes up ("TextBox 3") are not.
+        if elements.len() == before + 1 {
+            let name = shape_name(node);
+            if !name.is_empty() && !is_automatic_name(&name) {
+                elements[before].set_name(&name);
             }
         }
         // Remember the PowerPoint shape id of each imported element, for
@@ -876,7 +884,7 @@ fn import_shape(
         || ph.is_some();
     if is_text_box && geom == "rect" {
         let placeholder = ph.as_ref().map(PhRef::name);
-        return Some(Element::Text(TextBox { rect, paragraphs, fill, stroke, steps: vec![], placeholder }));
+        return Some(Element::Text(TextBox { rect, paragraphs, fill, stroke, placeholder, ..Default::default() }));
     }
     // Custom geometry: a path, editable.
     if let Some(cust) = sp_pr.and_then(|p| child(p, NS_A, "custGeom")) {
@@ -1195,6 +1203,65 @@ fn import_table(node: Node, offset: Rect) -> Option<deck_core::Table> {
     };
     table.square();
     Some(table)
+}
+
+/// A name PowerPoint (or decker's export) gives by itself: a word or two
+/// of its own vocabulary and a number, such as "TextBox 3" or "Title 1".
+fn is_automatic_name(name: &str) -> bool {
+    const WORDS: &[&str] = &[
+        "textbox",
+        "text",
+        "box",
+        "rectangle",
+        "oval",
+        "picture",
+        "title",
+        "subtitle",
+        "content",
+        "placeholder",
+        "straight",
+        "connector",
+        "arrow",
+        "group",
+        "table",
+        "freeform",
+        "shape",
+        "google",
+        "slide",
+        "number",
+        "footer",
+        "date",
+        "isosceles",
+        "triangle",
+        "rounded",
+        "object",
+        "chart",
+        "video",
+        "media",
+        "graphic",
+        "frame",
+        "formula",
+        "line",
+        "ellipse",
+        "figure",
+        "image",
+        "outline",
+        "plan",
+        "subtitle",
+        "body",
+    ];
+    let words = name.split(|c: char| c.is_whitespace() || c == ';').filter(|w| !w.is_empty());
+    let mut saw_number = false;
+    for w in words {
+        let letters = w.trim_end_matches(|c: char| c.is_ascii_digit());
+        if letters.is_empty() || (letters.len() == 1 && letters.len() < w.len()) {
+            // "3", or Google's "p12".
+            saw_number = true;
+        } else if !WORDS.contains(&w.to_ascii_lowercase().as_str()) {
+            return false;
+        }
+    }
+    saw_number
 }
 
 fn shape_name(node: Node) -> String {
@@ -1636,6 +1703,23 @@ mod tests {
         resolve_shrunk(&mut loose);
         let Element::Text(t) = &loose[0] else { unreachable!() };
         assert_eq!(t.paragraphs[0].runs[1].size, Some(11.25), "without a placeholder: the default size, scaled");
+    }
+
+    #[test]
+    fn automatic_names_are_not_kept() {
+        for auto in [
+            "TextBox 3",
+            "Title 1",
+            "Google Shape;55;p12",
+            "Content Placeholder 2",
+            "Shape 7",
+            "Straight Arrow Connector 4",
+        ] {
+            assert!(is_automatic_name(auto), "{auto}");
+        }
+        for mine in ["Tank", "Speed arrow", "Step 2 of the proof", "Rectangle"] {
+            assert!(!is_automatic_name(mine), "{mine}");
+        }
     }
 
     #[test]

@@ -528,6 +528,16 @@ fn write_element(
 ) -> Result<()> {
     let start = part.xml.len();
     write_element_plain(part, media_count, add, deck_dir, deck, slide_index, element, id, ph, where_, warnings, math)?;
+    // A named element keeps its name: PowerPoint shows it in its selection pane.
+    if !element.name().is_empty() {
+        if let Some(at) = part.xml[start..].find("<p:cNvPr ").map(|i| start + i) {
+            if let Some(q) = part.xml[at..].find(" name=\"").map(|i| at + i + 7) {
+                if let Some(end) = part.xml[q..].find('"').map(|i| q + i) {
+                    part.xml.replace_range(q..end, &esc(element.name()));
+                }
+            }
+        }
+    }
     // The rotation the element has from the start goes on its frame, in
     // 60000ths of a degree.
     let rotation = element.state_at(0).rotation;
@@ -1454,6 +1464,7 @@ mod tests {
         t.rows[0][1] = deck_core::Cell::plain("Value");
         t.rows[1][0] = deck_core::Cell::plain("pi");
         t.rows[1][1] = deck_core::Cell { fill: Some(Color::rgb(0xFF, 0xEE, 0xDD)), ..deck_core::Cell::plain("3.14") };
+        t.name = "Speeds".into();
         t.rows[2][1] = deck_core::Cell::plain("merged");
         t.merge((2, 0), (2, 1));
         t.steps = vec![Step::disappear(0), Step::appear(1)];
@@ -1472,6 +1483,7 @@ mod tests {
         assert_eq!(b.rows[1][1].fill, Some(Color::rgb(0xFF, 0xEE, 0xDD)));
         assert_eq!((b.rows[2][0].text(), b.rows[2][0].colspan), ("merged".to_string(), 2), "merged cells survive");
         assert!(b.covered(2, 1));
+        assert_eq!(b.name, "Speeds", "a name survives PowerPoint");
         assert_eq!(b.steps.len(), 2, "the table's animation comes back");
         std::fs::remove_dir_all(&dir).unwrap();
     }

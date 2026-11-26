@@ -85,6 +85,18 @@ class Element:
         return self.data.get("type", "")
 
     @property
+    def name(self) -> str:
+        """The element's name ("" for none): the animation timeline shows it."""
+        return self.data.get("name", "")
+
+    @name.setter
+    def name(self, value: str) -> None:
+        if value:
+            self.data["name"] = value
+        else:
+            self.data.pop("name", None)
+
+    @property
     def rect(self) -> Rect:
         return Rect(self.data.setdefault("rect", {"x": 0, "y": 0, "w": 100, "h": 50}))
 

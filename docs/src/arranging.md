@@ -8,6 +8,14 @@
 - Drag on the empty slide: a rubber band selects every element it touches.
 - Click the empty slide to clear the selection; Delete removes the selected element.
 
+
+### Names
+
+The panel of a selected element starts with its **name**: type one to tell the element apart
+in the [animation timeline](steps.md) ("Speed arrow" rather than "Shape"). Without a name,
+lists show its kind and the start of its text. Names travel to PowerPoint and back, where they
+appear in the Selection Pane; the names PowerPoint makes up ("TextBox 3") are not imported.
+
 ## Moving, resizing, rotating
 
 - Drag to move the whole selection. Its edges and center snap to the slide's edges and center

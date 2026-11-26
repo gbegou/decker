@@ -10,6 +10,9 @@ export type Mask = { kind: "rectangle" } | { kind: "ellipse" } | { kind: "rounde
 
 export interface ElementInfo {
   index: number;
+  /** The name given to it ("" for none), and what lists show for it. */
+  name: string;
+  label: string;
   kind: "text" | "image" | "media" | "figure" | "table" | "shape" | "math" | "placeholder" | "outline" | "group";
   rect: Rect;
   /** Degrees clockwise about the box's center, at the viewed click. */
@@ -203,6 +206,7 @@ export const api = {
   styleElement: (element: number, change: ElementStyle) => invoke<View>("style_element", { element, change }),
   saveLayout: (path: string) => invoke<string>("save_layout", { path }),
   loadLayout: (path: string) => invoke<View>("load_layout", { path }),
+  setName: (element: number, name: string) => invoke<View>("set_name", { element, name }),
   addPath: (nodes: import("./paths").PathNode[], closed: boolean) => invoke<number>("add_path", { nodes, closed }),
   setPath: (element: number, nodes: import("./paths").PathNode[], closed: boolean) => invoke<View>("set_path", { element, nodes, closed }),
   setLayoutOf: (slides: number[], name: string | null) => invoke<View>("set_layout_of", { slides, name }),

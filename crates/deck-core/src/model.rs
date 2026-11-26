@@ -446,6 +446,66 @@ impl Element {
         }
     }
 
+    /// The element's own name (may be empty).
+    pub fn name(&self) -> &str {
+        match self {
+            Element::Text(t) => &t.name,
+            Element::Image(i) => &i.name,
+            Element::Media(m) => &m.name,
+            Element::Figure(f) => &f.name,
+            Element::Table(t) => &t.name,
+            Element::Shape(s) => &s.name,
+            Element::Math(m) => &m.name,
+            Element::Outline(o) => &o.name,
+            Element::Group(g) => &g.name,
+        }
+    }
+
+    pub fn set_name(&mut self, name: &str) {
+        let n = match self {
+            Element::Text(t) => &mut t.name,
+            Element::Image(i) => &mut i.name,
+            Element::Media(m) => &mut m.name,
+            Element::Figure(f) => &mut f.name,
+            Element::Table(t) => &mut t.name,
+            Element::Shape(s) => &mut s.name,
+            Element::Math(m) => &mut m.name,
+            Element::Outline(o) => &mut o.name,
+            Element::Group(g) => &mut g.name,
+        };
+        *n = name.trim().to_string();
+    }
+
+    /// A label for lists such as the animation timeline: the name, else the
+    /// kind and the start of the text.
+    pub fn label(&self) -> String {
+        if !self.name().is_empty() {
+            return self.name().to_string();
+        }
+        let text = |t: String| {
+            let t = t.split('\n').next().unwrap_or("").trim().to_string();
+            if t.chars().count() > 24 {
+                format!("{}…", t.chars().take(24).collect::<String>())
+            } else {
+                t
+            }
+        };
+        match self {
+            Element::Text(t) => format!("Text “{}”", text(t.text())),
+            Element::Image(_) => "Picture".into(),
+            Element::Media(_) => "Video".into(),
+            Element::Figure(_) => "Figure".into(),
+            Element::Table(_) => "Table".into(),
+            Element::Shape(s) => match s.paragraphs.iter().map(Paragraph::text).collect::<String>() {
+                t if !t.trim().is_empty() => format!("Shape “{}”", text(t)),
+                _ => format!("{:?}", s.kind),
+            },
+            Element::Math(m) => format!("Formula {}", text(m.source.clone())),
+            Element::Outline(_) => "Plan".into(),
+            Element::Group(g) => format!("Group of {}", g.children.len()),
+        }
+    }
+
     pub fn rect_mut(&mut self) -> &mut Rect {
         match self {
             Element::Text(t) => &mut t.rect,
@@ -569,6 +629,10 @@ impl Element {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Group {
     pub rect: Rect,
+    /// A name for the element (the animation timeline shows it, PowerPoint
+    /// keeps it in its selection pane); empty for none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<Step>,
     pub children: Vec<Element>,
@@ -577,7 +641,7 @@ pub struct Group {
 impl Group {
     /// A group of `children`, with their bounding box.
     pub fn of(children: Vec<Element>) -> Self {
-        Self { rect: bounding(&children), steps: vec![], children }
+        Self { rect: bounding(&children), name: String::new(), steps: vec![], children }
     }
 
     /// Moves and scales the children so that the group fills `rect`.
@@ -651,6 +715,10 @@ pub fn ungroup_element(elements: &mut Vec<Element>, index: usize) -> Option<usiz
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct OutlineBox {
     pub rect: Rect,
+    /// A name for the element (the animation timeline shows it, PowerPoint
+    /// keeps it in its selection pane); empty for none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<Step>,
     /// Font size in points.
@@ -725,6 +793,10 @@ impl Deck {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct MathBlock {
     pub rect: Rect,
+    /// A name for the element (the animation timeline shows it, PowerPoint
+    /// keeps it in its selection pane); empty for none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
     pub source: String,
     /// Font size in points.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -913,6 +985,10 @@ impl From<Color> for String {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct TextBox {
     pub rect: Rect,
+    /// A name for the element (the animation timeline shows it, PowerPoint
+    /// keeps it in its selection pane); empty for none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<Step>,
     /// The layout placeholder this box fills, by name.
@@ -1000,6 +1076,10 @@ impl Run {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Image {
     pub rect: Rect,
+    /// A name for the element (the animation timeline shows it, PowerPoint
+    /// keeps it in its selection pane); empty for none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<Step>,
     /// Path relative to the deck folder, e.g. `assets/image1.png`.
@@ -1021,6 +1101,10 @@ pub struct Image {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Media {
     pub rect: Rect,
+    /// A name for the element (the animation timeline shows it, PowerPoint
+    /// keeps it in its selection pane); empty for none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<Step>,
     /// Path relative to the deck folder, e.g. `assets/clip.mp4`.
@@ -1056,6 +1140,10 @@ impl Media {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Figure {
     pub rect: Rect,
+    /// A name for the element (the animation timeline shows it, PowerPoint
+    /// keeps it in its selection pane); empty for none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<Step>,
     pub source: String,
@@ -1067,6 +1155,10 @@ pub struct Figure {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Table {
     pub rect: Rect,
+    /// A name for the element (the animation timeline shows it, PowerPoint
+    /// keeps it in its selection pane); empty for none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<Step>,
     pub rows: Vec<Vec<Cell>>,
@@ -1385,6 +1477,10 @@ pub struct Stroke {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Shape {
     pub rect: Rect,
+    /// A name for the element (the animation timeline shows it, PowerPoint
+    /// keeps it in its selection pane); empty for none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<Step>,
     #[serde(default)]
