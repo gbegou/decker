@@ -29,7 +29,8 @@ opening of the same file opens that folder. The command line does the same with
   PowerPoint shows it.
 - Embedded videos, with their poster; one started automatically plays when it appears.
 - Groups, with their child-to-slide transform.
-- Animations: entrance and exit effects of the main sequence become build steps; motion
+- Animations: entrance and exit effects of the main sequence become build steps, with
+  their start (on click, with previous, after previous), delay and order; motion
   paths become moves (to the path's end point), Spin a turn, Grow/Shrink a size change.
 - Formulas and figures exported by decker come back editable.
 

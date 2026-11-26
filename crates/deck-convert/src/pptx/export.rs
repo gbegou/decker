@@ -265,10 +265,37 @@ fn timing_xml(slide: &Slide, slide_no: usize, size: (f64, f64), warnings: &mut V
         );
     }
     for step in 1..=last {
+        // The click's effects in playing order, grouped as PowerPoint does:
+        // an "after previous" effect opens a group starting when the one
+        // before has ended.
+        let mut groups: Vec<(u64, String)> = vec![];
         let mut effects = String::new();
-        for (k, element) in slide.elements.iter().enumerate() {
+        let mut group_delay = 0u64;
+        let mut any = false;
+        for (n, timed) in slide.click_order(step).into_iter().enumerate() {
+            let (k, element) = (timed.element, &slide.elements[timed.element]);
             let shape_id = k + 2;
-            for s in element.steps().iter().filter(|s| s.at == step) {
+            {
+                let s = &element.steps()[timed.step];
+                let after = n > 0 && s.trigger == Trigger::After;
+                if after {
+                    groups.push((group_delay, std::mem::take(&mut effects)));
+                    group_delay = ((timed.start - s.delay.max(0.0)) * 1000.0).round() as u64;
+                }
+                let first_type = if !any {
+                    "clickEffect"
+                } else if after {
+                    "afterEffect"
+                } else {
+                    "withEffect"
+                };
+                let mut first_of_step = true;
+                let mut node_type_for = || {
+                    let t = if first_of_step { first_type } else { "withEffect" };
+                    first_of_step = false;
+                    t
+                };
+                any = true;
                 let o = &s.set;
                 let dur = ((if s.duration > 0.0 { s.duration } else { 0.5 }) * 1000.0) as u64;
                 let delay = (s.delay * 1000.0) as u64;
@@ -312,7 +339,7 @@ fn timing_xml(slide: &Slide, slide_no: usize, size: (f64, f64), warnings: &mut V
                     ));
                 }
                 for (preset_id, class, body) in behaviours {
-                    let node_type = if effects.is_empty() { "clickEffect" } else { "withEffect" };
+                    let node_type = node_type_for();
                     let outer = next();
                     let body = body.replace("{id}", &next().to_string());
                     let _ = write!(
@@ -329,7 +356,7 @@ fn timing_xml(slide: &Slide, slide_no: usize, size: (f64, f64), warnings: &mut V
                     Some(a) if a <= 0.0 => ("exit", "exit", "hidden"),
                     _ => continue,
                 };
-                let node_type = if effects.is_empty() { "clickEffect" } else { "withEffect" };
+                let node_type = node_type_for();
                 let _ = write!(
                     effects,
                     r#"<p:par><p:cTn id="{}" presetID="10" presetClass="{class}" presetSubtype="0" fill="hold" nodeType="{node_type}"><p:stCondLst><p:cond delay="{delay}"/></p:stCondLst><p:childTnLst><p:set><p:cBhvr><p:cTn id="{}" dur="1" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn><p:tgtEl><p:spTgt spid="{shape_id}"/></p:tgtEl><p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr><p:to><p:strVal val="{}"/></p:to></p:set><p:animEffect transition="{}" filter="fade"><p:cBhvr><p:cTn id="{}" dur="{dur}"/><p:tgtEl><p:spTgt spid="{shape_id}"/></p:tgtEl></p:cBhvr></p:animEffect></p:childTnLst></p:cTn></p:par>"#,
@@ -343,13 +370,23 @@ fn timing_xml(slide: &Slide, slide_no: usize, size: (f64, f64), warnings: &mut V
         }
         let plays: String = (0..slide.elements.len()).filter_map(|k| autoplay(k, step, &mut next)).collect();
         effects.push_str(&plays);
-        if effects.is_empty() {
+        groups.push((group_delay, effects));
+        let inner: String = groups
+            .into_iter()
+            .filter(|(_, e)| !e.is_empty())
+            .map(|(delay, e)| {
+                format!(
+                    r#"<p:par><p:cTn id="{}" fill="hold"><p:stCondLst><p:cond delay="{delay}"/></p:stCondLst><p:childTnLst>{e}</p:childTnLst></p:cTn></p:par>"#,
+                    next()
+                )
+            })
+            .collect();
+        if inner.is_empty() {
             continue;
         }
         let _ = write!(
             clicks,
-            r#"<p:par><p:cTn id="{}" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="{}" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>{effects}</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>"#,
-            next(),
+            r#"<p:par><p:cTn id="{}" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst>{inner}</p:childTnLst></p:cTn></p:par>"#,
             next()
         );
     }
@@ -1450,6 +1487,46 @@ mod tests {
         }
         let Element::Shape(b) = &back.slides[0].elements[0] else { unreachable!() };
         assert_eq!(b.fill, Some(Color::rgb(0xAA, 0xBB, 0xCC)));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn with_and_after_previous_round_trip() {
+        let dir = std::env::temp_dir().join(format!("decker-triggers-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let shape = |x: f64, step: Step| {
+            Element::Shape(Shape {
+                rect: Rect::new(x, 100.0, 100.0, 100.0),
+                fill: Some(Color::BLACK),
+                steps: vec![Step::disappear(0), step],
+                ..Default::default()
+            })
+        };
+        let mut deck = Deck::new("triggers");
+        deck.slides.push(Slide {
+            elements: vec![
+                // Drawn first, played last: after the others, half a second later.
+                shape(0.0, Step { trigger: Trigger::After, seq: 3, delay: 0.5, ..Step::appear(1) }),
+                shape(200.0, Step { seq: 1, duration: 2.0, ..Step::appear(1) }),
+                shape(400.0, Step { seq: 2, ..Step::appear(1) }),
+                shape(600.0, Step::appear(2)),
+            ],
+            ..Default::default()
+        });
+        let pptx = dir.join("t.pptx");
+        assert!(export(&deck, &dir, &pptx).unwrap().is_empty());
+        let (back, report) = super::super::import(&pptx, &dir.join("back.deck")).unwrap();
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        let (a, b) = (&deck.slides[0], &back.slides[0]);
+        assert_eq!(b.last_step(), 2, "two clicks");
+        for click in 1..=2 {
+            let key = |s: &Slide| -> Vec<(usize, f64, f64)> {
+                s.click_order(click).iter().map(|t| (t.element, t.start, t.duration)).collect()
+            };
+            assert_eq!(key(a), key(b), "click {click}: same order and start times");
+        }
+        assert_eq!(b.elements[0].steps()[1].trigger, Trigger::After);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

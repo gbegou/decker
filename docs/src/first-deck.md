@@ -51,7 +51,7 @@ slide after**: a slide listing the sections, the current one highlighted, kept u
 ## 6. Build steps
 
 Select the figure, and in the side panel's **Build steps** choose to make it appear on
-click 1. The **◀ ▶** under the canvas show the slide at each click. See
+click 1. The slide still shows everything (**All**); **◀ ▶** under it show the slide at each click. See
 [Build steps](steps.md).
 
 ## 7. Notes

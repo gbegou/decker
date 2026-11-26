@@ -391,6 +391,62 @@ class DesignView(EditorTest):
         self.assertEqual(v["slide"], 2, "back on the slide")
 
 
+class Editing(EditorTest):
+    def test_all_elements_by_default_and_the_animation_mark(self):
+        e = self.e
+        e.s.js("document.querySelector(\".stack-item[data-index='4'] .thumb\").click(); return true")
+        e.settle(1.0)
+        v = self.view()
+        self.assertTrue(v["all"], "a slide opens with every element shown")
+        self.assertNotIn('opacity="0"', v["svg"], "the elements hidden at the start are visible")
+        marks = e.s.js("return [...document.querySelectorAll('.stack-item')].map(i => !!i.querySelector('.anim'))")
+        self.assertEqual(marks, [False, False, False, True, True], "a mark on the slides with animation")
+        e.s.js("[...document.querySelectorAll('.clicks button')].find(b => b.textContent === '▶').click(); return true")
+        e.settle(0.8)
+        v = self.view()
+        self.assertEqual((v["all"], v["step"]), (False, 0))
+        self.assertIn('opacity="0"', v["svg"], "the slide as it opens")
+
+    def test_keys_unsaved_mark_and_right_click(self):
+        e = self.e
+        e.goto(4, 1)
+        self.assertFalse(e.s.js("return !!document.querySelector('.dirty')"))
+        e.click_slide(820, 220)
+        x0 = next(x for x in self.view()["elements"] if x["text"] == "within 3 %")["rect"]["x"]
+        e.keys("\ue014")  # Right
+        e.chord(decker_app.SHIFT, "\ue014")
+        self.assertEqual(next(x for x in self.view()["elements"] if x["text"] == "within 3 %")["rect"]["x"], x0 + 11)
+        self.assertTrue(e.s.js("return !!document.querySelector('.dirty')"), "unsaved changes are marked")
+        e.chord(decker_app.CTRL, "s")
+        self.assertFalse(e.s.js("return !!document.querySelector('.dirty')"), "saved")
+        e.chord(decker_app.CTRL, "a")
+        self.assertEqual(e.s.js("return document.querySelectorAll('.hit.selected').length"), len(self.view()["elements"]))
+        e.escape()
+        self.assertEqual(e.s.js("return document.querySelectorAll('.hit.selected').length"), 0)
+        x, y = e.point(820, 220)
+        e.pointer(x, y, button=2)
+        self.assertEqual(e.s.js("return document.querySelectorAll('line.guide').length"), 0, "a right-click drags nothing")
+        self.assertTrue(e.s.js("return !!document.querySelector('.context-menu')"))
+
+    def test_on_click_with_and_after_previous(self):
+        e = self.e
+        e.goto(4, 1)
+        e.s.js("[...document.querySelectorAll('.tabs button')].find(b => b.textContent.trim() === 'Animations').click(); return true")
+        e.settle(0.6)
+        pick = """const sel = [...document.querySelectorAll('.timeline .row:not(.start) .entry')][arguments[0]].querySelector('select.when');
+                  sel.value = arguments[1]; sel.dispatchEvent(new Event('change', {bubbles: true})); return true"""
+        self.assertEqual(self.view()["last_step"], 1)
+        e.s.js(pick, 1, "click")   # the second effect of click 1: a click of its own
+        e.settle(1.0)
+        self.assertEqual(self.view()["last_step"], 2)
+        e.s.js(pick, 1, "after")   # back into click 1, after the first
+        e.settle(1.0)
+        v = self.view()
+        self.assertEqual(v["last_step"], 1)
+        steps = [s for x in v["elements"] for s in x["steps"] if s["at"] == 1]
+        self.assertEqual(sorted(s.get("trigger", "with") for s in steps), ["after", "with"])
+
+
 class Presenting(EditorTest):
     def env(self):
         return {"DECKER_PRESENT": "both", "DECKER_WINDOWED": "1"}

@@ -134,7 +134,8 @@ fn render_at(
     math: &dyn MathRenderer,
     live: bool,
 ) -> String {
-    let ctx = Ctx { deck, math, slide_index, defaults: deck.theme_of(slide).defaults(), live };
+    let timing = if live && step > 0 { slide.click_order(step) } else { vec![] };
+    let ctx = Ctx { deck, math, slide_index, defaults: deck.theme_of(slide).defaults(), live, timing };
     let mut out = String::new();
     let _ = write!(
         out,
@@ -182,7 +183,14 @@ pub fn render_theme(deck: &Deck, theme: &ThemeSet, math: &dyn MathRenderer) -> S
 }
 
 pub fn render_layout(deck: &Deck, layout: &Layout, math: &dyn MathRenderer) -> String {
-    let ctx = Ctx { deck, math, slide_index: None, defaults: deck.theme_of_layout(layout).defaults(), live: true };
+    let ctx = Ctx {
+        deck,
+        math,
+        slide_index: None,
+        defaults: deck.theme_of_layout(layout).defaults(),
+        live: true,
+        timing: vec![],
+    };
     let defaults = &ctx.defaults;
     let mut out = String::new();
     let _ = write!(
@@ -237,6 +245,8 @@ struct Ctx<'a> {
     /// Whether videos and GIFs are emitted as playable HTML (for a web
     /// view) or as their poster (thumbnails, PDF).
     live: bool,
+    /// The effects of the click being shown, with their start times.
+    timing: Vec<Timed>,
 }
 
 /// One element at a step: a `<g>` (with `id="e{index}"` for slide
@@ -254,6 +264,12 @@ fn element_body(out: &mut String, ctx: &Ctx, element: &Element, step: u32, index
         }
         if st.opacity != 1.0 {
             let _ = write!(out, r#" opacity="{}""#, fmt(st.opacity));
+        }
+        // The timing of the step that brought the element to this state:
+        // a presentation window transitions over it.
+        if let Some(t) = index.and_then(|i| ctx.timing.iter().find(|t| t.element == i)) {
+            let _ =
+                write!(out, r#" style="transition-duration:{}s;transition-delay:{}s""#, fmt(t.duration), fmt(t.start));
         }
         if st.rotation != 0.0 {
             let _ = write!(
@@ -890,6 +906,33 @@ fn fmt(v: f64) -> String {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn steps_of_a_click_start_with_or_after_the_previous() {
+        let el = |steps: Vec<Step>| Element::Text(TextBox { steps, ..Default::default() });
+        let step = |trigger, seq, duration, delay| Step { trigger, seq, duration, delay, ..Step::appear(1) };
+        let slide = Slide {
+            elements: vec![
+                el(vec![step(Trigger::After, 2, 1.0, 0.5)]),
+                el(vec![step(Trigger::With, 0, 2.0, 0.0)]),
+                el(vec![step(Trigger::With, 1, 0.5, 0.25)]),
+            ],
+            ..Default::default()
+        };
+        let order = slide.click_order(1);
+        assert_eq!(order.iter().map(|t| t.element).collect::<Vec<_>>(), [1, 2, 0], "by seq");
+        assert_eq!(
+            order.iter().map(|t| t.start).collect::<Vec<_>>(),
+            [0.0, 0.25, 2.5],
+            "with, with + delay, after the longest + delay"
+        );
+        let mut deck = Deck::new("t");
+        deck.slides.push(slide);
+        let still = render_step_still(&deck, &deck.slides[0], 1, &NoMath);
+        assert!(!still.contains("transition-delay"), "stills carry no timing");
+        let live = render_step_with(&deck, &deck.slides[0], 1, &NoMath);
+        assert!(live.contains(r#"<g id="e0" style="transition-duration:1s;transition-delay:2.5s""#), "{live}");
+    }
+
+    #[test]
     fn paths_draw_lines_and_curves_and_close() {
         let nodes = [
             PathNode { x: 100.0, y: 100.0, ..Default::default() },
@@ -1038,7 +1081,7 @@ mod tests {
         let s0 = render_step(&deck, slide, 0);
         assert!(s0.contains(r#"<g id="e0" opacity="0">"#), "{s0}");
         let s1 = render_step(&deck, slide, 1);
-        assert!(s1.contains(r#"<g id="e0">"#));
+        assert!(s1.contains(r#"<g id="e0""#));
         let s2 = render_slide(&deck, slide);
         assert!(s2.contains(r#"transform="rotate(45 5 5)""#), "{s2}");
         assert!(s2.contains(r#"data-math="source">a &lt; b</text>"#));

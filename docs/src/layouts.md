@@ -40,8 +40,8 @@ slide's layout; **Slides**, or **Close design view**, returns to the slide.
   **delete** it (its slides keep their elements); anywhere, a **new theme** or **load a
   layout from a file**.
 - **The header** holds the name field (renames the theme or layout; slides follow),
-  **+ Text**, **+ Shape**, **+ Table**, **+ Placeholder** (a title, a subtitle or a body,
-  named `subtitle2`, `body2`… for a second one), and **Delete**.
+  **+ Text**, **+ Shape**, **+ Table** and **+ Placeholder** (a title, a subtitle or a body,
+  named `subtitle2`, `body2`… for a second one).
 - **The side panel** shows, for a theme, its **placeholder styles** (one per kind: `title`,
   `subtitle`, `body`…; a body style serves `body1`, `body2`…), its **fonts and colors** and
   its layouts; for a layout, its theme and overrides (below) and its own fonts and colors.

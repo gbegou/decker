@@ -118,7 +118,14 @@ fn new_deck(app: AppHandle, state: Shared) -> Result<View, String> {
 }
 
 #[tauri::command]
-fn save(state: Shared, path: Option<String>) -> Result<String, String> {
+fn save(app: AppHandle, state: Shared, path: Option<String>) -> Result<String, String> {
+    let saved = save_deck(state, path);
+    // The view tells the editor that nothing is unsaved any more.
+    let _ = app.emit("view-changed", ());
+    saved
+}
+
+fn save_deck(state: Shared, path: Option<String>) -> Result<String, String> {
     let mut s = state.lock().map_err(err)?;
     // Saving to a `.deckz` name: the working folder is saved, then packed
     // into that file; a plain Save of a deck opened from one does the same.
@@ -155,6 +162,7 @@ fn save(state: Shared, path: Option<String>) -> Result<String, String> {
             s.deck = Some(d);
             s.dir = dst;
             s.archive = archive;
+            s.dirty = false;
             match &s.archive {
                 Some(file) => {
                     deck_convert::archive::pack(&s.dir, file).map_err(err)?;
@@ -714,6 +722,27 @@ fn add_shape(app: AppHandle, state: Shared, kind: String) -> Result<usize, Strin
 }
 
 #[tauri::command]
+fn set_trigger(app: AppHandle, state: Shared, element: usize, step: usize, mode: String) -> Result<View, String> {
+    let view = {
+        let mut s = state.lock().map_err(err)?;
+        s.checkpoint("set_trigger", false);
+        s.set_trigger(element, step, &mode)?;
+        s.view()
+    };
+    edited(&app);
+    Ok(view)
+}
+
+/// Closes the application, unsaved changes or not (the editor asked).
+#[tauri::command]
+fn quit(app: AppHandle, state: Shared) {
+    if let Ok(mut s) = state.lock() {
+        s.dirty = false;
+    }
+    app.exit(0);
+}
+
+#[tauri::command]
 fn move_step(
     app: AppHandle,
     state: Shared,
@@ -721,11 +750,12 @@ fn move_step(
     step: usize,
     to: u32,
     insert: bool,
+    position: Option<usize>,
 ) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
         s.checkpoint("move_step", false);
-        s.move_step(element, step, to, insert)?;
+        s.move_step(element, step, to, insert, position)?;
         s.view()
     };
     edited(&app);
@@ -895,7 +925,11 @@ fn goto(app: AppHandle, state: Shared, slide: usize, step: Option<u32>) -> Resul
     let view = {
         let mut s = state.lock().map_err(err)?;
         s.break_merge();
-        s.goto(slide, step.unwrap_or(0));
+        // Without a click: the editor's view of every element.
+        match step {
+            Some(step) => s.goto(slide, step),
+            None => s.goto_all(slide),
+        }
         s.view()
     };
     changed(&app);
@@ -1166,6 +1200,18 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(initial))
         .manage(SystemClipboard(Mutex::new(None)))
+        .on_window_event(|window, event| {
+            // Closing the editor with unsaved changes: the editor asks first.
+            if window.label() == "editor" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    let dirty = window.state::<Mutex<AppState>>().lock().map(|s| s.dirty).unwrap_or(false);
+                    if dirty {
+                        api.prevent_close();
+                        let _ = window.emit("close-requested", ());
+                    }
+                }
+            }
+        })
         .setup(move |app| {
             // The presentation windows, hidden until "Present".
             deck_present::create_windows(app.handle(), "decker");
@@ -1238,6 +1284,8 @@ pub fn run() {
             add_path,
             set_name,
             move_step,
+            set_trigger,
+            quit,
             set_path,
             edit_theme,
             new_theme,

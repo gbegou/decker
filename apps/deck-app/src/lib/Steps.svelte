@@ -4,8 +4,10 @@
   // from the element's current box so that dragging refines it.
   import { api, type ElementInfo, type Step } from "./api";
 
-  let { element, current, last, onrun, ongoto }: {
+  let { element, current, last, onrun, ongoto, firstOfClick = () => true }: {
     element: ElementInfo;
+    /** Whether a step is the first effect of its click (it starts on the click). */
+    firstOfClick?: (s: Step) => boolean;
     /** The step shown on the canvas, and the slide's last step. */
     current: number;
     last: number;
@@ -14,6 +16,17 @@
   } = $props();
 
   const steps = $derived(element.steps);
+  /** The hide at the start that "Appear on click" adds: implied, not listed. */
+  const auto = (s: Step) => s.at === 0 && s.set.opacity === 0 && Object.keys(s.set).length === 1;
+  function describe(s: Step): string {
+    const o = s.set, parts: string[] = [];
+    if (o.opacity !== undefined) parts.push(o.opacity >= 1 ? "appears" : o.opacity <= 0 ? "disappears" : "fades");
+    if (o.x !== undefined || o.y !== undefined) parts.push("moves");
+    if (o.w !== undefined || o.h !== undefined) parts.push("resizes");
+    if (o.rotation !== undefined) parts.push("turns");
+    if (o.fill !== undefined) parts.push("changes color");
+    return parts.join(", ") || "no change";
+  }
 
   function save(next: Step[], label: string) {
     onrun(label, () => api.setSteps(element.index, next));
@@ -58,16 +71,29 @@
     <button onclick={moveStep} title="A step whose target box you then drag on the canvas">+ Move step</button>
   </div>
   {#if steps.length === 0}
-    <p class="muted">No build steps: the element is shown as is. Steps play on each "next" during the presentation. Use ▶ under the canvas to view a later click and drag the element: that makes a move step.</p>
+    <p class="muted" title="Steps play on each click of the presentation. Viewing a click (▶ under the slide), dragging the element makes a move step.">No animation: shown as is.</p>
   {:else}
+    {#if steps.some(auto)}
+      <p class="muted">Hidden when the slide opens, until it appears.</p>
+    {/if}
     {#each steps as s, i}
-      <div class="step" class:current={s.at === current}>
-        <div class="head">
-          <label>click <input type="number" min="0" max="99" value={s.at} onchange={(e) => patch(i, (st) => (st.at = Math.max(0, +e.currentTarget.value)))} /></label>
-          <button class="link" onclick={() => ongoto(s.at)} title="Show this step on the canvas">view</button>
-          <span class="spacer"></span>
-          <button onclick={() => remove(i)} title="Remove this step">×</button>
-        </div>
+      {#if !auto(s)}
+      <details class="step" class:current={s.at === current}>
+        <summary>
+          <span class="what">{s.at === 0 ? "Start" : `Click ${s.at}`} · {describe(s)}{s.duration ? ` · ${s.duration} s` : ""}</span>
+          <button class="link" onclick={(e) => { e.preventDefault(); ongoto(s.at); }} title="Show this click on the canvas">view</button>
+          <button onclick={(e) => { e.preventDefault(); remove(i); }} title="Remove this step">×</button>
+        </summary>
+        {#if s.at > 0}
+          <label class="line">starts
+            <select value={firstOfClick(s) ? "click" : (s.trigger ?? "with")}
+                    onchange={(e) => { const mode = e.currentTarget.value as "click" | "with" | "after"; onrun("Start of the effect", () => api.setTrigger(element.index, i, mode)); }}>
+              <option value="click">on click</option>
+              <option value="with">with previous</option>
+              <option value="after">after previous</option>
+            </select>
+          </label>
+        {/if}
         <div class="grid">
           <label class="wide">visibility
             <select value={s.set.opacity === undefined ? "" : s.set.opacity >= 1 ? "1" : s.set.opacity <= 0 ? "0" : "p"}
@@ -95,22 +121,27 @@
             </select>
           </label>
         </div>
-      </div>
+      </details>
+      {/if}
     {/each}
-    <p class="muted">Viewing click 1 or later, dragging or resizing the element sets where it is at that click (a move step is created if needed).</p>
+    <p class="muted" title="A move step is created if the element has none at that click.">Viewing a click, dragging the element sets where it is at that click.</p>
   {/if}
 </div>
 
 <style>
   .steps { display: flex; flex-direction: column; gap: 6px; }
   .row { display: flex; flex-wrap: wrap; gap: 4px; }
-  .row button, .head button { font-size: 11px; padding: 2px 6px; }
+  .row button { font-size: 11px; padding: 2px 6px; }
+  details.step > summary { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; list-style: none; }
+  details.step > summary::before { content: "▸"; color: var(--muted); }
+  details.step[open] > summary::before { content: "▾"; }
+  details.step .what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  details.step > summary button { font-size: 11px; padding: 0 5px; }
+  details.step[open] > summary { margin-bottom: 6px; }
+  .line { display: flex; align-items: center; justify-content: space-between; gap: 6px; color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+  .line select { padding: 2px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; font-size: 11px; }
   .step { min-width: 0; border: 1px solid var(--border); border-radius: 6px; padding: 6px; }
   .step.current { border-color: var(--accent); }
-  .head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-  .head label { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; }
-  .head input { width: 48px; padding: 2px 4px; }
-  .spacer { flex: 1; }
   .link { background: none; border: none; color: var(--accent); padding: 0; font-size: 11px; }
   /* Cells may shrink below their content: the side panel is narrow. */
   .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 3px 8px; }

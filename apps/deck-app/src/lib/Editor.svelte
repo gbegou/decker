@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { listen } from "@tauri-apps/api/event";
+  import lockup from "../assets/decker_lockup.svg";
   import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { api, watchView, watchThumbnails, presentationKeys, type View, type Rect, type Crop, type Mask, type TextLayout } from "./api";
@@ -283,8 +285,45 @@
     f();
   }
 
+  /** Whether step `st` of element `index` is the first effect of its click. */
+  function firstOfClick(index: number, st: { at: number; seq?: number }): boolean {
+    if (!view) return true;
+    const k = view.elements[index]?.steps.indexOf(st as never) ?? 0;
+    const key = (e: number, i: number, q: number) => [q, e, i];
+    const mine = key(index, k, st.seq ?? 0);
+    return !view.elements.some((el) => el.steps.some((o, i) => {
+      if (o.at !== st.at || (el.index === index && i === k)) return false;
+      const other = key(el.index, i, o.seq ?? 0);
+      return other[0] < mine[0] || (other[0] === mine[0] && (other[1] < mine[1] || (other[1] === mine[1] && other[2] < mine[2])));
+    }));
+  }
+
   /** The arrange tools, unfolded from their button. */
   let arrangeOpen = $state(false);
+  // ----- unsaved changes -----
+  /** What waits for an answer about the unsaved changes. */
+  let pending = $state<{ what: string; action: () => unknown } | null>(null);
+  /** Runs `action`, asking first when the deck has unsaved changes. */
+  function guarded(action: () => unknown, what = "Continue") {
+    if (view?.dirty) pending = { what, action };
+    else action();
+  }
+  async function answer(choice: "save" | "discard" | "cancel") {
+    const p = pending;
+    pending = null;
+    if (!p || choice === "cancel") return;
+    if (choice === "save") {
+      await save();
+      if (view?.dirty) return; // the save was cancelled or failed
+    }
+    p.action();
+  }
+  onMount(() => {
+    // Closing the window with unsaved changes: the backend asks us first.
+    const un = listen("close-requested", () => { pending = { what: "Close", action: api.quit }; });
+    return () => { un.then((f) => f()); };
+  });
+
   /** The File menu, open. */
   let fileMenu = $state(false);
   function fileAction(f: () => unknown) {
@@ -684,6 +723,8 @@
       hadSelection = has;
     }
   });
+  // The design view has no Animations tab.
+  $effect(() => { if (editingTemplate && panelTab === "anim") panelTab = selected !== null ? "element" : "slide"; });
   function showTab(tab: "element" | "slide" | "anim") {
     if (panelOpen && panelTab === tab) panelOpen = false;
     else { panelTab = tab; panelOpen = true; }
@@ -935,7 +976,8 @@
   }
 
   function startDrag(e: PointerEvent, index: number, mode: "move" | "resize" | "rotate") {
-    if (!view) return;
+    // Only the main button drags: a right-click opens the menu.
+    if (!view || e.button !== 0) return;
     if (e.shiftKey && mode === "move") {
       // Shift+click toggles the element in the multi-selection.
       if (selected === null) selected = index;
@@ -968,7 +1010,7 @@
 
   /** Pressing on the empty canvas starts a rubber band. */
   function startBand(e: PointerEvent) {
-    if (!view || editing || (e.target as Element).closest(".hit, .handle, .rotate, .text-editing")) return;
+    if (!view || editing || e.button !== 0 || (e.target as Element).closest(".hit, .handle, .rotate, .text-editing")) return;
     const p = slidePoint(e);
     band = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
     // Captured, so that releasing outside the canvas still ends the band.
@@ -1068,12 +1110,19 @@
     // The path tools take the keys while they are active.
     if (pathMode !== null || pathEdit !== null) return;
     if (e.key === "F1") { help = !help; e.preventDefault(); return; }
+    // Presenting, from anywhere: F5 from the first slide, Shift+F5 from this one.
+    if (e.key === "F5" && view?.slide_count) {
+      (document.activeElement as HTMLElement | null)?.blur?.();
+      present(!e.shiftKey);
+      e.preventDefault();
+      return;
+    }
     // File shortcuts, as in every editor (also from a text field).
     if ((e.ctrlKey || e.metaKey) && !e.altKey) {
       const k = e.key.toLowerCase();
       const file: Record<string, (() => unknown) | undefined> = {
-        n: e.shiftKey ? undefined : () => run("New deck", api.newDeck),
-        o: e.shiftKey ? undefined : openFile,
+        n: e.shiftKey ? undefined : () => guarded(() => run("New deck", api.newDeck)),
+        o: e.shiftKey ? undefined : () => guarded(openFile),
         s: view?.slide_count ? (e.shiftKey ? saveAs : save) : undefined,
       };
       const f = file[k];
@@ -1134,8 +1183,31 @@
       e.preventDefault();
       return;
     }
-    if (e.key === "F5" && view?.slide_count) {
-      present(!e.shiftKey);
+    // Moving the selection with the arrows: a point, ten with Shift.
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && selection.length && view && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
+      const d = e.shiftKey ? 10 : 1;
+      const [dx, dy] = e.key === "ArrowLeft" ? [-d, 0] : e.key === "ArrowRight" ? [d, 0] : e.key === "ArrowUp" ? [0, -d] : [0, d];
+      const rects = selection.map((i) => [i, { ...view!.elements[i].rect, x: view!.elements[i].rect.x + dx, y: view!.elements[i].rect.y + dy }] as [number, Rect]);
+      enqueue(async () => { await run("Moved", () => api.setRects(rects)); });
+      e.preventDefault();
+      return;
+    }
+    if ((e.key === "a" || e.key === "A") && (e.ctrlKey || e.metaKey) && view?.elements.length) {
+      selected = view.elements[0].index;
+      also = view.elements.slice(1).map((x) => x.index);
+      e.preventDefault();
+      return;
+    }
+    if (e.key === "Escape" && selected !== null) {
+      selected = null;
+      also = [];
+      return;
+    }
+    if (e.key === "Tab" && view?.elements.length) {
+      const n = view.elements.length;
+      const at = selected === null ? (e.shiftKey ? 0 : -1) : selected;
+      selected = (at + (e.shiftKey ? n - 1 : 1) + n) % n;
+      also = [];
       e.preventDefault();
       return;
     }
@@ -1151,7 +1223,10 @@
       return;
     }
     if (e.key === "PageDown" || e.key === "PageUp") {
-      api.navigate(e.key === "PageDown" ? "next_slide" : "prev_slide");
+      if (view) {
+        const to = view.slide + (e.key === "PageDown" ? 1 : -1);
+        if (to >= 0 && to < view.slide_count) api.goto(to);
+      }
       e.preventDefault();
       return;
     }
@@ -1184,15 +1259,15 @@
 <div class="editor" style:grid-template-columns="{slidesOpen ? `${slidesWidth}px` : '36px'} 1fr {panelOpen ? '300px' : '36px'}">
   <header>
     <div class="file-menu">
-      <button aria-haspopup="menu" aria-expanded={fileMenu} onclick={() => (fileMenu = !fileMenu)}>File ▾</button>
+      <button aria-haspopup="menu" aria-expanded={fileMenu} onclick={() => (fileMenu = !fileMenu)}>File ▾{#if view?.dirty}<span class="dirty" title="Unsaved changes (Ctrl+S saves)"> ●</span>{/if}</button>
       {#if fileMenu}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div class="menu-backdrop" onclick={() => (fileMenu = false)} oncontextmenu={(e) => { e.preventDefault(); fileMenu = false; }}></div>
         <div class="context-menu file" role="menu">
-          <button role="menuitem" onclick={() => fileAction(() => run("New deck", api.newDeck))}>New <kbd>Ctrl+N</kbd></button>
-          <button role="menuitem" title="A PowerPoint file, a single-file deck (.deckz) or a deck.json" onclick={() => fileAction(openFile)}>Open file… <kbd>Ctrl+O</kbd></button>
-          <button role="menuitem" onclick={() => fileAction(openFolder)}>Open .deck folder…</button>
+          <button role="menuitem" onclick={() => fileAction(() => guarded(() => run("New deck", api.newDeck)))}>New <kbd>Ctrl+N</kbd></button>
+          <button role="menuitem" title="A PowerPoint file, a single-file deck (.deckz) or a deck.json" onclick={() => fileAction(() => guarded(openFile))}>Open file… <kbd>Ctrl+O</kbd></button>
+          <button role="menuitem" onclick={() => fileAction(() => guarded(openFolder))}>Open .deck folder…</button>
           <hr />
           <button role="menuitem" disabled={!view?.slide_count} onclick={() => fileAction(save)}>Save <kbd>Ctrl+S</kbd></button>
           <button role="menuitem" disabled={!view?.slide_count} onclick={() => fileAction(saveAs)}>Save as… <kbd>Ctrl+Shift+S</kbd></button>
@@ -1220,7 +1295,6 @@
       </span>
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
       <MenuButton label="+ Shape" title="Add a shape, or draw a path" items={SHAPES} onpick={addShapeOf} />
-      <button title="Its layouts keep their look and lose the theme" onclick={() => run("Theme deleted", api.deleteTheme)}>Delete theme</button>
       <button class="primary" onclick={exitDesign}>Close design view</button>
     {:else if view?.editing_layout !== null && view?.editing_layout !== undefined}
       <span class="banner">Layout
@@ -1229,14 +1303,8 @@
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
       <MenuButton label="+ Shape" title="Add a shape, or draw a path" items={SHAPES} onpick={addShapeOf} />
       <button onclick={() => enqueue(() => run("Added table", () => api.addTable(3, 3)).then(selectAdded))} title="A table of 3 by 3 cells with a header row; edit it in the panel">+ Table</button>
-      <select class="add-shape" title="Add a named placeholder" value="" onchange={(e) => { const k = e.currentTarget.value as "title" | "subtitle" | "body"; e.currentTarget.value = ""; if (k) run("Added placeholder", () => api.addPlaceholder(k)); }}>
-        <option value="">+ Placeholder</option>
-        <option value="title">Title</option>
-        <option value="subtitle">Subtitle</option>
-        <option value="body">Body</option>
-      </select>
-      <button onclick={saveLayoutAs} disabled={!view.dir}>Save layout…</button>
-      <button onclick={() => run("Layout deleted", api.deleteLayout)}>Delete layout</button>
+      <MenuButton label="+ Placeholder" title="A slot new slides start from" items={[{ value: "title", label: "Title" }, { value: "subtitle", label: "Subtitle" }, { value: "body", label: "Body" }]}
+                  onpick={(k) => run("Added placeholder", () => api.addPlaceholder(k as "title" | "subtitle" | "body"))} />
       <button class="primary" onclick={exitDesign}>Close design view</button>
     {:else if view?.slide_count}
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
@@ -1249,7 +1317,9 @@
       {#if view.presenting}
         <button class="primary" onclick={() => api.stopPresentation()}>Stop (Esc)</button>
       {:else}
-        <button class="primary" title="From this slide (Shift+F5); F5 from the start" onclick={() => present(false)}>Present</button>
+        <MenuButton label="Present" primary align="right" title="Start the presentation"
+                    items={[{ value: "here", label: "From this slide", key: "Shift+F5" }, { value: "start", label: "From the first slide", key: "F5" }]}
+                    onpick={(k) => present(k === "start")} />
       {/if}
     {/if}
   </header>
@@ -1301,13 +1371,9 @@
         <div class="stack-item" data-index={i} class:drop-before={dropAt === i} class:drop-after={dropAt === i + 1 && i === thumbnails.length - 1} class:dragging={dragging === i}
              onpointerdown={(e) => thumbDown(e, i)}>
           <button class="thumb" class:current={i === view.slide} class:picked={picked.includes(i)} onclick={(e) => clickThumb(e, i)} oncontextmenu={(e) => openSlideMenu(e, i)}>
-            <span class="num">{i + 1}</span>
+            <span class="num">{i + 1}{#if view.starts[i]?.clicks}<span class="anim" title="{view.starts[i].clicks} click{view.starts[i].clicks > 1 ? 's' : ''} of animation">★</span>{/if}</span>
             <SlideView svg={thumb} width={view.width} height={view.height} />
           </button>
-          <div class="adders">
-            {#if st.section === null}<button title="Start a section at this slide" onclick={() => startHeading(i, "section")}>+ section</button>{/if}
-            {#if st.subsection === null}<button title="Start a subsection at this slide" onclick={() => startHeading(i, "subsection")}>+ sub</button>{/if}
-          </div>
         </div>
       {/each}
       {/if}
@@ -1422,10 +1488,13 @@
       </div>
       <div class="steps">
         {#if editingTemplate}{view.editing_theme !== null ? `Theme “${view.editing_theme}”` : `Layout “${view.editing_layout}”`}{:else}Slide {view.slide + 1} / {view.slide_count}{/if}
-        {#if view.last_step > 0 || view.step > 0}
-          · click {view.step} / {view.last_step}
-          <button onclick={() => api.goto(view!.slide, Math.max(0, view!.step - 1))}>◀</button>
-          <button onclick={() => api.goto(view!.slide, view!.step + 1)}>▶</button>
+        {#if !editingTemplate && (view.last_step > 0 || view.step > 0)}
+          <span class="clicks" title="The slide at a click of its animation, or with every element shown for editing">
+            <button class:on={view.all} title="Every element shown, for editing" onclick={() => api.goto(view!.slide)}>All</button>
+            <button title="Previous click" disabled={view.all || view.step === 0} onclick={() => api.goto(view!.slide, Math.max(0, view!.step - 1))}>◀</button>
+            <span class="at">{view.all ? `${view.last_step} click${view.last_step > 1 ? "s" : ""}` : view.step === 0 ? "start" : `click ${view.step} / ${view.last_step}`}</span>
+            <button title="Next click (from All: the slide as it opens)" disabled={!view.all && view.step >= view.last_step} onclick={() => api.goto(view!.slide, view!.all ? 0 : view!.step + 1)}>▶</button>
+          </span>
         {/if}
         {#if !editingTemplate}
           <span class="spacer"></span>
@@ -1457,10 +1526,11 @@
           <Timeline elements={view.elements} last={view.last_step} current={view.step} {selected}
                     onselect={(i) => { selected = i; also = []; }}
                     ongoto={(step) => api.goto(view!.slide, step)}
-                    onmove={(element, step, to, insert) => run(insert ? "Step on a click of its own" : "Step moved", () => api.moveStep(element, step, to, insert))} />
+                    onmove={(element, step, to, insert, position) => run(insert ? "Step on a click of its own" : "Step moved", () => api.moveStep(element, step, to, insert, position))}
+                    ontrigger={(element, step, mode) => run("Start of the effect", () => api.setTrigger(element, step, mode))} />
           {#if sel && sel.kind !== "placeholder"}
             <h3>Steps of {sel.label}</h3>
-            <Steps element={sel} current={view.step} last={view.last_step}
+            <Steps element={sel} current={view.step} last={view.last_step} firstOfClick={(st) => firstOfClick(sel!.index, st)}
                    onrun={(label, f) => run(label, f)} ongoto={(step) => api.goto(view!.slide, step)} />
           {:else}
             <p class="muted">Select an element to add or edit its steps: appear or disappear on a click, move, grow, turn, change color.</p>
@@ -1468,7 +1538,7 @@
         {/if}
       {:else if panelTab === "element"}
       {#if sel}
-        <h3>{sel.kind} #{sel.index}</h3>
+        <h3>{sel.kind === "math" ? "Formula" : sel.kind === "outline" ? "Plan" : sel.kind === "media" ? "Video" : sel.shape === "path" ? "Path" : sel.kind}</h3>
         {#if sel.kind !== "placeholder"}
           <label class="name">name
             <input type="text" value={sel.name} placeholder={sel.label}
@@ -1708,7 +1778,13 @@
     </aside>
   {:else}
     <div class="empty">
-      <p>Open a PowerPoint file or a .deck folder, or start a new deck.</p>
+      <img class="logo" src={lockup} alt="decker: Efficient Cross-platform Keynote Editor and Renderer" />
+      <div class="row">
+        <button class="primary" onclick={() => run("New deck", api.newDeck)}>New deck</button>
+        <button onclick={openFile} title="A PowerPoint file, a single-file deck (.deckz) or a deck.json">Open file…</button>
+        <button onclick={openFolder}>Open .deck folder…</button>
+      </div>
+      <p class="muted">Ctrl+N · Ctrl+O · F1 for the commands and keys</p>
     </div>
   {/if}
 
@@ -1792,6 +1868,20 @@
         <button role="menuitem" onclick={() => onElement(() => { panelOpen = true; panelTab = "anim"; })}>Animations…</button>
       {/if}
       {#if sel.shape === "path"}<button role="menuitem" onclick={() => onElement(() => startEdit(sel!.index))}>Edit points</button>{/if}
+    </div>
+  {/if}
+
+  {#if pending}
+    <div class="modal">
+      <div class="dialog confirm">
+        <h3>Unsaved changes</h3>
+        <p>The deck has changes that are not saved.</p>
+        <div class="row">
+          <button class="primary" onclick={() => answer("save")}>Save</button>
+          <button onclick={() => answer("discard")}>Don't save</button>
+          <button onclick={() => answer("cancel")}>Cancel</button>
+        </div>
+      </div>
     </div>
   {/if}
 
@@ -1886,7 +1976,10 @@
      presentation on the right. */
   header .spacer { order: 5; }
   header .end { order: 6; }
-  header .primary { order: 7; }
+  header .primary, header :global(.menu-button.primary) { order: 7; }
+  .dirty { color: var(--accent); }
+  .dialog.confirm { width: 360px; }
+  .dialog.confirm h3 { margin: 0 0 6px; }
   header { grid-area: head; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); align-items: center; }
   header button { white-space: nowrap; }
   .spacer { flex: 1; }
@@ -1949,8 +2042,6 @@
   .stack-item { user-select: none; touch-action: none; }
   .stack-item.drop-before { border-top-color: var(--accent); }
   .stack-item.drop-after { border-bottom-color: var(--accent); }
-  .stack-item .adders { display: none; position: absolute; right: 4px; bottom: 4px; gap: 3px; }
-  .stack-item:hover .adders { display: flex; }
   .adders button { font-size: 10px; padding: 1px 5px; background: var(--panel); }
   .heading { display: flex; align-items: center; gap: 6px; padding: 6px 2px 0; }
   .heading.section { border-top: 1px solid var(--border); margin-top: 4px; }
@@ -1970,6 +2061,11 @@
   .menu-list { max-height: 40vh; overflow-y: auto; padding-left: 12px; display: flex; flex-direction: column; }
   .thumb.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .thumb .num { flex: none; width: 16px; text-align: right; color: var(--muted); font-size: 11px; padding-top: 1px; }
+  .thumb .anim { display: block; color: var(--accent); font-size: 10px; line-height: 1.4; }
+  .clicks { display: inline-flex; align-items: center; gap: 4px; }
+  .clicks button { font-size: 11px; padding: 1px 7px; }
+  .clicks button.on { border-color: var(--accent); color: var(--accent); }
+  .clicks .at { min-width: 74px; text-align: center; font-size: 12px; }
   .thumb.current .num { color: var(--accent); font-weight: 600; }
   main { grid-area: main; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
   .canvas-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 16px; min-height: 0; }
@@ -2013,7 +2109,9 @@
   .props label.check input { width: auto; }
   .muted { color: var(--muted); }
   .crop-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; }
-  .empty { grid-area: main; display: flex; align-items: center; justify-content: center; color: var(--muted); grid-column: 1 / -1; }
+  .empty { grid-area: main; display: flex; flex-direction: column; gap: 18px; align-items: center; justify-content: center; color: var(--muted); grid-column: 1 / -1; }
+  .empty .logo { width: min(640px, 70vw); height: auto; }
+  .empty .row { justify-content: center; }
   select { width: 100%; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 6px; }
   .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
   .dialog { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; width: min(900px, 90vw); max-height: 85vh; display: flex; flex-direction: column; gap: 12px; }

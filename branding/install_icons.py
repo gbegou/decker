@@ -84,3 +84,9 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+# The editor's start screen: the dark lockup without its background, on the app's own.
+_start = (ROOT / "branding" / "decker_lockup_dark.svg").read_text(encoding="utf-8").replace(
+    '<rect width="870" height="240" fill="#222326"/>', "", 1)
+(ROOT / "apps" / "deck-app" / "src" / "assets").mkdir(parents=True, exist_ok=True)
+(ROOT / "apps" / "deck-app" / "src" / "assets" / "decker_lockup.svg").write_text(_start, encoding="utf-8")

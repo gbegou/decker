@@ -821,6 +821,65 @@ pub struct Step {
     pub delay: f64,
     #[serde(default, skip_serializing_if = "is_default")]
     pub easing: Easing,
+    /// When it starts within its click: with the effect before it (the
+    /// first of a click starts on the click), or after that one ends.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub trigger: Trigger,
+    /// Its place among the effects of its click (ties: element order).
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub seq: u32,
+}
+
+/// When a step starts within its click (PowerPoint's "with previous" and
+/// "after previous"; "on click" is being the first of a click).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Trigger {
+    /// Together with the effect before it.
+    #[default]
+    With,
+    /// When the effect before it has ended.
+    After,
+}
+
+/// One effect of a click, in playing order (see [`Slide::click_order`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Timed {
+    pub element: usize,
+    /// Index in the element's steps.
+    pub step: usize,
+    /// Seconds after the click at which it starts (its delay included).
+    pub start: f64,
+    pub duration: f64,
+}
+
+impl Slide {
+    /// The effects of click `at` in playing order (`seq`, then element and
+    /// step order), each with its start time: "with" effects start with the
+    /// one before, "after" effects when it has ended, plus their own delay.
+    pub fn click_order(&self, at: u32) -> Vec<Timed> {
+        let mut entries: Vec<(u32, usize, usize)> = vec![];
+        for (e, element) in self.elements.iter().enumerate() {
+            for (k, s) in element.steps().iter().enumerate() {
+                if s.at == at {
+                    entries.push((s.seq, e, k));
+                }
+            }
+        }
+        entries.sort();
+        let (mut base, mut end) = (0.0_f64, 0.0_f64);
+        let mut out = vec![];
+        for (n, (_, e, k)) in entries.into_iter().enumerate() {
+            let s = &self.elements[e].steps()[k];
+            if n > 0 && s.trigger == Trigger::After {
+                base = end;
+            }
+            let start = base + s.delay.max(0.0);
+            end = end.max(start + s.duration.max(0.0));
+            out.push(Timed { element: e, step: k, start, duration: s.duration.max(0.0) });
+        }
+        out
+    }
 }
 
 impl Step {

@@ -55,7 +55,7 @@
       const old = current.querySelector(`:scope > g[id="${g.id}"]`);
       if (!old) continue;
       if (given.get(old) !== g.innerHTML) { old.innerHTML = g.innerHTML; given.set(old, g.innerHTML); }
-      for (const attr of ["opacity", "transform"]) {
+      for (const attr of ["style", "opacity", "transform"]) {
         const v = g.getAttribute(attr);
         if (v === null) old.removeAttribute(attr); else old.setAttribute(attr, v);
       }

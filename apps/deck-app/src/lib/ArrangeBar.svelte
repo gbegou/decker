@@ -59,7 +59,7 @@
     <label title="Stroke color">stroke
       <input type="color" value={one?.stroke?.color ?? stroked[0].stroke?.color ?? "#000000"} onchange={(e) => stroke({ stroke: e.currentTarget.value }, "Stroke color")} />
     </label>
-    <input type="number" title="Stroke width in points" min="0.25" max="40" step="0.25" value={one?.stroke?.width ?? stroked[0].stroke?.width ?? ""} placeholder="w"
+    <input type="number" title="Stroke width in points" min="0.25" max="40" step="0.25" value={one?.stroke?.width ?? stroked[0].stroke?.width ?? ""} placeholder="pt"
            onchange={(e) => stroke({ stroke_width: +e.currentTarget.value }, "Stroke width")} />
     <button title="No stroke" onclick={() => stroke({ stroke: "" }, "Stroke removed")}>⌀</button>
   {/if}

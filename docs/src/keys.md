@@ -25,7 +25,8 @@ The same list as the editor's help (**F1** or **?**). Generated from the editor'
 | Drag a thumbnail · Ctrl+Up / Ctrl+Down | Reorder slides; sections travel with their first slide |
 | Page Up / Page Down | Previous or next slide |
 | File ▸ Insert slides from deck… | Copy slides from another deck, with their images, layouts and themes |
-| + section · + subsection (hover a thumbnail) | Start a section there; click a header to rename, clear to remove |
+| Section headers | Click a header to rename it, clear the name to remove it; start one from the thumbnail menus |
+| ★ next to a slide number | The slide has animation |
 
 ## Elements
 
@@ -60,7 +61,10 @@ The same list as the editor's help (**F1** or **?**). Generated from the editor'
 | ⟩ (side panel) · « (slides) · Notes ▾ | Collapse the side panel or the slides (drag the slides' edge to resize them); fold the notes under the slide: more room for the slide |
 | Element · Slide · Animations (side panel) | The selection's settings; the slide's (section, layout, theme, fonts and colors, macros); the timeline |
 | Fit · 100% · − + (status bar) · Ctrl+0 · Ctrl+- · Ctrl++ | Zoom: fit the slide in the window, actual size, out, in |
-| ◀ ▶ under the canvas | View the slide at a given click |
+| All · ◀ ▶ under the slide | Every element shown, for editing (the default) · the slide at each click |
+| on click · with previous · after previous (timeline) | When an effect starts: a click of its own, with the effect before it, or when that one has ended |
+| Arrows · Shift+arrows · Ctrl+A · Tab · Escape | Move the selection by 1 or 10 points; select everything; next element; deselect |
+| ● after File | Unsaved changes: New, Open and closing the window ask whether to save |
 
 ## Layouts
 
@@ -87,7 +91,7 @@ The same list as the editor's help (**F1** or **?**). Generated from the editor'
 | --- | --- |
 | P (presenter window) · Pointer button | Mirror the mouse over the current slide as a red dot on the audience window |
 | D · C (presenter window) · Pen button | Draw on the current slide, shown to the audience; C or leaving the slide erases it |
-| Present (Shift+F5) · F5 · Esc | From this slide · from the start: fullscreen on the projector, presenter view on the laptop · end |
+| Present ▾ · Shift+F5 · F5 · Esc | From this slide · from the first: fullscreen on the projector, presenter view on the laptop · end |
 | Right / Down / Space / Enter / click · Left / Up / Backspace | Next · previous step or slide |
 | Home · End | First · last slide |
 | B · W | Black · white screen (write on the whiteboard) |

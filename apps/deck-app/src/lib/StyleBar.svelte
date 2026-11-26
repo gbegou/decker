@@ -74,14 +74,14 @@
     <span class="sep"></span>
   {/if}
   {#if element.kind === "text" || element.kind === "shape"}
-    <label title="Fill color">▧
+    <label title="Fill color of the box">Fill
       <input type="color" value={hex(element.fill, "#ffffff")} onchange={(e) => elementStyle({ fill: e.currentTarget.value }, "Fill")} />
     </label>
     <button title="No fill" onclick={() => elementStyle({ fill: "" }, "Fill removed")}>⌀</button>
-    <label title="Outline color">▢
+    <label title="Outline color of the box">Line
       <input type="color" value={hex(element.stroke?.color, "#000000")} onchange={(e) => elementStyle({ stroke: e.currentTarget.value }, "Outline")} />
     </label>
-    <input type="number" title="Outline width in points" min="0.25" max="20" step="0.25" value={element.stroke?.width ?? ""} placeholder="w"
+    <input type="number" title="Outline width in points" min="0.25" max="20" step="0.25" value={element.stroke?.width ?? ""} placeholder="pt"
            class="narrow" onchange={(e) => elementStyle({ stroke_width: +e.currentTarget.value }, "Outline width")} />
     <button title="No outline" onclick={() => elementStyle({ stroke: "" }, "Outline removed")}>⌀</button>
   {:else if element.kind === "math"}
@@ -105,7 +105,7 @@
   .stylebar input.narrow { width: 52px; }
   .stylebar input[type="color"] { width: 28px; height: 22px; padding: 0; border: 1px solid var(--border); background: none; }
   .stylebar button.swatch { width: 18px; min-width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid var(--border); }
-  .stylebar select { padding: 2px 4px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; width: 120px; flex: none; }
+  .stylebar select { padding: 2px 4px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; width: 104px; flex: none; }
   .stylebar label { display: inline-flex; align-items: center; gap: 3px; }
   .scope { padding-right: 4px; }
   .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }

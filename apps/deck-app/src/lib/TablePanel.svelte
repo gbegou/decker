@@ -19,7 +19,7 @@
   }
 </script>
 
-<h3>Table {table.cells.length} × {columns}</h3>
+<p class="muted size">{table.cells.length} × {columns} cells</p>
 <div class="grid" style="grid-template-columns: repeat({columns}, minmax(0, 1fr))">
   {#each table.cells as cells, i}
     {#each cells as text, j}
@@ -62,10 +62,10 @@
   <input type="text" value={table.columns.join(" ")} placeholder={Array(columns).fill(1).join(" ")}
          onchange={(e) => edit({ op: "columns", widths: e.currentTarget.value.split(/[\s,;]+/).map(Number).filter((n) => n > 0) }, "Column widths")} />
 </label>
-<p class="muted">Double-click a cell on the slide to type in it (Tab moves to the next cell, the style bar styles the selection). One line per paragraph in a cell. Rows share the table's height; resize the table to give them room. The rules' color and width are the stroke of the arrange bar.</p>
+<p class="muted" title="Tab moves to the next cell; the style bar styles the selection. One line per paragraph in a cell. Rows share the table's height: resize the table to give them room. The rules' color and width are the stroke of the arrange tools.">Double-click a cell on the slide to type in it.</p>
 
 <style>
-  h3 { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; color: var(--muted); }
+  .size { margin: 0 0 4px; }
   .grid { display: grid; gap: 3px; margin-bottom: 8px; }
   textarea { width: 100%; min-width: 0; padding: 3px 4px; font-size: 12px; resize: vertical; }
   textarea.head { font-weight: 700; }

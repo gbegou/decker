@@ -60,6 +60,10 @@ export interface Step {
   duration?: number;
   delay?: number;
   easing?: "ease_in_out" | "linear" | "ease_in" | "ease_out";
+  /** Within its click: with the effect before it (default), or after it has ended. */
+  trigger?: "with" | "after";
+  /** Its place among the effects of its click. */
+  seq?: number;
 }
 
 /** A run style change; absent fields keep their value; size 0, color "" and font "" reset. */
@@ -112,7 +116,7 @@ export interface View {
   subsection: string | null;
   in_section: string | null;
   in_subsection: string | null;
-  starts: { section: string | null; subsection: string | null }[];
+  starts: { section: string | null; subsection: string | null; clicks: number }[];
   /** The layout shown on the canvas instead of a slide, when editing one. */
   editing_layout: string | null;
   /** The theme under edit, when the canvas shows a theme. */
@@ -126,6 +130,10 @@ export interface View {
   theme: ThemeInfo;
   can_undo: boolean;
   can_redo: boolean;
+  /** The editor shows every element, not the slide at a click. */
+  all: boolean;
+  /** Unsaved changes. */
+  dirty: boolean;
 }
 
 /** Character boxes of a text element, in slide points; the last is the caret after the end. */
@@ -157,7 +165,8 @@ export const api = {
   getThumbnails: () => invoke<string[]>("get_thumbnails"),
   navigate: (action: "next" | "prev" | "first" | "last" | "next_slide" | "prev_slide" | "black" | "white") =>
     invoke<View>("navigate", { action }),
-  goto: (slide: number, step = 0) => invoke<View>("goto", { slide, step }),
+  /** Without `step`: the editor's view of every element of the slide. */
+  goto: (slide: number, step: number | null = null) => invoke<View>("goto", { slide, step }),
   setRect: (element: number, rect: Rect) => invoke<View>("set_rect", { element, rect }),
   /** Turns an element to `degrees` clockwise at the viewed click. */
   setRotation: (element: number, degrees: number) => invoke<View>("set_rotation", { element, degrees }),
@@ -207,7 +216,10 @@ export const api = {
   styleElement: (element: number, change: ElementStyle) => invoke<View>("style_element", { element, change }),
   saveLayout: (path: string) => invoke<string>("save_layout", { path }),
   loadLayout: (path: string) => invoke<View>("load_layout", { path }),
-  moveStep: (element: number, step: number, to: number, insert: boolean) => invoke<View>("move_step", { element, step, to, insert }),
+  moveStep: (element: number, step: number, to: number, insert: boolean, position: number | null = null) =>
+    invoke<View>("move_step", { element, step, to, insert, position }),
+  setTrigger: (element: number, step: number, mode: "click" | "with" | "after") => invoke<View>("set_trigger", { element, step, mode }),
+  quit: () => invoke<void>("quit"),
   setName: (element: number, name: string) => invoke<View>("set_name", { element, name }),
   addPath: (nodes: import("./paths").PathNode[], closed: boolean) => invoke<number>("add_path", { nodes, closed }),
   setPath: (element: number, nodes: import("./paths").PathNode[], closed: boolean) => invoke<View>("set_path", { element, nodes, closed }),

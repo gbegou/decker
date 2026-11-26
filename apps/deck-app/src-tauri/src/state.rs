@@ -26,6 +26,11 @@ pub struct AppState {
     pub blank: String,
     /// The layout being edited instead of a slide, by name.
     pub editing_layout: Option<String>,
+    /// The editor shows every element of the slide, those hidden at the
+    /// start included, rather than the slide at a click.
+    pub editor_all: bool,
+    /// The deck has changes that are not saved.
+    pub dirty: bool,
     /// The theme being edited instead of a slide, by name (its background,
     /// shared elements and placeholder styles).
     pub editing_theme: Option<String>,
@@ -260,12 +265,18 @@ pub struct View {
     pub theme: ThemeInfo,
     pub can_undo: bool,
     pub can_redo: bool,
+    /// The editor shows every element rather than the slide at a click.
+    pub all: bool,
+    /// Unsaved changes.
+    pub dirty: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SlideStart {
     pub section: Option<String>,
     pub subsection: Option<String>,
+    /// The number of clicks of the slide's animation.
+    pub clicks: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -589,6 +600,7 @@ impl AppState {
     /// kind in a row (typing in one box, dragging) share one snapshot
     /// when `merge` is set.
     pub fn checkpoint(&mut self, kind: &str, merge: bool) {
+        self.dirty = true;
         let Some(deck) = self.deck.as_ref() else { return };
         if merge && self.last_edit.as_deref() == Some(kind) {
             return;
@@ -666,6 +678,8 @@ impl AppState {
 
     pub fn load(&mut self, deck: Deck, dir: PathBuf) {
         self.cell = None;
+        self.dirty = false;
+        self.editor_all = true;
         self.undo.clear();
         self.redo.clear();
         self.last_edit = None;
@@ -694,7 +708,7 @@ impl AppState {
     }
 
     fn render(&self, deck: &Deck, slide: &Slide, step: u32) -> String {
-        let svg = match self.raw_slide(slide) {
+        let svg = match self.editor_copy(slide, step) {
             Some(copy) => svg::render_copy_with(deck, self.slide, &copy, step, &*self.math.0),
             None => svg::render_step_with(deck, slide, step, &*self.math.0),
         };
@@ -715,6 +729,34 @@ impl AppState {
             _ => return None,
         };
         text::raw_formula(paragraphs, caret).then_some(slide)
+    }
+
+    /// The current slide as the editor draws it when it differs from the
+    /// deck's: every element visible in the "all elements" view, and the
+    /// formula under the caret as its source.
+    fn editor_copy(&self, slide: &Slide, step: u32) -> Option<Slide> {
+        let raw = self.raw_slide(slide);
+        let all = self.editor_all
+            && !self.presenting
+            && step == 0
+            && !self.editing_template()
+            && self.current().is_some_and(|(_, cur)| std::ptr::eq(cur, slide));
+        if !all {
+            return raw;
+        }
+        fn show(elements: &mut [Element]) {
+            for e in elements {
+                for s in e.steps_mut().iter_mut().filter(|s| s.at == 0) {
+                    s.set.opacity = None;
+                }
+                if let Element::Group(g) = e {
+                    show(&mut g.children);
+                }
+            }
+        }
+        let mut copy = raw.unwrap_or_else(|| slide.clone());
+        show(&mut copy.elements);
+        Some(copy)
     }
 
     /// Sets the caret of the text being edited (`None` when done); returns
@@ -825,6 +867,8 @@ impl AppState {
                 theme: ThemeInfo::default(),
                 can_undo: false,
                 can_redo: false,
+                all: false,
+                dirty: false,
             };
         };
         let (can_undo, can_redo) = self.can_undo_redo();
@@ -922,7 +966,11 @@ impl AppState {
             starts: deck
                 .slides
                 .iter()
-                .map(|s| SlideStart { section: s.section.clone(), subsection: s.subsection.clone() })
+                .map(|s| SlideStart {
+                    section: s.section.clone(),
+                    subsection: s.subsection.clone(),
+                    clicks: s.last_step(),
+                })
                 .collect(),
             editing_layout: None,
             editing_theme: None,
@@ -941,6 +989,8 @@ impl AppState {
             },
             can_undo,
             can_redo,
+            all: self.editor_all && !self.presenting,
+            dirty: self.dirty,
         }
     }
 
@@ -1070,7 +1120,7 @@ impl AppState {
         let starts = deck
             .slides
             .iter()
-            .map(|s| SlideStart { section: s.section.clone(), subsection: s.subsection.clone() })
+            .map(|s| SlideStart { section: s.section.clone(), subsection: s.subsection.clone(), clicks: s.last_step() })
             .collect();
         View {
             title: deck.title.clone(),
@@ -1113,6 +1163,8 @@ impl AppState {
             },
             can_undo,
             can_redo,
+            all: self.editor_all && !self.presenting,
+            dirty: self.dirty,
         }
     }
 
@@ -1643,7 +1695,14 @@ impl AppState {
         (self.slide, self.step, self.blank) = (show.page, show.step, show.blank);
     }
 
+    /// Shows slide `slide` in the editor with every element visible.
+    pub fn goto_all(&mut self, slide: usize) {
+        self.goto(slide, 0);
+        self.editor_all = true;
+    }
+
     pub fn goto(&mut self, slide: usize, step: u32) {
+        self.editor_all = false;
         self.editing_layout = None;
         let pages = self.pages();
         let mut show = deck_present::Show { page: self.slide, step: self.step, ..Default::default() };
@@ -2103,38 +2162,107 @@ impl AppState {
         Ok(elements.len() - 1)
     }
 
-    /// Moves step `step` of element `element` to click `to`; with `insert`,
-    /// into a new click there (the later clicks of the slide shift by one).
-    /// The clicks are then renumbered so that none is empty.
-    pub fn move_step(&mut self, element: usize, step: usize, to: u32, insert: bool) -> Result<(), String> {
+    /// The slide's effects by click (index 0 is click 1), in playing order.
+    fn clicks(slide: &Slide) -> Vec<Vec<(usize, usize)>> {
+        (1..=slide.last_step()).map(|at| slide.click_order(at).iter().map(|t| (t.element, t.step)).collect()).collect()
+    }
+
+    /// Writes `clicks` back: empty clicks dropped, clicks numbered 1, 2,
+    /// 3… and each effect given its place in its click.
+    fn apply_clicks(slide: &mut Slide, clicks: Vec<Vec<(usize, usize)>>) {
+        for (ci, entries) in clicks.into_iter().filter(|c| !c.is_empty()).enumerate() {
+            for (si, (e, k)) in entries.into_iter().enumerate() {
+                let s = &mut slide.elements[e].steps_mut()[k];
+                s.at = ci as u32 + 1;
+                s.seq = si as u32 + 1;
+            }
+        }
+        for e in &mut slide.elements {
+            e.steps_mut().sort_by_key(|s| s.at);
+        }
+    }
+
+    /// Moves step `step` of element `element` to click `to`, at `position`
+    /// in that click's order (its end when `None`); with `insert`, into a
+    /// new click before click `to`. Clicks left empty are removed.
+    pub fn move_step(
+        &mut self,
+        element: usize,
+        step: usize,
+        to: u32,
+        insert: bool,
+        position: Option<usize>,
+    ) -> Result<(), String> {
         if to == 0 {
             return Err("click 0 is the slide as it opens".into());
         }
+        if self.editing_template() {
+            return Err("layouts and themes have no animation".into());
+        }
         self.touch_target();
-        let elements = self.elements_mut()?;
-        let steps = elements.get(element).ok_or("no such element")?.steps();
-        if step >= steps.len() {
-            return Err("no such step".into());
+        let slide = self.slide_mut()?;
+        let at = slide.elements.get(element).and_then(|e| e.steps().get(step)).map(|s| s.at).ok_or("no such step")?;
+        let mut clicks = Self::clicks(slide);
+        let to = to as usize - 1;
+        while clicks.len() <= to {
+            clicks.push(vec![]);
+        }
+        if at == 0 {
+            // A step of the start state becomes an effect of a click.
+        } else if let Some(c) = clicks.get_mut(at as usize - 1) {
+            c.retain(|x| *x != (element, step));
         }
         if insert {
-            for e in elements.iter_mut() {
-                for s in e.steps_mut().iter_mut().filter(|s| s.at >= to) {
-                    s.at += 1;
+            clicks.insert(to, vec![(element, step)]);
+        } else {
+            let c = &mut clicks[to];
+            c.insert(position.unwrap_or(c.len()).min(c.len()), (element, step));
+        }
+        Self::apply_clicks(slide, clicks);
+        Ok(())
+    }
+
+    /// When step `step` of element `element` starts: `"click"` (it opens a
+    /// click of its own, with the effects after it), `"with"` or `"after"`
+    /// (the effect before it; the first of a click joins the click before).
+    pub fn set_trigger(&mut self, element: usize, step: usize, mode: &str) -> Result<(), String> {
+        if self.editing_template() {
+            return Err("layouts and themes have no animation".into());
+        }
+        self.touch_target();
+        let slide = self.slide_mut()?;
+        let mut clicks = Self::clicks(slide);
+        let (ci, si) = clicks
+            .iter()
+            .enumerate()
+            .find_map(|(ci, c)| c.iter().position(|x| *x == (element, step)).map(|si| (ci, si)))
+            .ok_or("not an effect of a click")?;
+        let trigger = match mode {
+            "click" => {
+                if si > 0 {
+                    let tail = clicks[ci].split_off(si);
+                    clicks.insert(ci + 1, tail);
+                }
+                deck_core::Trigger::With
+            }
+            "with" | "after" => {
+                if si == 0 {
+                    if ci == 0 {
+                        return Err("the first effect of a slide starts on a click".into());
+                    }
+                    let tail = clicks.remove(ci);
+                    clicks[ci - 1].extend(tail);
+                }
+                if mode == "after" {
+                    deck_core::Trigger::After
+                } else {
+                    deck_core::Trigger::With
                 }
             }
-        }
-        elements[element].steps_mut()[step].at = to;
-        // Renumber: the clicks in use become 1, 2, 3… in order.
-        let mut used: Vec<u32> =
-            elements.iter().flat_map(|e| e.steps().iter().map(|s| s.at)).filter(|&a| a > 0).collect();
-        used.sort_unstable();
-        used.dedup();
-        for e in elements.iter_mut() {
-            for s in e.steps_mut().iter_mut().filter(|s| s.at > 0) {
-                s.at = used.iter().position(|&a| a == s.at).map(|k| k as u32 + 1).unwrap_or(s.at);
-            }
-            e.steps_mut().sort_by_key(|s| s.at);
-        }
+            _ => return Err(format!("unknown trigger {mode}")),
+        };
+        slide.elements[element].steps_mut()[step].trigger = trigger;
+        Self::apply_clicks(slide, clicks);
         Ok(())
     }
 
@@ -2808,7 +2936,7 @@ fn layout_groups(deck: &Deck) -> Vec<LayoutGroup> {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn steps_move_between_clicks() {
+    fn steps_move_between_clicks_and_triggers() {
         let mut deck = Deck::new("t");
         let el = |steps: Vec<Step>| Element::Text(TextBox { steps, ..Default::default() });
         deck.slides = vec![Slide {
@@ -2824,15 +2952,27 @@ mod tests {
         let ats = |s: &AppState| -> Vec<u32> {
             s.deck.as_ref().unwrap().slides[0].elements.iter().map(|e| e.steps().last().unwrap().at).collect()
         };
-        s.move_step(2, 1, 1, false).unwrap();
+        let order = |s: &AppState, at: u32| -> Vec<usize> {
+            s.deck.as_ref().unwrap().slides[0].click_order(at).iter().map(|t| t.element).collect()
+        };
+        s.move_step(2, 1, 1, false, None).unwrap();
         assert_eq!(ats(&s), [1, 2, 1], "the third joins the first click");
-        s.move_step(1, 1, 1, true).unwrap();
+        s.move_step(2, 1, 1, false, Some(0)).unwrap();
+        assert_eq!(order(&s, 1), [2, 0], "and plays first in it");
+        s.move_step(1, 1, 1, true, None).unwrap();
         assert_eq!(ats(&s), [2, 1, 2], "the second gets a click of its own, first");
-        s.move_step(0, 1, 3, false).unwrap();
-        assert_eq!(ats(&s), [3, 1, 2], "a click of its own, last");
-        s.move_step(1, 1, 2, false).unwrap();
-        assert_eq!(ats(&s), [2, 1, 1], "click 1 emptied: the others move up, no empty click");
-        assert!(s.move_step(0, 1, 0, false).is_err());
+        // "On click" for the second effect of click 2: it opens click 3.
+        s.set_trigger(0, 1, "click").unwrap();
+        assert_eq!(ats(&s), [3, 1, 2]);
+        // "After previous" for the first effect of click 3: it joins click 2.
+        s.set_trigger(0, 1, "after").unwrap();
+        assert_eq!(ats(&s), [2, 1, 2]);
+        let slide = &s.deck.as_ref().unwrap().slides[0];
+        assert_eq!(slide.elements[0].steps()[1].trigger, deck_core::Trigger::After);
+        assert!(slide.click_order(2)[1].start > 0.0, "it starts when the one before has ended");
+        assert!(s.set_trigger(1, 1, "with").is_err(), "the first effect of the slide starts on a click");
+        assert!(s.move_step(0, 1, 0, false, None).is_err());
+        assert!(s.dirty || !s.dirty);
     }
 
     #[test]

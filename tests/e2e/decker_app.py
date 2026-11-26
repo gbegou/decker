@@ -87,7 +87,8 @@ class Editor:
         self.s.js("window.__TAURI_INTERNALS__.invoke(arguments[0], arguments[1]); return true", command, args)
         self.settle()
 
-    def goto(self, slide: int, step: int = 0):
+    def goto(self, slide: int, step: "int | None" = None):
+        """Shows a slide: at click `step`, or with every element (the editor's default)."""
         self.invoke("goto", {"slide": slide, "step": step})
 
     def point(self, x: float, y: float):

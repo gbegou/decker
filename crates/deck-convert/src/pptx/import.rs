@@ -708,6 +708,7 @@ fn import_timing(
         return;
     };
     let mut step = 0u32;
+    let mut seq = 0u32;
     for click_par in root_par.children().filter(|n| n.has_tag_name((NS_P, "par"))) {
         // A group that starts by itself (delay not "indefinite") runs with
         // the slide or the previous click: it is no click of its own.
@@ -742,6 +743,18 @@ fn import_timing(
                 .filter_map(|d| d.parse::<f64>().ok())
                 .fold(0.0, f64::max)
                 / 1000.0;
+            // "With previous" or "after previous", its own delay, and its
+            // place in the click's order (document order).
+            let trigger =
+                if effect.attribute("nodeType") == Some("afterEffect") { Trigger::After } else { Trigger::With };
+            let delay = child(effect, NS_P, "stCondLst")
+                .and_then(|l| child(l, NS_P, "cond"))
+                .and_then(|c| c.attribute("delay"))
+                .and_then(|d| d.parse::<f64>().ok())
+                .unwrap_or(0.0)
+                / 1000.0;
+            seq += 1;
+            let before = elements[index].steps().len();
             let steps = steps_mut(&mut elements[index]);
             match class {
                 "entr" => {
@@ -791,6 +804,15 @@ fn import_timing(
                     steps_mut(&mut elements[index]).push(Step { at: step, duration, set, ..Default::default() });
                 }
                 other => report.warnings.push(format!("{part}: {other} animation on shape {target} skipped")),
+            }
+            // The step this effect made (the hide at the start aside).
+            if elements[index].steps().len() > before {
+                if let Some(made) = steps_mut(&mut elements[index]).iter_mut().rev().find(|s| s.at == step && step > 0)
+                {
+                    made.trigger = trigger;
+                    made.delay = delay;
+                    made.seq = seq;
+                }
             }
         }
     }

@@ -23,8 +23,8 @@ The left column lists the slides. Click one to edit it.
 ## Sections
 
 A slide can start a **section** and a **subsection**: two names on the slide. The pane shows
-them as headers above the slide that starts them. Hover a thumbnail and click **+ section** or
-**+ sub** to start one there; click a header to rename it, clear the name to remove it. The
+them as headers above the slide that starts them. Right-click a thumbnail to start one there (or between thumbnails for a new section with its
+first slide); click a header to rename it, clear the name to remove it. The
 side panel has the same two fields, and `deck.json` stores them (`"section": "Method"`,
 `"subsection": "Model"`). The outline follows the slide order, so moving slides keeps it
 consistent.
