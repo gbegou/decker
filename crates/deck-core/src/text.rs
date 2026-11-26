@@ -53,6 +53,22 @@ pub fn raw_formula(paragraphs: &mut [Paragraph], caret: usize) -> bool {
     false
 }
 
+/// `paragraphs` with `prefix` before the first one's text, in the style
+/// of its first run (a placeholder's prefix as drawn).
+pub fn with_prefix(paragraphs: &[Paragraph], prefix: &str) -> Vec<Paragraph> {
+    let mut out = paragraphs.to_vec();
+    if prefix.is_empty() {
+        return out;
+    }
+    if out.is_empty() {
+        out.push(Paragraph::default());
+    }
+    let first = &mut out[0];
+    let style = first.runs.first().cloned().unwrap_or_default();
+    first.runs.insert(0, Run { text: prefix.to_string(), math: false, ..style });
+    out
+}
+
 /// The number of characters, paragraph breaks included.
 pub fn len(paragraphs: &[Paragraph]) -> usize {
     flat_text(paragraphs).chars().count()

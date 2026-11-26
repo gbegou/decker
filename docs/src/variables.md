@@ -11,7 +11,9 @@ them:
 | `{{deck}}` | The deck's title |
 | `{{date}}` | Today's date, `YYYY-MM-DD` |
 
-Unknown names are left as written.
+Unknown names are left as written. They also work in a placeholder's **prefix** (text drawn
+before what each slide types in the placeholder, set in the layout's panel), and the side
+panel of the design view lists them: a click inserts one where you are typing.
 
 ## Joining
 

@@ -49,6 +49,8 @@ export type TableEdit =
   | { op: "split"; row: number; column: number };
 export interface PlaceholderStyle {
   size?: number; bold?: boolean; color?: string; font?: string; align?: Align; bullets?: boolean;
+  /** Text before the slide's own text in this placeholder ({{ }} variables allowed). */
+  prefix?: string;
 }
 
 export type Align = "left" | "center" | "right" | "justify";

@@ -18,7 +18,10 @@ from another deck.
   several slides the same layout, pick them first with Ctrl+click or Shift+click on their
   thumbnails.
 - The right panel shows the slide's layout, with a selector to change it. Changing it keeps
-  the slide's elements; placeholders are not re-created.
+  the slide's elements: the text boxes that fill a placeholder move to where the new layout
+  puts it, and each placeholder the slide does not fill yet gets an empty text box, showing
+  the placeholder's name, ready to type in. Adding a placeholder to a layout in the design
+  view does the same on the slides that use it.
 - **New slide** (right-click a thumbnail) creates the next slide from that slide's layout:
   one text box per placeholder, at the placeholder's position and in its style, showing the
   placeholder's name.
@@ -53,8 +56,9 @@ slide's layout; **Slides**, or **Close design view**, returns to the slide.
 
 The canvas shows the layout: its theme's elements, dimmed and not selectable; its own
 elements, editable like slide elements; and its placeholders as dashed boxes with their name,
-which move and resize the same way and are renamed in the Element tab (slides that fill the
-placeholder follow the new name).
+which move and resize the same way. **Double-click** a placeholder to rename it in place
+(Enter or a click elsewhere keeps the name, Escape cancels); slides that fill the placeholder
+follow the new name.
 
 Selecting a placeholder shows its text style in the Element tab: size, bold, color, font,
 alignment, bullets. In a layout with a theme, each field says where its value comes from:
@@ -62,6 +66,13 @@ alignment, bullets. In a layout with a theme, each field says where its value co
 - **theme**: the theme's value, which follows the theme when it changes;
 - in bold, with **↺** and **⇪**: set by this layout. **↺** drops the override and returns to
   the theme's value; **⇪** makes this value the theme's, for all its layouts.
+
+A placeholder can also have a **prefix**: text shown before what the slide types in it,
+which may hold [variables](variables.md), such as `{{slide}}. ` before a title or
+`{{section}} — ` before a subtitle. The prefix is drawn on the slide, in the PDF and in
+PowerPoint exports, in the style of the text's first characters, but it is not part of the
+slide's text: typing on the slide starts after it. The panel lists the variables; clicking
+one inserts it into the prefix field (or into the text being edited, or copies it).
 
 The Layout tab shows the layout's theme (a selector moves the layout to another theme, or to
 none, keeping its look), **hide the theme's elements** (for a title slide without the footer,
@@ -167,7 +178,7 @@ lists a deck's themes, their layouts, what each layout overrides, and its placeh
       "hide_theme_elements": true,
       "placeholders": [
         { "name": "title", "rect": { "x": 80, "y": 170, "w": 800, "h": 90 },
-          "size": 48, "align": "center", "own": ["size", "align"] }
+          "size": 48, "align": "center", "own": ["size", "align"], "prefix": "{{slide}}. " }
       ]
     },
     {
@@ -185,7 +196,8 @@ lists a deck's themes, their layouts, what each layout overrides, and its placeh
 A theme's `style` holds its fonts and colors. A layout's `parent` names its theme; its
 `background`, `theme` (the fonts and colors it changes) and elements
 are its own; a placeholder's `own` lists the style properties it sets itself, the others
-coming from the theme's placeholder of the same name or kind. Decks of older formats are converted
+coming from the theme's placeholder of the same name or kind; its `prefix` is drawn before the
+slide's text. Decks of older formats are converted
 when opened: before themes (version 1), their layouts become one theme named "Theme", with
 what they share moved into it; before version 3, the deck-wide fonts and colors (a top-level
 `theme`) are merged into its themes.

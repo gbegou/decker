@@ -284,7 +284,20 @@ fn element_body(out: &mut String, ctx: &Ctx, element: &Element, step: u32, index
         match element {
             Element::Text(t) => {
                 shape_body(out, r, ShapeKind::Rectangle, st.fill.or(t.fill), t.stroke);
-                text_body(out, r, &t.paragraphs, &deck.math_preamble, math, defaults);
+                // A placeholder's prefix, before the slide's own text.
+                let prefix =
+                    t.placeholder.as_deref().and_then(|n| ctx.slide_index.and_then(|i| deck.placeholder_prefix(i, n)));
+                match prefix {
+                    Some(p) => text_body(
+                        out,
+                        r,
+                        &crate::text::with_prefix(&t.paragraphs, &p),
+                        &deck.math_preamble,
+                        math,
+                        defaults,
+                    ),
+                    None => text_body(out, r, &t.paragraphs, &deck.math_preamble, math, defaults),
+                }
             }
             Element::Image(i) => image_body(out, r, i, index),
             Element::Media(m) => media_body(out, r, m, ctx.live),
@@ -905,6 +918,34 @@ fn fmt(v: f64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn placeholder_prefixes_come_before_the_text() {
+        let mut deck = Deck::new("t");
+        deck.layouts.push(Layout {
+            name: "L".into(),
+            placeholders: vec![Placeholder {
+                name: "title".into(),
+                prefix: "Part {{slide}}: ".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        let mut title = TextBox::plain(Rect::new(0.0, 0.0, 400.0, 50.0), "Waves");
+        title.placeholder = Some("title".into());
+        deck.slides.push(Slide {
+            layout: Some("L".into()),
+            elements: vec![Element::Text(title)],
+            ..Default::default()
+        });
+        let svg = render_slide(&deck, &deck.slides[0]);
+        assert!(svg.contains("Part 1: ") && svg.contains("Waves"), "{svg}");
+        let baked = deck.with_prefixes();
+        let Element::Text(t) = &baked.slides[0].elements[0] else { unreachable!() };
+        assert_eq!(t.text(), "Part 1: Waves", "the exports get the text as drawn");
+        let Element::Text(own) = &deck.slides[0].elements[0] else { unreachable!() };
+        assert_eq!(own.text(), "Waves", "the slide keeps only its own text");
+    }
+
     #[test]
     fn steps_of_a_click_start_with_or_after_the_previous() {
         let el = |steps: Vec<Step>| Element::Text(TextBox { steps, ..Default::default() });

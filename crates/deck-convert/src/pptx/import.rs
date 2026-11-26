@@ -242,6 +242,7 @@ fn import_layout(pkg: &Package, part: &str, images: &mut ImageStore, report: &mu
             font: None,
             align: Align::Left,
             bullets: matches!(ph.kind.as_str(), "body" | "obj"),
+            prefix: String::new(),
             own: vec![],
         };
         // The master's text styles first (title, body or other), then the

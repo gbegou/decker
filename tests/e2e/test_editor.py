@@ -458,6 +458,41 @@ class Editing(EditorTest):
         self.assertEqual(sorted(s.get("trigger", "with") for s in steps), ["after", "with"])
 
 
+class Placeholders(EditorTest):
+    def test_rename_on_the_canvas_prefix_and_layout_boxes(self):
+        e = self.e
+        e.goto(2)
+        e.s.js("[...document.querySelectorAll('.views button')].find(b => b.textContent.trim() === 'Design').click(); return true")
+        e.settle(1.5)
+        e.click_slide(300, 60, clicks=2)  # the title placeholder
+        e.settle(0.5)
+        self.assertTrue(e.s.js("return !!document.querySelector('.ph-rename')"), "renamed in place")
+        e.s.js("""const i = document.querySelector('.ph-rename'); i.value = 'title';
+                  i.dispatchEvent(new Event('input', {bubbles: true})); return true""")
+        e.keys("\ue007")  # Enter: same name, nothing changes
+        e.click_slide(300, 60)
+        e.s.js("""const i = document.querySelector('.props input.vars-target'); i.focus(); return true""")
+        e.s.js("[...document.querySelectorAll('.vars button')].find(b => b.textContent === '{{slide}}').click(); return true")
+        e.settle(1.0)
+        e.s.js("""const i = document.querySelector('.props input.vars-target'); i.value = 'N°' + i.value + ' · ';
+                  i.dispatchEvent(new Event('change', {bubbles: true})); return true""")
+        e.settle(1.0)
+        title = next(x for x in self.view()["elements"] if x["kind"] == "placeholder" and x["text"] == "title")
+        self.assertEqual(title["placeholder"]["prefix"], "N°{{slide}} · ", "a variable inserted from the list, then typed around")
+        e.s.js("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Close design view').click(); return true")
+        e.settle(1.5)
+        layout = e.s.call("text_layout", {"element": 0})
+        self.assertEqual(layout["text"], "How fast do waves travel?", "the slide keeps its own text")
+        self.assertEqual(len(layout["chars"]), len(layout["text"]) + 1, "the caret skips the prefix")
+        # A layout applied to a slide gives it the boxes of its placeholders.
+        e.goto(1)
+        n = len(self.view()["elements"])
+        e.s.call("set_layout_of", {"slides": [1], "name": "Title and content"})
+        e.settle(1.0)
+        e.goto(1)
+        self.assertEqual(len(self.view()["elements"]), n + 1, "a box for the body, to type in")
+
+
 class Presenting(EditorTest):
     def env(self):
         return {"DECKER_PRESENT": "both", "DECKER_WINDOWED": "1"}

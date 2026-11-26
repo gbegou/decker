@@ -114,6 +114,31 @@ impl Default for Deck {
 }
 
 impl Deck {
+    /// The prefix of placeholder `name` on slide `index`, its variables
+    /// filled in; `None` without one.
+    pub fn placeholder_prefix(&self, index: usize, name: &str) -> Option<String> {
+        let slide = self.slides.get(index)?;
+        let layout = self.layout_of(slide)?;
+        let prefix = &layout.placeholder(name)?.prefix;
+        (!prefix.is_empty()).then(|| crate::vars::Vars::for_slide(self, index).substitute(prefix))
+    }
+
+    /// A copy with every placeholder prefix written into the slides' text,
+    /// as drawn: for the exports.
+    pub fn with_prefixes(&self) -> Deck {
+        let mut out = self.clone();
+        for i in 0..self.slides.len() {
+            for e in &mut out.slides[i].elements {
+                if let Element::Text(t) = e {
+                    if let Some(prefix) = t.placeholder.as_deref().and_then(|n| self.placeholder_prefix(i, n)) {
+                        t.paragraphs = crate::text::with_prefix(&t.paragraphs, &prefix);
+                    }
+                }
+            }
+        }
+        out
+    }
+
     pub fn new(title: impl Into<String>) -> Self {
         Self { title: title.into(), ..Default::default() }
     }
@@ -322,6 +347,10 @@ pub struct Placeholder {
     /// Paragraphs start bulleted (a body placeholder).
     #[serde(default, skip_serializing_if = "is_default")]
     pub bullets: bool,
+    /// Text shown before the slide's own text in this placeholder, on
+    /// every slide (variables such as `{{section}}` filled in); empty for none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub prefix: String,
     /// In a layout with a theme: the style properties (`size`, `bold`,
     /// `color`, `font`, `align`, `bullets`) this placeholder sets itself;
     /// the others come from the theme's placeholder of the same kind.

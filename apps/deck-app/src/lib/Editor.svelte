@@ -10,6 +10,7 @@
   import PathTool from "./PathTool.svelte";
   import Timeline from "./Timeline.svelte";
   import MenuButton from "./MenuButton.svelte";
+  import Variables from "./Variables.svelte";
   import type { PathNode } from "./paths";
   import ArrangeBar from "./ArrangeBar.svelte";
   import PlaceholderFields from "./PlaceholderFields.svelte";
@@ -280,6 +281,39 @@
     ["title", "Title slide"], ["content", "Title and content"], ["section", "Section header"], ["two", "Two contents"],
     ["compare", "Comparison"], ["title-only", "Title only"], ["blank", "Blank"],
   ];
+  /** A placeholder being renamed on the canvas. */
+  let phRename = $state<{ index: number; value: string } | null>(null);
+  function commitPhRename() {
+    const r = phRename;
+    phRename = null;
+    if (!r || !view || !r.value.trim() || r.value.trim() === view.elements[r.index]?.text) return;
+    run("Placeholder renamed", () => api.setText(r.index, r.value.trim()));
+  }
+  /** Inserts a {{ }} variable where text is being typed: the last focused
+   *  prefix field, or the text box being edited. False when neither. */
+  let varTarget: HTMLInputElement | null = null;
+  function insertVariable(text: string): boolean {
+    if (editing) {
+      const lo = Math.min(editing.caret, editing.anchor), hi = Math.max(editing.caret, editing.anchor);
+      enqueue(() => applyEdit(lo, hi, text));
+      return true;
+    }
+    const t = varTarget;
+    if (t && document.body.contains(t)) {
+      const at = t.selectionStart ?? t.value.length, end = t.selectionEnd ?? at;
+      t.value = t.value.slice(0, at) + text + t.value.slice(end);
+      t.setSelectionRange(at + text.length, at + text.length);
+      t.dispatchEvent(new Event("change", { bubbles: true }));
+      t.focus();
+      return true;
+    }
+    return false;
+  }
+  function trackVarTarget(e: FocusEvent) {
+    const t = e.target as HTMLElement;
+    if (t instanceof HTMLInputElement && t.classList.contains("vars-target")) varTarget = t;
+  }
+
   /** A theme or layout being renamed from the tree's menu. */
   let renamingItem = $state<{ kind: "theme" | "layout"; name: string; value: string } | null>(null);
   function renameItem() {
@@ -792,7 +826,14 @@
       status = "Drag points and handles; double-click a point for a corner or a curve; Delete removes it; Escape ends";
       return;
     }
-    if (el.kind === "image" || el.kind === "math" || el.kind === "placeholder" || el.kind === "outline" || el.kind === "media" || el.kind === "figure") return;
+    if (el.kind === "placeholder") {
+      // A placeholder's name is typed in place, over its box.
+      selected = index;
+      phRename = { index, value: el.text };
+      queueMicrotask(() => { const i = document.querySelector<HTMLInputElement>(".ph-rename"); i?.focus(); i?.select(); });
+      return;
+    }
+    if (el.kind === "image" || el.kind === "math" || el.kind === "outline" || el.kind === "media" || el.kind === "figure") return;
     selected = index;
     if (el.kind === "table" && el.table) {
       // The cell under the click (the first one otherwise) takes the text edits.
@@ -1488,6 +1529,13 @@
                       edit={{ nodes: pe.path!.nodes, closed: pe.path!.closed, rotation: pe.rotation, rect: pe.rect }}
                       oncommit={pathEdited} ondone={() => { pathEdit = null; status = ""; }} />
           {/if}
+          {#if phRename && view.elements[phRename.index]}
+            {@const r = view.elements[phRename.index].rect}
+            <input class="ph-rename" bind:value={phRename.value}
+                   style="left: {(r.x / view.width) * 100}%; top: {(r.y / view.height) * 100}%; width: {Math.max(18, (r.w / view.width) * 100)}%"
+                   onkeydown={(e) => { if (e.key === "Enter") commitPhRename(); if (e.key === "Escape") phRename = null; e.stopPropagation(); }}
+                   onblur={commitPhRename} />
+          {/if}
           {#if editing && view.elements[editing.index]}
             {@const r = editing.layout.rect ?? view.elements[editing.index].rect}
             {@const c = editing.layout.chars[editing.caret]}
@@ -1525,7 +1573,7 @@
       {/if}
     </main>
 
-    <aside class="props" class:collapsed={!panelOpen}>
+    <aside class="props" class:collapsed={!panelOpen} onfocusin={trackVarTarget}>
       <div class="tabs" class:vertical={!panelOpen}>
         <button class:on={panelOpen && panelTab === "element"} title="The selected element: name, position, its own settings" onclick={() => showTab("element")}>{panelOpen ? "Element" : "◻"}</button>
         <button class:on={panelOpen && panelTab === "slide"} title="The slide: section, layout, theme, fonts and colors, macros" onclick={() => showTab("slide")}>{panelOpen ? (view.editing_theme !== null ? "Theme" : view.editing_layout !== null ? "Layout" : "Slide") : "☰"}</button>
@@ -1618,10 +1666,16 @@
         {:else if sel.kind === "outline"}
           <p class="muted" title="Duplicate this slide and drag a copy to the start of each section: each copy highlights its own.">The sections, with this slide's in bold.</p>
         {:else if sel.kind === "placeholder"}
-          <label>placeholder name
-            <input type="text" value={sel.text} onchange={(e) => run("Placeholder renamed", () => api.setText(sel!.index, e.currentTarget.value))} />
-          </label>
-          <p class="muted">Slides fill this slot by name; "title" and "subtitle" map to PowerPoint's own placeholders.</p>
+          <p class="muted" title="Slides fill this slot by name; title and subtitle map to PowerPoint's own placeholders.">Placeholder “{sel.text}”: double-click its box to rename it.</p>
+          {#if sel.placeholder}
+            {@const idx = sel.index}
+            <label>prefix
+              <input type="text" class="vars-target" value={sel.placeholder.prefix ?? ""} placeholder="e.g. Part {"{{section}}"} · "
+                     title="Shown before each slide's own text in this placeholder"
+                     onchange={(e) => run("Placeholder prefix", () => api.stylePlaceholder(idx, { prefix: e.currentTarget.value }))} />
+            </label>
+            <Variables oninsert={insertVariable} />
+          {/if}
           {#if sel.placeholder}
             {@const ph = sel.placeholder}
             {@const idx = sel.index}
@@ -1673,6 +1727,8 @@
               onchange={(change) => run(`Theme ${tph.name} style`, () => api.styleThemePlaceholder(tph.name, change))} />
           </details>
         {/each}
+        <h3>Variables</h3>
+        <Variables oninsert={insertVariable} />
         <h3>Layouts of this theme</h3>
         <div class="row">
           {#each view.layout_groups.find((g) => g.theme === view!.editing_theme)?.layouts ?? [] as name}
@@ -1683,6 +1739,8 @@
         </div>
       {:else if view.editing_layout !== null && view.layout_meta}
         {@const meta = view.layout_meta}
+        <h3>Variables</h3>
+        <Variables oninsert={insertVariable} />
         <h3>Theme</h3>
         <label>theme
           <select value={meta.parent ?? ""} onchange={(e) => run("Layout theme", () => api.setLayoutTheme(e.currentTarget.value || null))}>
@@ -2020,6 +2078,7 @@
   .dirty { color: var(--accent); }
   .dialog.confirm { width: 360px; }
   .dialog.confirm h3 { margin: 0 0 6px; }
+  .ph-rename { position: absolute; z-index: 6; font-size: 14px; padding: 4px 6px; border: 2px solid var(--accent); border-radius: 4px; background: var(--panel); color: var(--fg); }
   .rename-dialog input { width: 100%; box-sizing: border-box; margin: 6px 0; }
   header { grid-area: head; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); align-items: center; }
   header button { white-space: nowrap; }

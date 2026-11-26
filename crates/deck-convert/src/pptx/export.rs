@@ -22,6 +22,8 @@ pub fn export(deck: &Deck, deck_dir: &Path, pptx: &Path) -> Result<Vec<String>> 
 /// pictures of what it renders (and still carry their source, so that
 /// importing the file brings them back), instead of their source text.
 pub fn export_with(deck: &Deck, deck_dir: &Path, pptx: &Path, math: &dyn MathRenderer) -> Result<Vec<String>> {
+    // PowerPoint gets the text as drawn: placeholder prefixes written in.
+    let deck = &deck.with_prefixes();
     let mut warnings = vec![];
     let file = std::fs::File::create(pptx).with_context(|| format!("creating {}", pptx.display()))?;
     let mut zip = zip::ZipWriter::new(file);

@@ -72,6 +72,8 @@ pub struct PlaceholderStyle {
     pub align: Option<deck_core::Align>,
     #[serde(default)]
     pub bullets: Option<bool>,
+    /// Text shown before the slide's own text (`{{…}}` variables allowed).
+    pub prefix: Option<String>,
 }
 
 /// Element-level style change (see [`AppState::style_element`]).
@@ -1563,8 +1565,45 @@ impl AppState {
             },
         };
         layout.placeholders.push(placeholder);
+        // The slides of the layout get a box for it, to type in.
+        let name = self.editing_layout.clone().unwrap_or_default();
+        let slides: Vec<usize> = self
+            .deck
+            .as_ref()
+            .map(|d| {
+                d.slides
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, s)| s.layout.as_deref() == Some(name.as_str()))
+                    .map(|(i, _)| i)
+                    .collect()
+            })
+            .unwrap_or_default();
+        for i in slides {
+            self.fit_to_layout(i);
+        }
         self.touch(None);
         Ok(())
+    }
+
+    /// Slide `index` filled to its layout: a box for each placeholder it does
+    /// not fill yet (showing the placeholder's name, in its style), and the
+    /// boxes it fills moved to their placeholder, as PowerPoint does when a
+    /// slide changes layout.
+    fn fit_to_layout(&mut self, index: usize) {
+        let Some(deck) = self.deck.as_mut() else { return };
+        let Some(layout) = deck.slides.get(index).and_then(|s| deck.layout_of(s)) else { return };
+        let slide = &mut deck.slides[index];
+        for ph in &layout.placeholders {
+            let filled = slide.elements.iter_mut().find_map(|e| match e {
+                Element::Text(t) if t.placeholder.as_deref() == Some(ph.name.as_str()) => Some(t),
+                _ => None,
+            });
+            match filled {
+                Some(t) => t.rect = ph.rect,
+                None => slide.elements.push(Element::Text(ph.text_box())),
+            }
+        }
     }
 
     fn layout_mut(&mut self) -> Result<&mut Layout, String> {
@@ -1884,9 +1923,26 @@ impl AppState {
             }
             _ => paragraphs,
         };
-        let Some(boxes) = self.math.layout(&deck.math_preamble, paragraphs, width, &defaults) else {
+        // A placeholder's prefix is drawn before the text: laid out with it,
+        // its characters then left out, so that the caret skips it.
+        let prefix = match elements.get(element) {
+            Some(Element::Text(t)) if !self.editing_template() => {
+                t.placeholder.as_deref().and_then(|n| deck.placeholder_prefix(self.slide, n))
+            }
+            _ => None,
+        };
+        let prefixed;
+        let (laid_out, skip) = match &prefix {
+            Some(p) => {
+                prefixed = text::with_prefix(paragraphs, p);
+                (&prefixed[..], p.chars().count())
+            }
+            None => (paragraphs, 0),
+        };
+        let Some(mut boxes) = self.math.layout(&deck.math_preamble, laid_out, width, &defaults) else {
             return Ok(None);
         };
+        boxes.drain(..skip.min(boxes.len()));
         let (ox, oy) = (rect.x + svg::PADDING, rect.y + svg::PADDING);
         Ok(Some(TextLayout {
             rect,
@@ -1966,7 +2022,11 @@ impl AppState {
                 return Err(format!("no layout named {n}"));
             }
         }
+        let has_layout = name.is_some();
         self.slide_mut()?.layout = name;
+        if has_layout {
+            self.fit_to_layout(self.slide);
+        }
         Ok(())
     }
 
@@ -1985,6 +2045,9 @@ impl AppState {
             self.touch(Some(i));
             if let Some(slide) = self.deck.as_mut().and_then(|d| d.slides.get_mut(i)) {
                 slide.layout.clone_from(&name);
+            }
+            if name.is_some() {
+                self.fit_to_layout(i);
             }
         }
         Ok(())
@@ -2896,6 +2959,9 @@ fn apply_placeholder_style(ph: &mut Placeholder, change: &PlaceholderStyle) -> R
     if let Some(b) = change.bullets {
         ph.bullets = b;
     }
+    if let Some(p) = &change.prefix {
+        ph.prefix.clone_from(p);
+    }
     Ok(())
 }
 
@@ -2944,6 +3010,35 @@ fn layout_groups(deck: &Deck) -> Vec<LayoutGroup> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_layout_gives_its_slides_their_placeholders() {
+        let mut deck = Deck::new("t");
+        let ph = |name: &str, y: f64| Placeholder {
+            name: name.into(),
+            rect: Rect::new(10.0, y, 300.0, 40.0),
+            ..Default::default()
+        };
+        deck.layouts.push(Layout {
+            name: "Two".into(),
+            placeholders: vec![ph("title", 10.0), ph("body1", 80.0)],
+            ..Default::default()
+        });
+        let mut title = TextBox::plain(Rect::new(500.0, 500.0, 10.0, 10.0), "Hello");
+        title.placeholder = Some("title".into());
+        deck.slides = vec![Slide { elements: vec![Element::Text(title)], ..Default::default() }];
+        let mut s = AppState::default();
+        s.load(deck, std::path::PathBuf::new());
+        s.set_layout(Some("Two".into())).unwrap();
+        let slide = &s.deck.as_ref().unwrap().slides[0];
+        assert_eq!(slide.elements.len(), 2, "a box for the body, to type in");
+        assert_eq!(slide.elements[0].rect().y, 10.0, "the title moved to its placeholder");
+        let Element::Text(body) = &slide.elements[1] else { panic!("a text box") };
+        assert_eq!(body.placeholder.as_deref(), Some("body1"));
+        s.edit_layout(Some("Two".into())).unwrap();
+        s.add_placeholder("subtitle").unwrap();
+        assert_eq!(s.deck.as_ref().unwrap().slides[0].elements.len(), 3, "a new placeholder reaches the slides");
+    }
+
     #[test]
     fn steps_move_between_clicks_and_triggers() {
         let mut deck = Deck::new("t");

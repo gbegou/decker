@@ -487,6 +487,8 @@ impl Engine {
     /// step, with bookmarks for sections, subsections and slide titles.
     /// `render` gives each slide's SVG (assets inlined as data URIs).
     pub fn export_pdf(&self, deck: &Deck, render: impl Fn(usize) -> String, out: &Path) -> Result<(), Error> {
+        // The text layer gets the slides' text as drawn: placeholder prefixes included.
+        let deck = &deck.with_prefixes();
         self.export_pdf_pages(deck, &deck_core::transfer::pages(deck, false), |slide, _| render(slide), out)
     }
 
@@ -494,6 +496,8 @@ impl Engine {
     /// its last step) on top and its speaker notes below, with the slide
     /// number and section in the header. Bookmarks as in the slides PDF.
     pub fn export_notes_pdf(&self, deck: &Deck, render: impl Fn(usize) -> String, out: &Path) -> Result<(), Error> {
+        // The text layer gets the slides' text as drawn: placeholder prefixes included.
+        let deck = &deck.with_prefixes();
         let mut binaries = Binaries::new();
         let mut text = String::from(
             "#set page(paper: \"a4\", margin: (x: 18mm, top: 16mm, bottom: 16mm))\n#set text(size: 11pt, font: \"DejaVu Sans\")\n#set heading(outlined: true)\n#show heading: none\n#set par(leading: 0.6em)\n",
@@ -550,6 +554,7 @@ impl Engine {
         render: impl Fn(usize, u32) -> String,
         out: &Path,
     ) -> Result<(), Error> {
+        let deck = &deck.with_prefixes();
         let mut binaries = Binaries::new();
         let header = format!(
             "#set page(width: {w}pt, height: {h}pt, margin: 0pt)\n#set heading(outlined: true)\n#show heading: none\n{preamble}\n",
