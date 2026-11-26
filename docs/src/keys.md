@@ -31,6 +31,8 @@ The same list as the editor's help (**F1** or **?**). Generated from the editor'
 
 | Key or control | Does |
 | --- | --- |
+| Right-click an element | Cut, copy, paste, duplicate, delete, order, group, rename, appear or disappear on the next click |
+| Ctrl+D · T · R | Duplicate the selection; add a text box; add a rectangle |
 | Click · Shift+click | Select; add to the selection; drag to move; corner handle to resize; Delete to remove |
 | Drag on the empty slide | A rubber band: selects every element it touches |
 | Round handle above the selection | Rotates the element (Shift: steps of 15°; it catches at 0, 90, 180, 270); double-click to reset. At a later click it makes a rotation step |
@@ -55,7 +57,9 @@ The same list as the editor's help (**F1** or **?**). Generated from the editor'
 | Image panel | Crop to a shape; percentage cut from each edge |
 | Animations tab | The timeline: one row per click; drag an entry to another click, or between two for a click of its own. Then the selected element's steps: appear or disappear on click, move steps (drag the element while viewing the step), rotation, fill, timing |
 | Properties ▸ name | A name for the selected element, shown in the timeline and kept in PowerPoint |
-| ⟩ (side panel) · Notes ▾ | Collapse the side panel; fold the notes under the slide: more room for the slide |
+| ⟩ (side panel) · « (slides) · Notes ▾ | Collapse the side panel or the slides (drag the slides' edge to resize them); fold the notes under the slide: more room for the slide |
+| Element · Slide · Animations (side panel) | The selection's settings; the slide's (section, layout, theme, fonts and colors, macros); the timeline |
+| Fit · 100% · − + (status bar) · Ctrl+0 · Ctrl+- · Ctrl++ | Zoom: fit the slide in the window, actual size, out, in |
 | ◀ ▶ under the canvas | View the slide at a given click |
 
 ## Layouts
@@ -83,7 +87,7 @@ The same list as the editor's help (**F1** or **?**). Generated from the editor'
 | --- | --- |
 | P (presenter window) · Pointer button | Mirror the mouse over the current slide as a red dot on the audience window |
 | D · C (presenter window) · Pen button | Draw on the current slide, shown to the audience; C or leaving the slide erases it |
-| Present · Esc | Fullscreen on the projector, presenter view on the laptop · end |
+| Present (Shift+F5) · F5 · Esc | From this slide · from the start: fullscreen on the projector, presenter view on the laptop · end |
 | Right / Down / Space / Enter / click · Left / Up / Backspace | Next · previous step or slide |
 | Home · End | First · last slide |
 | B · W | Black · white screen (write on the whiteboard) |

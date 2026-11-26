@@ -96,8 +96,9 @@ def theme_editor(e):
 
 def path_editing(e):
     e.goto(1)
-    e.s.js("""const sel = [...document.querySelectorAll('select.add-shape')].find(s => s.querySelector('option[value=bezier]'));
-        sel.value = 'bezier'; sel.dispatchEvent(new Event('change', {bubbles: true})); return true""")
+    e.s.js("""[...document.querySelectorAll('header .menu-button > button')].find(b => b.textContent.includes('Shape')).click(); return true""")
+    e.settle(0.3)
+    e.s.js("""[...document.querySelectorAll('.menu-button .menu button')].find(b => b.textContent.includes(arguments[0])).click(); return true""", "Bézier path")
     e.settle(0.5)
     e.click_slide(620, 150)
     e.drag_slide([(860, 200), (900, 300)])

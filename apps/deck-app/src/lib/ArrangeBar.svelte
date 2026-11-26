@@ -35,7 +35,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="arrangebar" onpointerdown={(e) => e.stopPropagation()}>
-  <span class="scope">{elements.length > 1 ? `${elements.length} selected` : "to the slide"}</span>
+  <span class="scope" title="Alignment is to the other selected elements, or to the slide for one element">Arrange · {elements.length > 1 ? `${elements.length} items` : "on the slide"}</span>
   {#each ALIGN as [op, title, d]}
     <button {title} aria-label={title} onclick={() => arrange(op, title)}><svg viewBox="0 0 24 24"><path {d} /></svg></button>
   {/each}
@@ -66,8 +66,8 @@
 </div>
 
 <style>
-  .arrangebar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 16px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); }
-  .scope { min-width: 76px; }
+  .arrangebar { display: flex; flex-wrap: nowrap; flex: none; align-items: center; gap: 4px; padding: 4px 8px; font-size: 12px; color: var(--muted); white-space: nowrap; border-left: 1px solid var(--border); }
+  .scope { min-width: 0; }
   button { padding: 2px 5px; min-width: 26px; height: 24px; display: inline-flex; align-items: center; justify-content: center; }
   button:disabled { opacity: 0.35; cursor: default; }
   svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }

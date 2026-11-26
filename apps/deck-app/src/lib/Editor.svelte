@@ -7,6 +7,7 @@
   import StyleBar from "./StyleBar.svelte";
   import PathTool from "./PathTool.svelte";
   import Timeline from "./Timeline.svelte";
+  import MenuButton from "./MenuButton.svelte";
   import type { PathNode } from "./paths";
   import ArrangeBar from "./ArrangeBar.svelte";
   import PlaceholderFields from "./PlaceholderFields.svelte";
@@ -37,6 +38,8 @@
       if (selected !== null && selected >= v.elements.length) selected = null;
       also = also.filter((i) => i < v.elements.length);
       if (editing && (editing.index >= v.elements.length || v.slide !== editingSlide || v.editing_layout !== editingLayout || v.editing_theme !== editingTheme)) editing = null;
+      // Another canvas (a layout, a theme, back to the slides): the selection meant other elements.
+      if (v.editing_layout !== editingLayout || v.editing_theme !== editingTheme) { selected = null; also = []; }
       editingSlide = v.slide;
       editingLayout = v.editing_layout;
       editingTheme = v.editing_theme;
@@ -155,6 +158,64 @@
   }
 
   /** Ctrl+C / Ctrl+X on the selection (not while editing text). */
+  // ----- the canvas menu (right-click an element) -----
+  let elementMenu = $state<{ x: number; y: number } | null>(null);
+  function openElementMenu(e: MouseEvent, index: number) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!selection.includes(index)) { selected = index; also = []; }
+    elementMenu = { x: e.clientX, y: Math.min(e.clientY, window.innerHeight - 420) };
+  }
+  function onElement(f: () => unknown) {
+    elementMenu = null;
+    f();
+  }
+  /** Ctrl+D: a copy of the selection, through the clipboard. */
+  function duplicateSelection() {
+    if (!selection.length) return;
+    const indices = [...selection];
+    enqueue(async () => { await api.copyElements(indices); });
+    pasteClipboard();
+  }
+  function deleteSelection() {
+    const indices = [...selection].sort((a, b) => b - a);
+    selected = null;
+    also = [];
+    enqueue(async () => { await run(indices.length > 1 ? `Deleted ${indices.length} elements` : "Deleted element", async () => { for (const i of indices) await api.deleteElement(i); }); });
+  }
+  function orderSelection(op: "front" | "forward" | "backward" | "back") {
+    const indices = [...selection];
+    enqueue(async () => {
+      const moved = await run("Order", () => api.arrange(indices, op));
+      if (moved && moved.length) { selected = moved[0]; also = moved.slice(1); }
+    });
+  }
+  /** Appears (or disappears) at a new click at the end of the slide's timeline. */
+  function animateSelection(appear: boolean) {
+    if (!view || selected === null) return;
+    const el = view.elements[selected];
+    const at = view.last_step + 1;
+    let steps = el.steps.map((s) => ({ ...s, set: { ...s.set } }));
+    if (appear) {
+      steps = steps.filter((s) => !(s.at === 0 && s.set.opacity === 0));
+      steps.unshift({ at: 0, set: { opacity: 0 } });
+    }
+    steps.push({ at, set: { opacity: appear ? 1 : 0 }, duration: 0.3 });
+    const i = el.index;
+    run(appear ? `Appears at click ${at}` : `Disappears at click ${at}`, () => api.setSteps(i, steps));
+  }
+  function renameSelection() {
+    panelOpen = true;
+    panelTab = "element";
+    queueMicrotask(() => { const input = document.querySelector<HTMLInputElement>(".props label.name input"); input?.focus(); input?.select(); });
+  }
+  function present(fromStart: boolean) {
+    enqueue(async () => {
+      if (fromStart && view) await api.goto(0, 0);
+      await run("Presenting", api.startPresentation);
+    });
+  }
+
   function copySelection(cut: boolean) {
     if (selected === null) return;
     const indices = [selected, ...also];
@@ -517,11 +578,67 @@
   }
   /** The right panel: open or collapsed to a strip, and its tab. */
   let panelOpen = $state(remembered("panelOpen", true));
-  let panelTab = $state<"props" | "anim">(remembered("panelTab", "props"));
+  let panelTab = $state<"element" | "slide" | "anim">(((t) => (t === "props" ? "element" : t))(remembered<string>("panelTab", "slide")) as "element" | "slide" | "anim");
   /** The notes under the slide: unfolded or not. */
   let notesOpen = $state(remembered("notesOpen", true));
-  $effect(() => { remember("panelOpen", panelOpen); remember("panelTab", panelTab); remember("notesOpen", notesOpen); });
-  function showTab(tab: "props" | "anim") {
+  /** Zoom of the canvas: `null` fits the slide in the window, else a factor
+      of the slide's size in points (1 = 100%). */
+  let zoom = $state<number | null>(null);
+  const ZOOMS = [0.25, 0.33, 0.5, 0.67, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+  function currentZoom(): number {
+    return view && canvas ? canvas.getBoundingClientRect().width / view.width : 1;
+  }
+  function zoomBy(dir: 1 | -1) {
+    const z = currentZoom();
+    const next = dir > 0 ? ZOOMS.find((v) => v > z + 0.01) : [...ZOOMS].reverse().find((v) => v < z - 0.01);
+    zoom = next ?? (dir > 0 ? ZOOMS[ZOOMS.length - 1] : ZOOMS[0]);
+  }
+  let zoomShown = $state(100);
+  /** The room for the slide, and the width that fits it there. */
+  let wrapW = $state(0), wrapH = $state(0);
+  const fitWidth = $derived(view ? Math.max(100, Math.min(wrapW - 32, ((wrapH - 32) * view.width) / view.height)) : 100);
+  $effect(() => {
+    void zoom; void view; void panelOpen; void slidesOpen; void slidesWidth;
+    requestAnimationFrame(() => (zoomShown = Math.round(currentZoom() * 100)));
+  });
+
+  /** The thumbnail pane: its width (dragging its edge) and whether it is open. */
+  let slidesWidth = $state(remembered("slidesWidth", 180));
+  let slidesOpen = $state(remembered("slidesOpen", true));
+  $effect(() => {
+    remember("panelOpen", panelOpen); remember("panelTab", panelTab); remember("notesOpen", notesOpen);
+    remember("slidesWidth", slidesWidth); remember("slidesOpen", slidesOpen);
+  });
+  // A narrow window: the side panel collapses when the window becomes
+  // narrow (it can still be opened by hand).
+  const NARROW = 1250;
+  let wasNarrow = typeof window !== "undefined" && window.innerWidth < NARROW;
+  if (wasNarrow) panelOpen = false;
+  function onResize() {
+    const narrow = window.innerWidth < NARROW;
+    if (narrow && !wasNarrow) panelOpen = false;
+    wasNarrow = narrow;
+  }
+  let resizingSlides: { x: number; w: number } | null = null;
+  function startResizeSlides(e: PointerEvent) {
+    e.preventDefault();
+    resizingSlides = { x: e.clientX, w: slidesWidth };
+  }
+  function resizeSlides(e: PointerEvent) {
+    if (resizingSlides) slidesWidth = Math.round(Math.min(360, Math.max(110, resizingSlides.w + e.clientX - resizingSlides.x)));
+  }
+  // Selecting shows the element's tab, deselecting the slide's (the
+  // Animations tab stays where it is).
+  let hadSelection = false;
+  $effect(() => {
+    const has = selected !== null;
+    if (has !== hadSelection) {
+      if (has && panelTab === "slide") panelTab = "element";
+      if (!has && panelTab === "element") panelTab = "slide";
+      hadSelection = has;
+    }
+  });
+  function showTab(tab: "element" | "slide" | "anim") {
     if (panelOpen && panelTab === tab) panelOpen = false;
     else { panelTab = tab; panelOpen = true; }
   }
@@ -530,6 +647,14 @@
   let pathMode = $state<"free" | "bezier" | null>(null);
   /** The path whose nodes are being edited (double-click on a path). */
   let pathEdit = $state<number | null>(null);
+  const SHAPES = [
+    { value: "rectangle", label: "▭ Rectangle", key: "R" },
+    { value: "ellipse", label: "◯ Ellipse" },
+    { value: "line", label: "╱ Line" },
+    { value: "arrow", label: "→ Arrow" },
+    { value: "free", label: "✎ Freehand", title: "Drag to draw; end near the start to close it" },
+    { value: "bezier", label: "✒ Bézier path", title: "Click for corners, click and drag for curves; click the first point to close" },
+  ];
   function addShapeOf(k: string) {
     if (k === "free" || k === "bezier") {
       selected = null;
@@ -947,9 +1072,30 @@
       return;
     }
     if (e.key === "Delete" && selected !== null) {
-      const i = selected;
-      selected = null;
-      run("Deleted element", () => api.deleteElement(i));
+      deleteSelection();
+      return;
+    }
+    // Single keys, outside text: T a text box, R a rectangle.
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && view?.slide_count && (e.key === "t" || e.key === "r")) {
+      if (e.key === "t") run("Added text", api.addText);
+      else addShapeOf("rectangle");
+      e.preventDefault();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "=" || e.key === "+" || e.key === "-" || e.key === "0")) {
+      if (e.key === "0") zoom = null;
+      else zoomBy(e.key === "-" ? -1 : 1);
+      e.preventDefault();
+      return;
+    }
+    if (e.key === "F5" && view?.slide_count) {
+      present(!e.shiftKey);
+      e.preventDefault();
+      return;
+    }
+    if ((e.key === "d" || e.key === "D") && (e.ctrlKey || e.metaKey) && selection.length) {
+      duplicateSelection();
+      e.preventDefault();
       return;
     }
     if ((e.key === "ArrowUp" || e.key === "ArrowDown") && e.ctrlKey && view) {
@@ -985,9 +1131,11 @@
   }
 </script>
 
-<svelte:window onkeydown={onKey} onpointermove={thumbMove} onpointerup={thumbUp} onpointercancel={thumbUp} />
+<svelte:window onkeydown={onKey} onresize={onResize}
+               onpointermove={(e) => { thumbMove(e); resizeSlides(e); }}
+               onpointerup={() => { thumbUp(); resizingSlides = null; }} onpointercancel={() => { thumbUp(); resizingSlides = null; }} />
 
-<div class="editor" style:grid-template-columns="180px 1fr {panelOpen ? '300px' : '36px'}">
+<div class="editor" style:grid-template-columns="{slidesOpen ? `${slidesWidth}px` : '36px'} 1fr {panelOpen ? '300px' : '36px'}">
   <header>
     <div class="file-menu">
       <button aria-haspopup="menu" aria-expanded={fileMenu} onclick={() => (fileMenu = !fileMenu)}>File ▾</button>
@@ -1011,23 +1159,15 @@
       {/if}
     </div>
     <span class="spacer"></span>
-    <button title="Undo (Ctrl+Z)" disabled={!view?.can_undo} onclick={() => undoRedo(false)}>↶</button>
-    <button title="Redo (Ctrl+Y)" disabled={!view?.can_redo} onclick={() => undoRedo(true)}>↷</button>
-    <button title="Commands and keys (F1)" onclick={() => (help = !help)}>?</button>
+    <button class="end" title="Undo (Ctrl+Z)" disabled={!view?.can_undo} onclick={() => undoRedo(false)}>↶</button>
+    <button class="end" title="Redo (Ctrl+Y)" disabled={!view?.can_redo} onclick={() => undoRedo(true)}>↷</button>
+    <button class="end" title="Commands and keys (F1)" onclick={() => (help = !help)}>?</button>
     {#if view?.editing_theme !== null && view?.editing_theme !== undefined}
       <span class="banner">Theme
         <input class="layout-name" value={view.editing_theme} onchange={(e) => run("Theme renamed", () => api.renameTheme(e.currentTarget.value))} />
       </span>
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
-      <select class="add-shape" title="Add a shape" value="" onchange={(e) => { const k = e.currentTarget.value; e.currentTarget.value = ""; addShapeOf(k); }}>
-        <option value="">+ Shape</option>
-        <option value="rectangle">▭ Rectangle</option>
-        <option value="ellipse">◯ Ellipse</option>
-        <option value="line">╱ Line</option>
-        <option value="arrow">→ Arrow</option>
-        <option value="free" title="Drag to draw; end near the start to close it">✎ Freehand</option>
-        <option value="bezier" title="Click for corners, click and drag for curves; click the first point to close">✒ Bézier path</option>
-      </select>
+      <MenuButton label="+ Shape" title="Add a shape, or draw a path" items={SHAPES} onpick={addShapeOf} />
       <button title="Its layouts keep their look and lose the theme" onclick={() => run("Theme deleted", api.deleteTheme)}>Delete theme</button>
       <button class="primary" onclick={() => run("Back to slides", () => api.editTheme(null))}>Done</button>
     {:else if view?.editing_layout !== null && view?.editing_layout !== undefined}
@@ -1035,15 +1175,7 @@
         <input class="layout-name" value={view.editing_layout} onchange={(e) => run("Layout renamed", () => api.renameLayout(e.currentTarget.value))} />
       </span>
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
-      <select class="add-shape" title="Add a shape" value="" onchange={(e) => { const k = e.currentTarget.value; e.currentTarget.value = ""; addShapeOf(k); }}>
-        <option value="">+ Shape</option>
-        <option value="rectangle">▭ Rectangle</option>
-        <option value="ellipse">◯ Ellipse</option>
-        <option value="line">╱ Line</option>
-        <option value="arrow">→ Arrow</option>
-        <option value="free" title="Drag to draw; end near the start to close it">✎ Freehand</option>
-        <option value="bezier" title="Click for corners, click and drag for curves; click the first point to close">✒ Bézier path</option>
-      </select>
+      <MenuButton label="+ Shape" title="Add a shape, or draw a path" items={SHAPES} onpick={addShapeOf} />
       <button onclick={() => enqueue(() => run("Added table", () => api.addTable(3, 3)).then(selectAdded))} title="A table of 3 by 3 cells with a header row; edit it in the panel">+ Table</button>
       <select class="add-shape" title="Add a named placeholder" value="" onchange={(e) => { const k = e.currentTarget.value as "title" | "subtitle" | "body"; e.currentTarget.value = ""; if (k) run("Added placeholder", () => api.addPlaceholder(k)); }}>
         <option value="">+ Placeholder</option>
@@ -1056,15 +1188,7 @@
       <button class="primary" onclick={() => run("Back to slides", () => api.editLayout(null))}>Done</button>
     {:else if view?.slide_count}
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
-      <select class="add-shape" title="Add a shape" value="" onchange={(e) => { const k = e.currentTarget.value; e.currentTarget.value = ""; addShapeOf(k); }}>
-        <option value="">+ Shape</option>
-        <option value="rectangle">▭ Rectangle</option>
-        <option value="ellipse">◯ Ellipse</option>
-        <option value="line">╱ Line</option>
-        <option value="arrow">→ Arrow</option>
-        <option value="free" title="Drag to draw; end near the start to close it">✎ Freehand</option>
-        <option value="bezier" title="Click for corners, click and drag for curves; click the first point to close">✒ Bézier path</option>
-      </select>
+      <MenuButton label="+ Shape" title="Add a shape, or draw a path" items={SHAPES} onpick={addShapeOf} />
       <button onclick={() => enqueue(() => run("Added table", () => api.addTable(3, 3)).then(selectAdded))} title="A table of 3 by 3 cells with a header row; edit it in the panel">+ Table</button>
       <button onclick={addMedia} title="A video or an animated GIF; images and clips can also be pasted or dropped">+ Video…</button>
       <button onclick={() => run("Added figure", api.addFigure)} title="A Typst figure: CeTZ drawings and plots, edited as source in the panel">+ Figure</button>
@@ -1073,14 +1197,21 @@
       {#if view.presenting}
         <button class="primary" onclick={() => api.stopPresentation()}>Stop (Esc)</button>
       {:else}
-        <button class="primary" onclick={() => run("Presenting", api.startPresentation)}>Present</button>
+        <button class="primary" title="From this slide (Shift+F5); F5 from the start" onclick={() => present(false)}>Present</button>
       {/if}
     {/if}
   </header>
 
   {#if view && view.slide_count}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <aside class="slides" oncontextmenu={openGapMenu}>
+    {#if slidesOpen}
+      <!-- On the pane's edge, outside its scrolling: it stays put. -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="pane-resizer" title="Drag to resize the slides" onpointerdown={startResizeSlides}></div>
+    {/if}
+    <aside class="slides" class:collapsed={!slidesOpen} oncontextmenu={openGapMenu}>
+      <button class="pane-toggle" title={slidesOpen ? "Collapse the slides: more room for the slide" : "Show the slides"} onclick={() => (slidesOpen = !slidesOpen)}>{slidesOpen ? "«" : "»"}</button>
+      {#if slidesOpen}
       {#each thumbnails as thumb, i}
         {@const st = view.starts[i] ?? { section: null, subsection: null }}
         {#each ["section", "subsection"] as level}
@@ -1110,12 +1241,13 @@
           </div>
         </div>
       {/each}
+      {/if}
     </aside>
 
     <main>
       <!-- The toolbars keep their place whether or not something is selected, so the canvas never jumps under the pointer. -->
       <div class="bars">
-      {#if !sel}<div class="bars-hint">Select an element to style and arrange it. Drag on the empty slide to select several.</div>{/if}
+      {#if !sel}<div class="bars-hint">Select an element to style it; drag on the empty slide to select several.</div>{/if}
       {#if sel && sel.kind !== "image" && sel.kind !== "placeholder"}
         <StyleBar element={sel} theme={view.theme}
                   range={editing && editing.index === sel.index ? { from: Math.min(editing.caret, editing.anchor), to: Math.max(editing.caret, editing.anchor) } : null}
@@ -1127,10 +1259,10 @@
                     onmoved={(ix) => { if (ix.length) { selected = ix[0]; also = ix.slice(1); } }} />
       {/if}
       </div>
-      <div class="canvas-wrap">
+      <div class="canvas-wrap" class:zoomed={zoom !== null} bind:clientWidth={wrapW} bind:clientHeight={wrapH}>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div class="canvas" class:drop-hover={dropHover} bind:this={canvas} style="aspect-ratio: {view.width} / {view.height}"
+        <div class="canvas" class:drop-hover={dropHover} bind:this={canvas} style="aspect-ratio: {view.width} / {view.height}; width: {zoom !== null ? view.width * zoom : fitWidth}px"
              onpointerdown={startBand} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={endDrag}
              onclick={(e) => { if (banded) { banded = false; return; } if ((e.target as Element).closest(".hit, .handle, .rotate, .text-editing")) return; selected = null; also = []; editing = null; }}>
           <SlideView svg={view.svg} width={view.width} height={view.height} dir={view.dir} />
@@ -1143,11 +1275,11 @@
                 <line class="hit thin" class:selected={selection.includes(el.index)} transform={turn}
                       x1={el.rect.x} y1={el.flip ? el.rect.y + el.rect.h : el.rect.y}
                       x2={el.rect.x + el.rect.w} y2={el.flip ? el.rect.y : el.rect.y + el.rect.h}
-                      onpointerdown={(e) => startDrag(e, el.index, "move")} />
+                      onpointerdown={(e) => startDrag(e, el.index, "move")} oncontextmenu={(e) => openElementMenu(e, el.index)} />
               {:else}
                 <rect class="hit" class:selected={selection.includes(el.index)} transform={turn}
                       x={el.rect.x} y={el.rect.y} width={el.rect.w} height={el.rect.h}
-                      onpointerdown={(e) => startDrag(e, el.index, "move")}
+                      onpointerdown={(e) => startDrag(e, el.index, "move")} oncontextmenu={(e) => openElementMenu(e, el.index)}
                       ondblclick={(e) => { e.stopPropagation(); startEdit(el.index, slidePoint(e)); }} />
               {/if}
               {#if el.index === selected}
@@ -1218,7 +1350,8 @@
 
     <aside class="props" class:collapsed={!panelOpen}>
       <div class="tabs" class:vertical={!panelOpen}>
-        <button class:on={panelOpen && panelTab === "props"} title="Properties of the selection, the slide, the layout" onclick={() => showTab("props")}>{panelOpen ? "Properties" : "☰"}</button>
+        <button class:on={panelOpen && panelTab === "element"} title="The selected element: name, position, its own settings" onclick={() => showTab("element")}>{panelOpen ? "Element" : "◻"}</button>
+        <button class:on={panelOpen && panelTab === "slide"} title="The slide: section, layout, theme, fonts and colors, macros" onclick={() => showTab("slide")}>{panelOpen ? (view.editing_theme !== null ? "Theme" : view.editing_layout !== null ? "Layout" : "Slide") : "☰"}</button>
         <button class:on={panelOpen && panelTab === "anim"} title="Animations: the timeline of the slide's clicks" onclick={() => showTab("anim")}>{panelOpen ? "Animations" : "▶"}</button>
         {#if panelOpen}<button class="collapse" title="Collapse the panel: more room for the slide" onclick={() => (panelOpen = false)}>⟩</button>{/if}
       </div>
@@ -1241,7 +1374,7 @@
             <p class="muted">Select an element to add or edit its steps: appear or disappear on a click, move, grow, turn, change color.</p>
           {/if}
         {/if}
-      {:else}
+      {:else if panelTab === "element"}
       {#if sel}
         <h3>{sel.kind} #{sel.index}</h3>
         {#if sel.kind !== "placeholder"}
@@ -1252,10 +1385,12 @@
                    onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
           </label>
         {/if}
+<div class="xywh">
         <label>x <input type="number" value={Math.round(sel.rect.x)} onchange={(e) => api.setRect(sel!.index, { ...sel!.rect, x: +e.currentTarget.value })} /></label>
         <label>y <input type="number" value={Math.round(sel.rect.y)} onchange={(e) => api.setRect(sel!.index, { ...sel!.rect, y: +e.currentTarget.value })} /></label>
         <label>w <input type="number" value={Math.round(sel.rect.w)} onchange={(e) => api.setRect(sel!.index, { ...sel!.rect, w: +e.currentTarget.value })} /></label>
         <label>h <input type="number" value={Math.round(sel.rect.h)} onchange={(e) => api.setRect(sel!.index, { ...sel!.rect, h: +e.currentTarget.value })} /></label>
+        </div>
         {#if sel.path}
           {@const path = sel.path}
           <h3>Path</h3>
@@ -1263,7 +1398,7 @@
                  onchange={(e) => { const c = e.currentTarget.checked; const i = sel!.index; run(c ? "Path closed" : "Path opened", () => api.setPath(i, path.nodes, c)); }} />
             closed: the last point joins the first, and the shape is filled</label>
           <div class="row"><button onclick={() => startEdit(sel!.index)}>Edit points</button></div>
-          <p class="muted">{path.nodes.length} points. Double-click the path to edit them: drag points and handles, double-click a point for a corner or a curve, Delete removes it.</p>
+          <p class="muted" title="Drag points and handles; double-click a point for a corner or a curve; Delete removes it.">{path.nodes.length} points · double-click the path to edit them.</p>
         {/if}
         {#if sel.kind === "media" && sel.media}
           <h3>Playback</h3>
@@ -1278,7 +1413,7 @@
             </div>
             <label><input type="checkbox" checked={sel.media.sound} onchange={(e) => run("Sound", () => api.styleElement(sel!.index, { sound: e.currentTarget.checked }))} /> sound</label>
           {/if}
-          <p class="muted">{sel.text}{sel.media.duration ? ` · ${sel.media.duration.toFixed(1)} s` : ""}. Plays in the presentation windows; the editor shows the first frame. Thumbnails, PDF and PowerPoint exports show the poster.</p>
+          <p class="muted" title="The editor shows the first frame; thumbnails, PDF and PowerPoint show the poster.">{sel.text}{sel.media.duration ? ` · ${sel.media.duration.toFixed(1)} s` : ""} · plays in the presentation.</p>
         {/if}
         {#if sel.kind === "image" && sel.crop && sel.mask}
           <h3>Crop to shape</h3>
@@ -1301,7 +1436,7 @@
         {:else if sel.kind === "group"}
           <p class="muted">A group of {sel.text}: moves, resizes and animates as one. Ungroup (Ctrl+Shift+G) to edit its parts.</p>
         {:else if sel.kind === "outline"}
-          <p class="muted">The plan: every section, the one this slide belongs to in bold, with its subsections. Duplicate this slide and drag a copy to the start of each section; each copy highlights its own.</p>
+          <p class="muted" title="Duplicate this slide and drag a copy to the start of each section: each copy highlights its own.">The sections, with this slide's in bold.</p>
         {:else if sel.kind === "placeholder"}
           <label>placeholder name
             <input type="text" value={sel.text} onchange={(e) => run("Placeholder renamed", () => api.setText(sel!.index, e.currentTarget.value))} />
@@ -1325,7 +1460,7 @@
             <textarea rows={sel.kind === "figure" ? 12 : 6} class:code={sel.kind === "figure" || sel.kind === "math"} value={sel.text} onchange={(e) => api.setText(sel!.index, e.currentTarget.value)}></textarea>
           </label>
           {#if sel.kind === "figure"}
-            <p class="muted">Any Typst markup, with <code>@preview/cetz:0.5.2</code> and <code>@preview/cetz-plot:0.1.4</code> bundled: <code>plot.add(points)</code>, <code>plot.add-bar</code>, <code>draw.line</code>… The page is as wide as the box and is scaled to fit it. A Python macro can generate it from data.</p>
+            <p class="muted" title="Bundled: @preview/cetz:0.5.2 and @preview/cetz-plot:0.1.4 (plot.add(points), plot.add-bar, draw.line…). The page is as wide as the box and scaled to fit it; a Python macro can generate it from data.">Typst markup; CeTZ plots and drawings are bundled.</p>
           {/if}
         {/if}
         {#if sel.kind !== "placeholder" && !editingTemplate}
@@ -1333,8 +1468,9 @@
           <p class="muted">{sel.last_step ? `${sel.steps.filter((x) => x.at > 0).length} step(s)` : "None"} · <button class="link" onclick={() => { panelTab = "anim"; }}>open the timeline</button></p>
         {/if}
       {:else}
-        <p class="muted">Click an element to select it, Shift+click to select several (then Group), double-click its text to edit it in place (arrows, Shift for a selection, Enter for a paragraph, Escape to finish). Drag to move, corner handle to resize, Delete to remove.</p>
+        <p class="muted">Nothing selected. Click an element, or drag on the slide to select several. <button class="link" onclick={() => (help = true)}>Keys…</button></p>
       {/if}
+      {:else}
       {#if !editingTemplate}
       <h3>Section</h3>
       <label>starts section
@@ -1385,7 +1521,7 @@
           <div class="row"><button onclick={() => run("Editing theme", () => api.editTheme(meta.parent))}>Edit theme “{meta.parent}”</button></div>
         {/if}
         <h3>Layout</h3>
-        <p class="muted">The layout's own elements are drawn under every slide that uses it, over the theme's (dimmed here); placeholders (dashed) are the slots new slides start from. In texts, these variables are filled per slide: <code>{"{{section}}"}</code>, <code>{"{{subsection}}"}</code>, <code>{"{{slide}}"}</code>, <code>{"{{slides}}"}</code>, <code>{"{{title}}"}</code>, <code>{"{{deck}}"}</code>, <code>{"{{date}}"}</code>.</p>
+        <p class="muted" title="Variables filled per slide in texts: {"{{section}}"}, {"{{subsection}}"}, {"{{slide}}"}, {"{{slides}}"}, {"{{title}}"}, {"{{deck}}"}, {"{{date}}"}">Own elements over the theme's (dimmed); dashed boxes are the placeholders new slides start from. Texts can hold variables such as <code>{"{{slide}}"}</code>.</p>
       {:else}
         <h3>Layout</h3>
         {#if view.layouts.length}
@@ -1445,7 +1581,7 @@
           <input type="number" min="0" max="200" step="1" value={view.theme.own.size ?? ""} placeholder={String(view.theme.effective.size ?? 18)}
                  onchange={(e) => run("Theme size", () => api.setTheme({ size: +e.currentTarget.value || 0 }))} />
         </label>
-        <label>text
+        <label>text color
           <input type="color" value={view.theme.effective.color ?? "#000000"} onchange={(e) => run("Theme text color", () => api.setTheme({ color: e.currentTarget.value }))} />
           <button title="Back to the inherited color" onclick={() => run("Theme text color reset", () => api.setTheme({ color: "" }))}>⌀</button>
         </label>
@@ -1495,7 +1631,18 @@
     </div>
   {/if}
 
-  <footer>{status}</footer>
+  <footer>
+    <span class="status">{status}</span>
+    {#if view?.slide_count && !editing}
+      <span class="zoom">
+        <button title="Zoom out (Ctrl+-)" onclick={() => zoomBy(-1)}>−</button>
+        <button class:on={zoom === null} title="Fit the slide in the window (Ctrl+0)" onclick={() => (zoom = null)}>Fit</button>
+        <button class:on={zoom === 1} title="Actual size: one point per pixel" onclick={() => (zoom = 1)}>100%</button>
+        <button title="Zoom in (Ctrl++)" onclick={() => zoomBy(1)}>+</button>
+        <span class="pct">{zoomShown}%</span>
+      </span>
+    {/if}
+  </footer>
   {#if help}<Help onclose={() => (help = false)} />{/if}
 
   {#if gapMenu && view}
@@ -1509,6 +1656,35 @@
       <button role="menuitem" title="A slide listing the sections, the current one highlighted" onclick={() => onGap("plan")}>New plan slide</button>
       <button role="menuitem" onclick={() => onGap("section")}>New section</button>
       <button role="menuitem" onclick={() => onGap("subsection")}>New subsection</button>
+    </div>
+  {/if}
+
+  {#if elementMenu && view && sel}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div class="menu-backdrop" onclick={() => (elementMenu = null)} oncontextmenu={(e) => { e.preventDefault(); elementMenu = null; }}></div>
+    <div class="context-menu" role="menu" style="left: {elementMenu.x}px; top: {elementMenu.y}px">
+      <div class="menu-title">{selection.length > 1 ? `${selection.length} elements` : sel.label}</div>
+      <button role="menuitem" onclick={() => onElement(() => copySelection(true))}>Cut <kbd>Ctrl+X</kbd></button>
+      <button role="menuitem" onclick={() => onElement(() => copySelection(false))}>Copy <kbd>Ctrl+C</kbd></button>
+      <button role="menuitem" onclick={() => onElement(pasteClipboard)}>Paste <kbd>Ctrl+V</kbd></button>
+      <button role="menuitem" onclick={() => onElement(duplicateSelection)}>Duplicate <kbd>Ctrl+D</kbd></button>
+      <button role="menuitem" onclick={() => onElement(deleteSelection)}>Delete <kbd>Del</kbd></button>
+      <hr />
+      <button role="menuitem" onclick={() => onElement(() => orderSelection("front"))}>Bring to front</button>
+      <button role="menuitem" onclick={() => onElement(() => orderSelection("forward"))}>Bring forward</button>
+      <button role="menuitem" onclick={() => onElement(() => orderSelection("backward"))}>Send backward</button>
+      <button role="menuitem" onclick={() => onElement(() => orderSelection("back"))}>Send to back</button>
+      {#if selection.length >= 2}<button role="menuitem" onclick={() => onElement(groupSelection)}>Group <kbd>Ctrl+G</kbd></button>{/if}
+      {#if sel.kind === "group"}<button role="menuitem" onclick={() => onElement(ungroupSelection)}>Ungroup <kbd>Ctrl+Shift+G</kbd></button>{/if}
+      <hr />
+      <button role="menuitem" onclick={() => onElement(renameSelection)}>Rename…</button>
+      {#if selection.length === 1 && !editingTemplate}
+        <button role="menuitem" onclick={() => onElement(() => animateSelection(true))}>Appear on next click</button>
+        <button role="menuitem" onclick={() => onElement(() => animateSelection(false))}>Disappear on next click</button>
+        <button role="menuitem" onclick={() => onElement(() => { panelOpen = true; panelTab = "anim"; })}>Animations…</button>
+      {/if}
+      {#if sel.shape === "path"}<button role="menuitem" onclick={() => onElement(() => startEdit(sel!.index))}>Edit points</button>{/if}
     </div>
   {/if}
 
@@ -1599,12 +1775,18 @@
     grid-template-areas: "head head head" "slides main props" "foot foot foot";
     height: 100%;
   }
+  /* File and the insert tools on the left; undo, redo, help, then the
+     presentation on the right. */
+  header .spacer { order: 5; }
+  header .end { order: 6; }
+  header .primary { order: 7; }
   header { grid-area: head; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); align-items: center; }
   header button { white-space: nowrap; }
   .spacer { flex: 1; }
   .banner { color: var(--muted); display: flex; align-items: center; gap: 6px; }
   .layout-name { width: 160px; padding: 3px 6px; }
-  .row { display: flex; gap: 6px; margin-top: 6px; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .props .row button, .props .row select { white-space: nowrap; font-size: 12px; padding: 3px 8px; width: auto; flex: none; }
   .macros { display: flex; flex-wrap: wrap; gap: 6px; }
   .menu-backdrop { position: fixed; inset: 0; z-index: 40; }
   .context-menu { position: fixed; z-index: 41; min-width: 220px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.45); display: flex; flex-direction: column; }
@@ -1613,8 +1795,10 @@
   .context-menu button:disabled { opacity: 0.4; cursor: default; }
   .context-menu hr { border: none; border-top: 1px solid var(--border); margin: 4px 2px; }
   .menu-title { font-size: 11px; color: var(--muted); text-transform: uppercase; padding: 4px 10px 2px; }
-  .bars { flex: none; height: 100px; overflow: hidden; border-bottom: 1px solid var(--border); }
-  .bars-hint { padding: 10px 16px; color: var(--muted); font-size: 12px; }
+  /* One row, always the same height: the slide does not jump when the
+     selection changes; it scrolls sideways when the window is narrow. */
+  .bars { flex: none; height: 40px; display: flex; flex-wrap: nowrap; align-items: center; overflow-x: auto; overflow-y: hidden; border-bottom: 1px solid var(--border); scrollbar-width: thin; }
+  .bars-hint { padding: 0 16px; color: var(--muted); font-size: 12px; white-space: nowrap; }
   .dialog.small { width: min(520px, 90vw); }
   .guide { stroke: #ff3b8d; stroke-width: 1; vector-effect: non-scaling-stroke; stroke-dasharray: 4 3; pointer-events: none; }
   .add-shape { width: auto; flex: none; padding: 5px 6px; background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; }
@@ -1629,7 +1813,12 @@
   .palette { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; width: 100%; }
   .swatch-edit { display: inline-flex; align-items: center; }
   code { background: var(--bg); padding: 0 3px; border-radius: 3px; font-size: 11px; }
-  .slides { grid-area: slides; overflow-y: auto; padding: 8px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+  .slides { grid-area: slides; overflow-y: auto; padding: 8px; position: relative; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+  .slides.collapsed { padding: 6px 4px; overflow: hidden; align-items: center; }
+  .pane-toggle { align-self: flex-end; font-size: 12px; padding: 0 6px; flex: none; }
+  .slides.collapsed .pane-toggle { align-self: center; }
+  .pane-resizer { grid-area: slides; justify-self: end; width: 6px; cursor: ew-resize; z-index: 3; }
+  .pane-resizer:hover { background: var(--accent); opacity: 0.4; }
   .stack-item { position: relative; border-top: 2px solid transparent; border-bottom: 2px solid transparent; cursor: grab; }
   .stack-item.dragging { opacity: 0.4; }
   .stack-item { user-select: none; touch-action: none; }
@@ -1644,7 +1833,9 @@
   .heading-name { background: none; border: none; padding: 0; color: var(--fg); font-weight: 600; font-size: 12px; text-align: left; cursor: text; }
   .heading.subsection .heading-name { font-weight: 500; color: var(--muted); }
   .heading input { font-size: 12px; padding: 2px 4px; }
-  .thumb { padding: 2px; position: relative; background: none; width: 100%; }
+  /* The number beside the picture, not over its title. */
+  .thumb { padding: 2px; position: relative; background: none; width: 100%; display: flex; gap: 4px; align-items: flex-start; }
+  .thumb :global(.slide-svg) { flex: 1; min-width: 0; }
   .thumb.picked { outline: 2px dashed var(--accent); outline-offset: 1px; }
   .file-menu { position: relative; }
   .context-menu.file { position: absolute; left: 0; top: calc(100% + 4px); min-width: 240px; }
@@ -1653,10 +1844,13 @@
   details.kind summary { cursor: pointer; padding: 3px 0; text-transform: capitalize; }
   .menu-list { max-height: 40vh; overflow-y: auto; padding-left: 12px; display: flex; flex-direction: column; }
   .thumb.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-  .thumb .num { position: absolute; left: -2px; top: -2px; background: var(--panel); font-size: 11px; padding: 1px 4px; border-radius: 4px; z-index: 1; }
+  .thumb .num { flex: none; width: 16px; text-align: right; color: var(--muted); font-size: 11px; padding-top: 1px; }
+  .thumb.current .num { color: var(--accent); font-weight: 600; }
   main { grid-area: main; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
   .canvas-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 16px; min-height: 0; }
-  .canvas { position: relative; width: 100%; max-height: 100%; box-shadow: 0 4px 24px rgba(0,0,0,0.5); }
+  .canvas-wrap.zoomed { overflow: auto; align-items: flex-start; justify-content: flex-start; }
+  .canvas-wrap.zoomed .canvas { margin: auto; }
+  .canvas { position: relative; flex: none; box-shadow: 0 4px 24px rgba(0,0,0,0.5); }
   .canvas.drop-hover { outline: 3px dashed var(--accent); outline-offset: 4px; }
   .overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
   .hit { fill: transparent; stroke: transparent; stroke-width: 1; cursor: move; }
@@ -1683,6 +1877,9 @@
   .tabs.vertical { flex-direction: column; align-items: center; position: static; }
   .tabs.vertical button { width: 28px; padding: 4px 0; }
   .props .link { background: none; border: none; color: var(--accent); padding: 0; font-size: inherit; }
+  .xywh { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
+  .xywh label { display: flex !important; align-items: center; gap: 6px; }
+  .xywh input { min-width: 0; }
   .notes { box-sizing: border-box; width: calc(100% - 32px); margin: 0 16px 10px; resize: vertical; min-height: 40px; font: inherit; }
   .fold { font-size: 12px; padding: 2px 8px; }
   .props h3 { margin: 12px 0 6px; font-size: 13px; color: var(--muted); text-transform: uppercase; }
@@ -1702,5 +1899,10 @@
   .pick input { position: absolute; left: 6px; top: 6px; z-index: 1; width: auto; }
   .pick .num { position: absolute; right: 6px; top: 4px; font-size: 11px; background: var(--panel); padding: 1px 4px; border-radius: 4px; z-index: 1; }
   .actions { display: flex; gap: 8px; justify-content: flex-end; }
-  footer { grid-area: foot; padding: 4px 12px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; min-height: 24px; }
+  footer { grid-area: foot; padding: 2px 12px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; min-height: 24px; display: flex; align-items: center; gap: 8px; }
+  footer .status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  footer .zoom { display: inline-flex; gap: 2px; align-items: center; }
+  footer .zoom button { font-size: 11px; padding: 0 6px; height: 20px; }
+  footer .zoom button.on { border-color: var(--accent); color: var(--accent); }
+  footer .pct { width: 40px; text-align: right; }
 </style>

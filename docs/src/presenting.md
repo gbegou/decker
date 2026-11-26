@@ -2,7 +2,7 @@
 
 ![The presenter view: current and next slide, notes, timer](images/screens/presenter.png)
 
-**Present** opens the audience window fullscreen on the projector (the first monitor that is
+**Present** (Shift+F5; F5 from the first slide) opens the audience window fullscreen on the projector (the first monitor that is
 not the primary one) and the presenter window on the laptop screen. With a single monitor,
 only the audience window opens.
 

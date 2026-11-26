@@ -185,6 +185,8 @@ class Themes(EditorTest):
         e.s.js("document.querySelector('.props .mark.own button').click(); return true")  # ↺
         e.settle(1.0)
         self.assertEqual(self.view()["layout_meta"]["overrides"], [])
+        self.e.s.js("[...document.querySelectorAll('.tabs button')].find(b => b.textContent.trim() === 'Layout').click(); return true")
+        self.e.settle(0.5)
         self.button("Edit theme “Waves”")
         self.assertEqual(self.view()["editing_theme"], "Waves")
         e.s.js("document.querySelector('details.kind').open = true; return true")
@@ -219,9 +221,12 @@ class FileMenu(EditorTest):
 
 class Paths(EditorTest):
     def tool(self, value):
-        self.e.s.js("""const sel = [...document.querySelectorAll('select.add-shape')].find(s => s.querySelector('option[value=bezier]'));
-            sel.value = arguments[0]; sel.dispatchEvent(new Event('change', {bubbles: true})); return true""", value)
-        self.e.settle(0.5)
+        e = self.e
+        label = {"bezier": "Bézier path", "free": "Freehand"}[value]
+        e.s.js("""[...document.querySelectorAll('header .menu-button > button')].find(b => b.textContent.includes('Shape')).click(); return true""")
+        e.settle(0.3)
+        e.s.js("""[...document.querySelectorAll('.menu-button .menu button')].find(b => b.textContent.includes(arguments[0])).click(); return true""", label)
+        e.settle(0.5)
 
     def last(self):
         return self.view()["elements"][-1]
@@ -307,6 +312,54 @@ class Animations(EditorTest):
         e.s.js("document.querySelector('.steps .fold').click(); return true")
         e.settle(0.5)
         self.assertFalse(e.s.js("return !!document.querySelector('textarea.notes')"))
+
+
+class Ergonomics(EditorTest):
+    def menu(self, item):
+        self.e.s.js("[...document.querySelectorAll('.context-menu button')].find(b => b.textContent.trim().startsWith(arguments[0])).click(); return true", item)
+        self.e.settle(1.0)
+
+    def test_canvas_menu_shortcuts_and_zoom(self):
+        e = self.e
+        e.goto(3)
+        n = len(self.view()["elements"])
+        x, y = e.point(300, 300)
+        e.pointer(x, y, button=2)  # right-click the figure
+        self.assertTrue(e.s.js("return !!document.querySelector('.context-menu')"))
+        self.menu("Duplicate")
+        e.settle(1.0)
+        self.assertEqual(len(self.view()["elements"]), n + 1, "Duplicate from the menu")
+        e.chord(decker_app.CTRL, "d")
+        e.settle(1.0)
+        self.assertEqual(len(self.view()["elements"]), n + 2, "Ctrl+D")
+        e.pointer(x, y, button=2)
+        self.menu("Appear on next click")
+        self.assertEqual(self.view()["last_step"], 2, "a new click at the end")
+        e.click_slide(30, 525)  # off the elements
+        e.keys("t")
+        self.assertEqual(self.view()["elements"][-1]["kind"], "text", "T adds a text box")
+        fit = e.rect(".canvas")[2]
+        e.s.js("[...document.querySelectorAll('footer .zoom button')].find(b => b.textContent === '100%').click(); return true")
+        e.settle(0.6)
+        self.assertAlmostEqual(e.rect(".canvas")[2], self.view()["width"], delta=2, msg="100%: a point per pixel")
+        e.chord(decker_app.CTRL, "0")
+        self.assertAlmostEqual(e.rect(".canvas")[2], fit, delta=2, msg="Ctrl+0 fits again")
+
+    def test_the_slides_pane_collapses_and_resizes(self):
+        e = self.e
+        w = e.rect("aside.slides")[2]
+        e.s.js("document.querySelector('aside.slides .pane-toggle').click(); return true")
+        e.settle(0.5)
+        self.assertLess(e.rect("aside.slides")[2], 50)
+        e.s.js("document.querySelector('aside.slides .pane-toggle').click(); return true")
+        e.settle(0.5)
+        x, y, rw, rh = e.rect(".pane-resizer")
+        acts = [{"type": "pointerMove", "x": int(x + rw / 2), "y": int(y + 200), "origin": "viewport"}, {"type": "pointerDown", "button": 0},
+                {"type": "pointerMove", "duration": 100, "x": int(x + rw / 2 + 80), "y": int(y + 200), "origin": "viewport"}, {"type": "pointerUp", "button": 0}]
+        e.s.cmd("POST", "/actions", {"actions": [{"type": "pointer", "id": "m", "parameters": {"pointerType": "mouse"}, "actions": acts}]})
+        e.s.cmd("DELETE", "/actions")
+        e.settle(0.5)
+        self.assertAlmostEqual(e.rect("aside.slides")[2], w + 80, delta=4)
 
 
 class Presenting(EditorTest):

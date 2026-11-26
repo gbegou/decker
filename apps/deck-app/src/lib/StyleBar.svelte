@@ -45,7 +45,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="stylebar" onpointerdown={(e) => e.stopPropagation()}>
   {#if textual && info}
-    <span class="scope">{range && range.from !== range.to ? "selection" : range ? "caret" : "whole box"}</span>
+    <span class="scope" title="What the text buttons act on">Text · {range && range.from !== range.to ? "selection" : range ? "at the caret" : "whole box"}</span>
     <button class:on={info.bold} title="Bold (Ctrl+B)" onclick={() => runStyle({ toggle_bold: true }, "Bold")}><b>B</b></button>
     <button class:on={info.italic} title="Italic (Ctrl+I)" onclick={() => runStyle({ toggle_italic: true }, "Italic")}><i>I</i></button>
     <label title="Size in points, 0 for the default">
@@ -98,14 +98,14 @@
 </div>
 
 <style>
-  .stylebar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 16px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+  .stylebar { display: flex; flex-wrap: nowrap; flex: none; align-items: center; gap: 4px; padding: 4px 8px; font-size: 12px; color: var(--muted); white-space: nowrap; }
   .stylebar button { padding: 2px 7px; min-width: 26px; }
   .stylebar button.on { border-color: var(--accent); color: var(--accent); }
   .stylebar input[type="number"] { width: 58px; padding: 2px 4px; }
   .stylebar input.narrow { width: 52px; }
   .stylebar input[type="color"] { width: 28px; height: 22px; padding: 0; border: 1px solid var(--border); background: none; }
   .stylebar button.swatch { width: 18px; min-width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid var(--border); }
-  .stylebar select { padding: 2px 4px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; }
+  .stylebar select { padding: 2px 4px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; width: 140px; flex: none; }
   .stylebar label { display: inline-flex; align-items: center; gap: 3px; }
   .scope { padding-right: 4px; }
   .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
