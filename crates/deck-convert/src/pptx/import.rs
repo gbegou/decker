@@ -111,8 +111,34 @@ pub fn import(pptx: &Path, out: &Path) -> Result<(Deck, ImportReport)> {
                 doc.root_element().attribute("name").filter(|n| !n.is_empty()).map(str::to_string)
             })
             .unwrap_or_else(|| "Theme".to_string());
+        // A layout named like the theme is the theme used as a layout (how
+        // decker exports it): it folds into the theme, giving it positions.
+        let own = match names.contains(&theme_name) && deck.theme_set(&theme_name).is_none() {
+            true => deck.layouts.iter().position(|l| l.name == theme_name).map(|i| deck.layouts.remove(i)),
+            false => None,
+        };
+        let rest: Vec<String> = names.iter().filter(|n| own.is_none() || **n != theme_name).cloned().collect();
         let name = deck.free_theme_name(&theme_name);
-        deck.factor_theme(&name, names);
+        deck.factor_theme(&name, &rest);
+        if let Some(l) = own {
+            if deck.theme_set(&name).is_none() {
+                deck.themes.push(ThemeSet {
+                    name: name.clone(),
+                    style: l.theme.clone(),
+                    background: l.background,
+                    elements: l.elements.clone(),
+                    ..Default::default()
+                });
+            }
+            let theme = deck.themes.iter_mut().find(|t| t.name == name).expect("just made");
+            theme.background = theme.background.or(l.background);
+            for p in l.placeholders {
+                match theme.placeholders.iter_mut().find(|q| q.name == p.name) {
+                    Some(q) => q.rect = p.rect,
+                    None => theme.placeholders.push(Placeholder { own: vec![], ..p }),
+                }
+            }
+        }
     }
 
     // PowerPoint sections: each names the slide ids it starts with.

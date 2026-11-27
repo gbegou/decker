@@ -43,7 +43,14 @@ pub fn export_with(deck: &Deck, deck_dir: &Path, pptx: &Path, math: &dyn MathRen
     );
     // Layout k (0-based) is slideLayout{k+1}; the blank layout, for slides
     // without one, is the last.
-    let n_layouts = deck.layouts.len() + 1;
+    // The layouts, then the themes that slides use as their layout.
+    let mut layouts: Vec<Layout> = deck.layouts.clone();
+    for t in &deck.themes {
+        if deck.layout(&t.name).is_none() && deck.slides.iter().any(|s| s.layout.as_deref() == Some(t.name.as_str())) {
+            layouts.push(t.as_layout());
+        }
+    }
+    let n_layouts = layouts.len() + 1;
     for l in 1..=n_layouts {
         let _ = write!(
             ct,
@@ -116,7 +123,7 @@ pub fn export_with(deck: &Deck, deck_dir: &Path, pptx: &Path, math: &dyn MathRen
     let mut media_count = 0u32;
     // Layouts are written resolved: with their theme's background, elements
     // and placeholder styles (one PowerPoint master for all).
-    let resolved: Vec<Layout> = deck.layouts.iter().map(|l| deck.resolve(l)).collect();
+    let resolved: Vec<Layout> = layouts.iter().map(|l| deck.resolve(l)).collect();
     for (k, layout) in resolved.iter().enumerate() {
         let l = k + 1;
         let mut part = Part::new(format!(
@@ -165,7 +172,10 @@ pub fn export_with(deck: &Deck, deck_dir: &Path, pptx: &Path, math: &dyn MathRen
     add(&format!("ppt/slideLayouts/slideLayout{n_layouts}.xml"), blank_layout_xml().as_bytes())?;
     add(&format!("ppt/slideLayouts/_rels/slideLayout{n_layouts}.xml.rels"), format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{NS_REL}"><Relationship Id="rId1" Type="{REL_MASTER}" Target="../slideMasters/slideMaster1.xml"/></Relationships>"#).as_bytes())?;
     // One PowerPoint theme: the fonts and colors of the deck's first theme.
-    add("ppt/theme/theme1.xml", theme_xml(&deck.first_style().over(&deck.theme)).as_bytes())?;
+    // Named after the first theme: importing it back gives that name, and a
+    // layout of the same name folds into the theme (see the import).
+    let theme_name = deck.themes.first().map(|t| t.name.as_str()).unwrap_or("Decker");
+    add("ppt/theme/theme1.xml", theme_xml(&deck.first_style().over(&deck.theme), theme_name).as_bytes())?;
     if has_notes {
         add("ppt/notesMasters/notesMaster1.xml", notes_master_xml().as_bytes())?;
         add("ppt/notesMasters/_rels/notesMaster1.xml.rels", format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{NS_REL}"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>"#).as_bytes())?;
@@ -176,7 +186,7 @@ pub fn export_with(deck: &Deck, deck_dir: &Path, pptx: &Path, math: &dyn MathRen
         let layout = deck.layout_of(slide);
         let layout_no = layout
             .as_ref()
-            .and_then(|l| deck.layouts.iter().position(|x| x.name == l.name))
+            .and_then(|l| layouts.iter().position(|x| x.name == l.name))
             .map(|k| k + 1)
             .unwrap_or(n_layouts);
         let mut part = Part::new(format!(
@@ -1175,7 +1185,8 @@ fn notes_master_xml() -> String {
 
 /// The theme part: the deck theme's font as both theme fonts, its text
 /// color as `dk1` and its accent and palette as `accent1`..`accent6`.
-fn theme_xml(theme: &deck_core::Theme) -> String {
+fn theme_xml(theme: &deck_core::Theme, name: &str) -> String {
+    let name = esc(name);
     let family = theme.font.as_deref().unwrap_or("Calibri");
     let font = |tag: &str| {
         format!(r#"<a:{tag}><a:latin typeface="{}"/><a:ea typeface=""/><a:cs typeface=""/></a:{tag}>"#, esc(family))
@@ -1192,7 +1203,7 @@ fn theme_xml(theme: &deck_core::Theme) -> String {
         .collect();
     let dk1 = theme.color.map(hex).unwrap_or_else(|| "000000".into());
     format!(
-        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="{NS_A}" name="Decker"><a:themeElements><a:clrScheme name="Decker"><a:dk1><a:srgbClr val="{dk1}"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="44546A"/></a:dk2><a:lt2><a:srgbClr val="E7E6E6"/></a:lt2>{accents}<a:hlink><a:srgbClr val="0563C1"/></a:hlink><a:folHlink><a:srgbClr val="954F72"/></a:folHlink></a:clrScheme><a:fontScheme name="Decker">{}{}</a:fontScheme><a:fmtScheme name="Decker"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="6350"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="12700"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="19050"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>"#,
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="{NS_A}" name="{name}"><a:themeElements><a:clrScheme name="Decker"><a:dk1><a:srgbClr val="{dk1}"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="44546A"/></a:dk2><a:lt2><a:srgbClr val="E7E6E6"/></a:lt2>{accents}<a:hlink><a:srgbClr val="0563C1"/></a:hlink><a:folHlink><a:srgbClr val="954F72"/></a:folHlink></a:clrScheme><a:fontScheme name="Decker">{}{}</a:fontScheme><a:fmtScheme name="Decker"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="6350"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="12700"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="19050"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>"#,
         font("majorFont"),
         font("minorFont")
     )
@@ -1446,6 +1457,34 @@ mod tests {
             _ => panic!("text"),
         };
         assert_eq!((valign(0), valign(1)), (VAlign::Middle, VAlign::Top), "an explicit top stays top");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn slides_using_their_theme_round_trip() {
+        let dir = std::env::temp_dir().join(format!("decker-themelayout-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut deck = Deck::new("theme");
+        deck.themes.push(ThemeSet {
+            background: Some(Color::rgb(0xEE, 0xEE, 0xFF)),
+            ..ThemeSet::standard("Waves", 960.0, 540.0)
+        });
+        let mut slide = deck.resolved_layout("Waves").unwrap().new_slide();
+        if let Element::Text(t) = &mut slide.elements[0] {
+            t.paragraphs[0].runs[0].text = "Hello".into();
+        }
+        deck.slides.push(slide);
+        let pptx = dir.join("t.pptx");
+        export(&deck, &dir, &pptx).unwrap();
+        let (back, report) = super::super::import(&pptx, &dir.join("back.deck")).unwrap();
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        assert_eq!(back.slides[0].layout.as_deref(), Some("Waves"), "the slide uses the theme itself");
+        assert!(back.layout("Waves").is_none(), "folded into the theme, not a layout");
+        let theme = back.theme_set("Waves").expect("the theme");
+        let title = theme.placeholders.iter().find(|p| p.name == "title").expect("its title");
+        assert!(title.is_slot());
+        assert_eq!(theme.background, Some(Color::rgb(0xEE, 0xEE, 0xFF)));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

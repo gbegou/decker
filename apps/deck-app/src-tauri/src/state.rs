@@ -1077,7 +1077,8 @@ impl AppState {
                 name: t.name.clone(),
                 theme: None,
                 svg: inline_assets(&svg::render_theme(&deck, t, &*self.math.0), &self.dir, &self.assets),
-                used: 0,
+                // Slides using the theme itself as their layout.
+                used: deck.slides.iter().filter(|x| x.layout.as_deref() == Some(t.name.as_str())).count(),
             });
             for l in deck.layouts_of_theme(&t.name) {
                 out.push(layout_item(l, self));
@@ -1303,11 +1304,14 @@ impl AppState {
     /// The theme editor's view: background and shared elements on the
     /// canvas, the placeholder styles for the panel.
     fn theme_view(&self, deck: &Deck, theme: &ThemeSet) -> View {
+        // The theme is a layout too: its placeholders with a position are on
+        // the canvas, after its elements.
         let as_layout = Layout {
             name: theme.name.clone(),
             background: theme.background,
             theme: theme.style.clone(),
             elements: theme.elements.clone(),
+            placeholders: theme.slots().map(|(_, p)| p.clone()).collect(),
             ..Default::default()
         };
         let mut view = self.layout_view(deck, &as_layout);
@@ -1338,16 +1342,8 @@ impl AppState {
     pub fn new_theme(&mut self) -> Result<String, String> {
         let deck = self.deck.as_mut().ok_or("no deck")?;
         let name = deck.free_theme_name("Theme");
-        let (w, h) = (deck.width, deck.height);
-        let sample = Layout::preset("", "compare", w, h);
-        let mut placeholders: Vec<Placeholder> = vec![];
-        for p in sample.placeholders.iter().chain(Layout::preset("", "title", w, h).placeholders.iter()) {
-            let kind = deck_core::themes::kind_of(&p.name).to_string();
-            if !placeholders.iter().any(|q| q.name == kind) {
-                placeholders.push(Placeholder { name: kind, rect: Rect::default(), ..p.clone() });
-            }
-        }
-        deck.themes.push(ThemeSet { name: name.clone(), placeholders, ..Default::default() });
+        let theme = ThemeSet::standard(&name, deck.width, deck.height);
+        deck.themes.push(theme);
         self.editing_layout = None;
         self.editing_theme = Some(name.clone());
         Ok(name)
@@ -1361,11 +1357,15 @@ impl AppState {
         }
         let old = self.editing_theme.clone().ok_or("no theme under edit")?;
         let deck = self.deck.as_mut().ok_or("no deck")?;
-        if old != new_name && deck.theme_set(&new_name).is_some() {
-            return Err(format!("a theme named {new_name} exists"));
+        if old != new_name && deck.has_layout(&new_name) {
+            return Err(format!("a theme or layout named {new_name} exists"));
         }
         for t in deck.themes.iter_mut().filter(|t| t.name == old) {
             t.name = new_name.clone();
+        }
+        // The slides using the theme itself follow.
+        for s in deck.slides.iter_mut().filter(|s| s.layout.as_deref() == Some(old.as_str())) {
+            s.layout = Some(new_name.clone());
         }
         for l in deck.layouts.iter_mut().filter(|l| l.parent.as_deref() == Some(old.as_str())) {
             l.parent = Some(new_name.clone());
@@ -1390,6 +1390,10 @@ impl AppState {
             deck.layouts[i] = l;
         }
         deck.themes.retain(|t| t.name != name);
+        // Slides using the theme itself keep their elements and lose it.
+        for s in deck.slides.iter_mut().filter(|s| s.layout.as_deref() == Some(name.as_str())) {
+            s.layout = None;
+        }
         self.touch(None);
         Ok(())
     }
@@ -1517,20 +1521,15 @@ impl AppState {
             .find(|(id, _)| *id == kind)
             .map(|(_, label)| label.to_string())
             .unwrap_or_else(|| "Layout".into());
-        let mut name = base.clone();
-        let mut n = 1;
-        while deck.layout(&name).is_some() {
-            n += 1;
-            name = format!("{base} {n}");
-        }
+        let name = deck.free_name(&base);
         let mut layout = Layout::preset(&name, kind, deck.width, deck.height);
-        // In the theme of the current slide's layout (else the first one):
-        // its placeholders take the theme's styles.
-        let current = deck.slides.get(self.slide).and_then(|s| s.layout.as_deref()).and_then(|n| deck.layout(n));
+        // In the theme of the current slide (else the first one): its
+        // placeholders take the theme's styles.
+        let current = deck.slides.get(self.slide).and_then(|s| deck.style_theme_of(s)).map(str::to_string);
         let theme = theme
             .filter(|t| deck.theme_set(t).is_some())
             .map(str::to_string)
-            .or_else(|| current.and_then(|l| l.parent.clone()))
+            .or(current)
             .or_else(|| deck.themes.first().map(|t| t.name.clone()));
         if let Some(t) = theme.as_deref().and_then(|t| deck.theme_set(t)) {
             for p in &mut layout.placeholders {
@@ -1554,8 +1553,8 @@ impl AppState {
         }
         let old = self.editing_layout.clone().ok_or("no layout under edit")?;
         let deck = self.deck.as_mut().ok_or("no deck")?;
-        if old != new_name && deck.layout(&new_name).is_some() {
-            return Err(format!("a layout named {new_name} exists"));
+        if old != new_name && deck.has_layout(&new_name) {
+            return Err(format!("a layout or theme named {new_name} exists"));
         }
         for l in deck.layouts.iter_mut().filter(|l| l.name == old) {
             l.name = new_name.clone();
@@ -1586,11 +1585,14 @@ impl AppState {
     /// later one of a kind is numbered: `subtitle2`, `body2`…).
     pub fn add_placeholder(&mut self, kind: &str) -> Result<(), String> {
         let (w, h) = self.deck.as_ref().map(|d| (d.width, d.height)).ok_or("no deck")?;
-        let layout = self.layout_mut()?;
         let base = match kind {
             "title" | "subtitle" => kind,
             _ => "body",
         };
+        if self.editing_theme.is_some() {
+            return self.add_theme_placeholder(base, w, h);
+        }
+        let layout = self.layout_mut()?;
         let mut n = 1;
         let mut name = if base == "body" { "body1".to_string() } else { base.to_string() };
         while layout.placeholder(&name).is_some() {
@@ -1622,19 +1624,37 @@ impl AppState {
         layout.placeholders.push(placeholder);
         // The slides of the layout get a box for it, to type in.
         let name = self.editing_layout.clone().unwrap_or_default();
-        let slides: Vec<usize> = self
-            .deck
-            .as_ref()
-            .map(|d| {
-                d.slides
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, s)| s.layout.as_deref() == Some(name.as_str()))
-                    .map(|(i, _)| i)
-                    .collect()
-            })
-            .unwrap_or_default();
-        for i in slides {
+        for i in self.slides_using(&name) {
+            self.fit_to_layout(i);
+        }
+        self.touch(None);
+        Ok(())
+    }
+
+    /// A placeholder of kind `base` in the theme under edit, as a layout:
+    /// the kind's style gets a position when it has none, else a numbered
+    /// one is added. The slides using the theme get a box for it.
+    fn add_theme_placeholder(&mut self, base: &str, w: f64, h: f64) -> Result<(), String> {
+        let theme_name = self.editing_theme.clone().ok_or("no theme under edit")?;
+        let usual = Layout::preset("", if base == "subtitle" { "title" } else { "content" }, w, h);
+        let sample = usual.placeholders.iter().find(|p| deck_core::themes::kind_of(&p.name) == base).cloned();
+        let rect = sample.as_ref().map(|p| p.rect).unwrap_or(Rect::new(w * 0.1, h * 0.3, w * 0.8, h * 0.4));
+        let theme = self.theme_mut()?;
+        match theme.placeholders.iter_mut().find(|p| p.name == base && !p.is_slot()) {
+            Some(p) => p.rect = rect,
+            None => {
+                let mut n = 1;
+                let mut name = base.to_string();
+                while theme.placeholders.iter().any(|p| p.name == name) {
+                    n += 1;
+                    name = format!("{base}{n}");
+                }
+                // Styled like its kind in the theme, else like the usual one.
+                let style = theme.placeholder_for(base).cloned().or(sample).unwrap_or_default();
+                theme.placeholders.push(Placeholder { name, rect, own: vec![], prefix: String::new(), ..style });
+            }
+        }
+        for i in self.slides_using(&theme_name) {
             self.fit_to_layout(i);
         }
         self.touch(None);
@@ -1659,6 +1679,29 @@ impl AppState {
                 None => slide.elements.push(Element::Text(ph.text_box())),
             }
         }
+    }
+
+    /// The theme under edit's placeholder shown as canvas element `element`
+    /// (after the theme's elements come its placeholders with a position):
+    /// `Ok(None)` when no theme is under edit or `element` is an element.
+    fn theme_slot_mut(&mut self, element: usize) -> Result<Option<&mut Placeholder>, String> {
+        if self.editing_theme.is_none() {
+            return Ok(None);
+        }
+        let theme = self.theme_mut()?;
+        let Some(k) = element.checked_sub(theme.elements.len()) else { return Ok(None) };
+        let i = theme.slot_index(k).ok_or("no such placeholder")?;
+        Ok(Some(&mut theme.placeholders[i]))
+    }
+
+    /// The slides using the layout or theme `name`.
+    fn slides_using(&self, name: &str) -> Vec<usize> {
+        self.deck
+            .as_ref()
+            .map(|d| {
+                d.slides.iter().enumerate().filter(|(_, s)| s.layout.as_deref() == Some(name)).map(|(i, _)| i).collect()
+            })
+            .unwrap_or_default()
     }
 
     fn layout_mut(&mut self) -> Result<&mut Layout, String> {
@@ -1843,6 +1886,10 @@ impl AppState {
                 return Ok(());
             }
         }
+        if let Some(ph) = self.theme_slot_mut(element)? {
+            ph.rect = rect;
+            return Ok(());
+        }
         if self.editing_layout.is_some() {
             let layout = self.layout_mut()?;
             if element >= layout.elements.len() {
@@ -1858,6 +1905,33 @@ impl AppState {
 
     pub fn set_text(&mut self, element: usize, text: &str) -> Result<(), String> {
         self.touch_target();
+        if let Some(theme_name) = self.editing_theme.clone() {
+            let new_name = text.trim().to_string();
+            let theme = self.theme_mut()?;
+            if let Some(k) = element.checked_sub(theme.elements.len()) {
+                // Renaming a placeholder of the theme: the slides using the theme follow.
+                let i = theme.slot_index(k).ok_or("no such element")?;
+                if new_name.is_empty() {
+                    return Err("a placeholder needs a name".into());
+                }
+                let old = theme.placeholders[i].name.clone();
+                if old != new_name && theme.placeholders.iter().any(|p| p.name == new_name) {
+                    return Err(format!("a placeholder named {new_name} exists"));
+                }
+                theme.placeholders[i].name = new_name.clone();
+                let deck = self.deck.as_mut().ok_or("no deck")?;
+                for s in deck.slides.iter_mut().filter(|s| s.layout.as_deref() == Some(theme_name.as_str())) {
+                    for e in &mut s.elements {
+                        if let Element::Text(t) = e {
+                            if t.placeholder.as_deref() == Some(old.as_str()) {
+                                t.placeholder = Some(new_name.clone());
+                            }
+                        }
+                    }
+                }
+                return Ok(());
+            }
+        }
         if self.editing_layout.is_some() {
             let layout_name = self.editing_layout.clone().unwrap_or_default();
             let layout = self.layout_mut()?;
@@ -2095,8 +2169,8 @@ impl AppState {
         self.touch(Some(self.slide));
         let deck = self.deck.as_ref().ok_or("no deck")?;
         if let Some(n) = &name {
-            if deck.layout(n).is_none() {
-                return Err(format!("no layout named {n}"));
+            if !deck.has_layout(n) {
+                return Err(format!("no layout or theme named {n}"));
             }
         }
         let has_layout = name.is_some();
@@ -2111,7 +2185,7 @@ impl AppState {
     pub fn set_layout_of(&mut self, slides: &[usize], name: Option<String>) -> Result<(), String> {
         let deck = self.deck.as_ref().ok_or("no deck")?;
         if let Some(n) = &name {
-            if deck.layout(n).is_none() {
+            if !deck.has_layout(n) {
                 return Err(format!("no layout named {n}"));
             }
         }
@@ -2462,6 +2536,9 @@ impl AppState {
     /// after the layout's static elements, as in the view).
     pub fn style_placeholder(&mut self, element: usize, change: &PlaceholderStyle) -> Result<(), String> {
         self.touch(None);
+        if let Some(ph) = self.theme_slot_mut(element)? {
+            return apply_placeholder_style(ph, change);
+        }
         let layout = self.layout_mut()?;
         let k = element.checked_sub(layout.elements.len()).ok_or("not a placeholder")?;
         let ph = layout.placeholders.get_mut(k).ok_or("no such placeholder")?;
@@ -2958,6 +3035,12 @@ impl AppState {
 
     pub fn delete_element(&mut self, element: usize) -> Result<(), String> {
         self.touch_target();
+        // A placeholder of the theme leaves the theme's layout; its style
+        // stays, for its kind.
+        if let Some(ph) = self.theme_slot_mut(element)? {
+            ph.rect = Rect::default();
+            return Ok(());
+        }
         if self.editing_layout.is_some() {
             let layout = self.layout_mut()?;
             if element >= layout.elements.len() {
@@ -3098,6 +3181,43 @@ fn layout_groups(deck: &Deck) -> Vec<LayoutGroup> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_theme_is_edited_and_used_as_a_layout() {
+        let mut deck = Deck::new("t");
+        deck.themes.push(ThemeSet::standard("Waves", 960.0, 540.0));
+        deck.slides.push(Slide::default());
+        let mut s = AppState::default();
+        s.load(deck, std::path::PathBuf::new());
+        s.set_layout(Some("Waves".into())).unwrap();
+        let boxes = |s: &AppState| -> Vec<String> {
+            s.deck.as_ref().unwrap().slides[0]
+                .elements
+                .iter()
+                .filter_map(|e| match e {
+                    Element::Text(t) => t.placeholder.clone(),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(boxes(&s), ["title", "body"], "the theme's placeholders");
+        s.edit_theme(Some("Waves".into())).unwrap();
+        let view = s.view();
+        let shown: Vec<&str> =
+            view.elements.iter().filter(|e| e.kind == "placeholder").map(|e| e.text.as_str()).collect();
+        assert_eq!(shown, ["title", "body"], "on the theme's canvas");
+        s.add_placeholder("subtitle").unwrap();
+        assert_eq!(boxes(&s), ["title", "body", "subtitle"], "the slides using the theme get it");
+        s.set_text(0, "headline").unwrap();
+        assert_eq!(boxes(&s), ["headline", "body", "subtitle"], "a rename reaches them");
+        s.delete_element(2).unwrap();
+        let theme = s.deck.as_ref().unwrap().theme_set("Waves").unwrap();
+        assert!(theme.placeholders.iter().any(|p| p.name == "subtitle" && !p.is_slot()), "its style stays");
+        s.rename_theme("Tides".into()).unwrap();
+        assert_eq!(s.deck.as_ref().unwrap().slides[0].layout.as_deref(), Some("Tides"));
+        s.delete_theme().unwrap();
+        assert_eq!(s.deck.as_ref().unwrap().slides[0].layout, None);
+    }
+
     #[test]
     fn a_layout_gives_its_slides_their_placeholders() {
         let mut deck = Deck::new("t");

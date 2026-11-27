@@ -106,9 +106,11 @@ fn new_deck(app: AppHandle, state: Shared) -> Result<View, String> {
     let view = {
         let mut s = state.lock().map_err(err)?;
         let mut deck = Deck::new("Untitled");
-        // Fonts and colors live in a theme: a new deck starts with one.
-        deck.themes.push(deck_core::ThemeSet { name: "Theme".into(), ..Default::default() });
-        deck.slides.push(deck_core::Slide::default());
+        // A new deck starts with a theme (fonts and colors, a title and a
+        // body), and its first slide uses it: boxes ready to type in.
+        deck.themes.push(deck_core::ThemeSet::standard("Theme", deck.width, deck.height));
+        let first = deck.resolved_layout("Theme").map(|l| l.new_slide()).unwrap_or_default();
+        deck.slides.push(first);
         s.load(deck, PathBuf::new());
         s.archive = None;
         s.view()

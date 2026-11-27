@@ -9,7 +9,14 @@ what it changes** of its theme, so a change to the theme reaches every layout th
 change that very thing, and anything a layout changes shows as an override that one click
 takes back.
 
-A slide names its layout. A deck can have several themes, for instance after pasting slides
+A **theme is a layout too**, like PowerPoint's slide master: it has its own title and body
+placeholders, in place, and a slide can use the theme itself rather than one of its layouts.
+A new deck's first slide does: its theme gives it a title and a body to type in, with no
+layout to make first. The theme's placeholders are not inherited by its layouts: each
+layout places its own.
+
+A slide names its layout, or its theme. Layouts and themes share these names, so no two of
+them have the same one. A deck can have several themes, for instance after pasting slides
 from another deck.
 
 ## Choosing a slide's layout
@@ -38,7 +45,8 @@ slide's layout; **Slides**, or **Close design view**, returns to the slide.
 ![The design view: the theme and its layouts on the left, the theme on the canvas](images/screens/theme-editor.png)
 
 - **On the left**, instead of the slides: each theme (◆), with its layouts under it and, for
-  each layout, how many slides use it. Click one to edit it on the canvas.
+  each, how many slides use it (a theme counts the slides using it directly). Click one to
+  edit it on the canvas.
 - **Right-click** in that pane: on a theme or one of its layouts, a **new layout** in that
   theme from PowerPoint's usual dispositions (title slide, title and content, section
   header, two contents, comparison, title only, blank); on either, **rename** it (also by
@@ -47,8 +55,8 @@ slide's layout; **Slides**, or **Close design view**, returns to the slide.
   **delete** it (its slides keep their elements); anywhere, a **new theme** or **load a
   layout from a file**.
 - **The header** holds the name field (renames the theme or layout; slides follow),
-  **+ Text**, **+ Shape**, **+ Table** and **+ Placeholder** (a title, a subtitle or a body,
-  named `subtitle2`, `body2`… for a second one).
+  **+ Text**, **+ Shape**, **+ Table** (layouts) and **+ Placeholder** (a title, a subtitle
+  or a body, named `subtitle2`, `body2`… for a second one).
 - **The side panel** shows, for a theme, its **placeholder styles** (one per kind: `title`,
   `subtitle`, `body`…; a body style serves `body1`, `body2`…), its **fonts and colors** and
   its layouts; for a layout, its theme and overrides (below) and its own fonts and colors.
@@ -88,9 +96,13 @@ overrides.
 ### Editing a theme
 
 The canvas shows the theme's background and its elements (a logo, a footer, a band), editable
-like a layout's; they are drawn on every slide of its layouts. A new layout joins the theme it
+like a layout's; they are drawn on every slide of its layouts. It also shows the theme's own
+placeholders as dashed boxes, used by the slides that use the theme directly: move, resize,
+rename (double-click) and style them like a layout's. **+ Placeholder** adds one (a subtitle
+gets the subtitle style's position, or a numbered one when it has one already); deleting
+one takes it out of the theme's layout but keeps its style for its kind. A new layout joins the theme it
 was made in and takes its placeholder styles; a new theme starts with the usual placeholder
-styles.
+styles, its title and body in place.
 
 ## Fonts and colors
 
@@ -145,7 +157,9 @@ differences as overrides. Date, footer and slide-number placeholders are skipped
 layout is not kept. Slides keep their layout and their placeholder names.
 
 **Export** writes one PowerPoint layout per decker layout, merged with its theme, under one
-slide master, plus a blank layout for slides without one. Text boxes that fill a
+slide master, plus one for each theme that slides use directly (named after it) and a blank
+layout for slides without one. The PowerPoint theme is named after the deck's first theme;
+importing the file back folds a layout of that name into the theme. Text boxes that fill a
 placeholder are exported as placeholders of that layout, so the deck opens in PowerPoint
 with its layouts in the layout gallery; the fonts and colors of the deck's first theme
 become the PowerPoint theme
@@ -170,8 +184,9 @@ lists a deck's themes, their layouts, what each layout overrides, and its placeh
         { "type": "shape", "rect": { "x": 0, "y": 500, "w": 960, "h": 40 }, "fill": "#102030" }
       ],
       "placeholders": [
-        { "name": "title", "rect": { "x": 0, "y": 0, "w": 0, "h": 0 }, "size": 40, "bold": true },
-        { "name": "body", "rect": { "x": 0, "y": 0, "w": 0, "h": 0 }, "size": 22, "bullets": true }
+        { "name": "title", "rect": { "x": 58, "y": 27, "w": 845, "h": 81 }, "size": 40, "bold": true },
+        { "name": "body", "rect": { "x": 58, "y": 130, "w": 845, "h": 367 }, "size": 22, "bullets": true },
+        { "name": "subtitle", "rect": { "x": 0, "y": 0, "w": 0, "h": 0 }, "size": 26 }
       ]
     }
   ],
@@ -199,11 +214,14 @@ lists a deck's themes, their layouts, what each layout overrides, and its placeh
 }
 ```
 
-A theme's `style` holds its fonts and colors. A layout's `parent` names its theme; its
+A theme's `style` holds its fonts and colors; its placeholders style each kind, and those
+with a position (a non-empty `rect`) are also its own when it is used as a layout. A slide's
+`layout` names a layout, or a theme. A layout's `parent` names its theme; its
 `background`, `theme` (the fonts and colors it changes) and elements
 are its own; a placeholder's `own` lists the style properties it sets itself, the others
 coming from the theme's placeholder of the same name or kind; its `prefix` is drawn before the
 slide's text. Decks of older formats are converted
 when opened: before themes (version 1), their layouts become one theme named "Theme", with
 what they share moved into it; before version 3, the deck-wide fonts and colors (a top-level
-`theme`) are merged into its themes.
+`theme`) are merged into its themes; before version 4, each theme's title and body get a
+position, the most common among its layouts (else the usual title and content one).

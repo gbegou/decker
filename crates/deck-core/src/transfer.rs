@@ -37,7 +37,17 @@ pub fn copy_slides(
             assets.remap(e)?;
         }
         if let Some(name) = &slide.layout {
-            if dst.layout(name).is_none() {
+            // A slide using a theme itself brings the theme along.
+            if !dst.has_layout(name) && src.layout(name).is_none() {
+                if let Some(theme) = src.theme_set(name) {
+                    let mut theme = theme.clone();
+                    for e in &mut theme.elements {
+                        assets.remap(e)?;
+                    }
+                    dst.themes.push(theme);
+                }
+            }
+            if !dst.has_layout(name) {
                 if let Some(layout) = src.layout(name) {
                     let mut layout: Layout = layout.clone();
                     for e in &mut layout.elements {
@@ -100,7 +110,7 @@ pub fn load_layout(src_dir: &Path, dst: &mut Deck, dst_dir: &Path) -> Result<Str
     }
     let base = layout.name.clone();
     let mut n = 1;
-    while dst.layout(&layout.name).is_some() {
+    while dst.has_layout(&layout.name) {
         n += 1;
         layout.name = format!("{base} {n}");
     }
@@ -382,6 +392,21 @@ pub fn image_size(bytes: &[u8]) -> Option<(u32, u32)> {
 mod tests {
     use super::*;
     use crate::model::*;
+
+    #[test]
+    fn a_slide_using_a_theme_itself_brings_it() {
+        let tmp = std::env::temp_dir().join(format!("decker-themeitself-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let (src_dir, dst_dir) = (tmp.join("src.deck"), tmp.join("dst.deck"));
+        let mut src = Deck::new("src");
+        src.themes.push(ThemeSet::standard("Corp", 960.0, 540.0));
+        src.slides.push(Slide { layout: Some("Corp".into()), ..Default::default() });
+        let mut dst = Deck::new("dst");
+        copy_slides(&src, &src_dir, &[0], &mut dst, &dst_dir, 0).unwrap();
+        assert!(dst.theme_set("Corp").is_some());
+        assert_eq!(dst.resolved_layout("Corp").map(|l| l.placeholders.len()), Some(2), "a title and a body");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 
     #[test]
     fn copied_slides_bring_their_theme() {

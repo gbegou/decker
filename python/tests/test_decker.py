@@ -23,6 +23,12 @@ class DeckTests(unittest.TestCase):
         slide = deck.add_slide(layout="L")
         self.assertEqual(slide.data["elements"][0]["paragraphs"][0].get("bullet"), 0, "bullets from the theme")
 
+    def test_a_theme_is_a_layout(self):
+        deck = decker.new("Demo")
+        s = deck.add_slide(layout="Theme")
+        self.assertEqual([e.data["placeholder"] for e in s.elements], ["title", "body"])
+        self.assertEqual(s.data["layout"], "Theme")
+
     def test_build_and_save(self):
         deck = decker.new("Demo")
         deck.theme["font"] = "Libertinus Serif"

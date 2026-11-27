@@ -79,11 +79,14 @@ class Typing(EditorTest):
         title = self.view()["elements"][0]
         self.assertEqual(title["text"], "", "an empty box, not the placeholder's name")
         uses = lambda svg: svg.count("<use")
-        self.assertGreater(uses(self.canvas_svg()), 0, "its prompt is shown")
+        prompts = uses(self.canvas_svg())
+        self.assertGreater(prompts, 0, "its prompt is shown")
         r = title["rect"]
         e.click_slide(r["x"] + 40, r["y"] + 20, clicks=2)
         e.settle(0.5)
-        self.assertEqual(uses(self.canvas_svg()), 0, "the prompt gives way to the caret")
+        # The title's prompt goes; the body's (from the theme) stays.
+        self.assertLess(uses(self.canvas_svg()), prompts, "the prompt gives way to the caret")
+        self.assertEqual(uses(self.canvas_svg()), uses(self.view()["svg"]))
         for ch in "Hello":
             e.keys(ch)
         e.settle(1.0)
@@ -228,6 +231,27 @@ class Themes(EditorTest):
         self.e.s.js("""const el = document.querySelector(arguments[0]); el.value = arguments[1];
                        el.dispatchEvent(new Event('change', {bubbles: true})); return true""", selector, value)
         self.e.settle(1.0)
+
+    def test_a_new_deck_uses_its_theme_as_a_layout(self):
+        e = self.e
+        e.s.call("new_deck", {})
+        e.settle(1.0)
+        view = self.view()
+        self.assertEqual(view["layout"], "Theme", "the first slide uses the theme itself")
+        self.assertEqual([x["kind"] for x in view["elements"]], ["text", "text"], "a title and a body to type in")
+        # The theme is offered in the Layout menu of the thumbnails.
+        e.s.js("""const t = document.querySelector('.thumb'); const r = t.getBoundingClientRect();
+                  t.dispatchEvent(new MouseEvent('contextmenu', {bubbles: true, cancelable: true, clientX: r.x + 20, clientY: r.y + 20}));
+                  return true""")
+        e.settle(0.5)
+        self.button("Layout ▸")
+        self.assertTrue(e.s.js("return [...document.querySelectorAll('.menu-list button')].some(b => b.textContent.trim() === '◆ Theme')"))
+        e.escape()
+        # The design view opens on the theme, its placeholders on the canvas.
+        self.button("Design")
+        view = self.view()
+        self.assertEqual(view["editing_theme"], "Theme")
+        self.assertEqual([x["text"] for x in view["elements"] if x["kind"] == "placeholder"], ["title", "body"])
 
     def test_override_reset_and_theme_change(self):
         e = self.e

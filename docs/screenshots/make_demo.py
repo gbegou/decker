@@ -30,9 +30,10 @@ def band():
 THEMES = [
     {"name": "Waves", "background": "#FFFFFF", "elements": [band(), footer(), number()],
      "placeholders": [
-         {"name": "title", "rect": {"x": 0, "y": 0, "w": 0, "h": 0}, "size": 32, "bold": True, "color": INK},
+         # The theme is a layout too: its title and body are placed.
+         {"name": "title", "rect": {"x": 60, "y": 30, "w": 860, "h": 60}, "size": 32, "bold": True, "color": INK},
          {"name": "subtitle", "rect": {"x": 0, "y": 0, "w": 0, "h": 0}, "size": 24, "color": ACCENT},
-         {"name": "body", "rect": {"x": 0, "y": 0, "w": 0, "h": 0}, "size": 22, "bullets": True}]},
+         {"name": "body", "rect": {"x": 60, "y": 110, "w": 860, "h": 380}, "size": 22, "bullets": True}]},
 ]
 
 LAYOUTS = [

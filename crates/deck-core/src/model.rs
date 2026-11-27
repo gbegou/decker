@@ -6,7 +6,7 @@ pub use crate::themes::ThemeSet;
 
 /// Version of the `deck.json` schema. Bump it with a migration when the
 /// model changes incompatibly.
-pub const FORMAT_VERSION: u32 = 3;
+pub const FORMAT_VERSION: u32 = 4;
 
 /// The first version with themes holding layouts (see [`crate::themes`]).
 pub const THEMES_VERSION: u32 = 2;
@@ -14,6 +14,10 @@ pub const THEMES_VERSION: u32 = 2;
 /// The first version with fonts and colors in the themes only (the deck's
 /// own `theme` is merged into them, see [`Deck::migrate`]).
 pub const FONTS_IN_THEMES_VERSION: u32 = 3;
+
+/// The first version where a theme is a layout too: its title and body
+/// placeholders have positions, and a slide can use the theme itself.
+pub const THEME_LAYOUT_VERSION: u32 = 4;
 
 /// Width of a 16:9 slide, in points.
 pub const DEFAULT_WIDTH: f64 = 960.0;
@@ -153,9 +157,30 @@ impl Deck {
         slide.layout.as_deref().and_then(|n| self.resolved_layout(n))
     }
 
-    /// The layout named `name`, resolved against its theme.
+    /// The layout named `name`, resolved against its theme; a theme's name
+    /// gives the theme used as a layout (see [`ThemeSet::as_layout`]).
     pub fn resolved_layout(&self, name: &str) -> Option<Layout> {
-        self.layout(name).map(|l| self.resolve(l))
+        match self.layout(name) {
+            Some(l) => Some(self.resolve(l)),
+            None => self.theme_set(name).map(|t| self.resolve(&t.as_layout())),
+        }
+    }
+
+    /// Whether a slide can use `name`: a layout, or a theme.
+    pub fn has_layout(&self, name: &str) -> bool {
+        self.layout(name).is_some() || self.theme_set(name).is_some()
+    }
+
+    /// `base`, or `base 2`, `base 3`… : a name no layout or theme has (a
+    /// slide names either).
+    pub fn free_name(&self, base: &str) -> String {
+        let mut name = base.to_string();
+        let mut n = 1;
+        while self.has_layout(&name) {
+            n += 1;
+            name = format!("{base} {n}");
+        }
+        name
     }
 
     /// The theme named `name`.
@@ -183,7 +208,10 @@ impl Deck {
     /// The theme whose fonts and colors a slide uses: its layout's, else
     /// the first one.
     pub fn style_theme_of(&self, slide: &Slide) -> Option<&str> {
-        let parent = slide.layout.as_deref().and_then(|n| self.layout(n)).and_then(|l| l.parent.as_deref());
+        let parent = slide.layout.as_deref().and_then(|n| match self.layout(n) {
+            Some(l) => l.parent.as_deref(),
+            None => self.theme_set(n).map(|t| t.name.as_str()),
+        });
         parent.filter(|p| self.theme_set(p).is_some()).or_else(|| self.themes.first().map(|t| t.name.as_str()))
     }
 
@@ -1759,7 +1787,7 @@ mod tests {
         let json = serde_json::to_string_pretty(&deck).unwrap();
         let back: Deck = serde_json::from_str(&json).unwrap();
         assert_eq!(back, deck);
-        assert!(json.contains("\"version\": 3"));
+        assert!(json.contains("\"version\": 4"));
         assert!(json.contains("\"type\": \"text\""));
     }
 

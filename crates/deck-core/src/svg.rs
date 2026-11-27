@@ -171,12 +171,15 @@ fn render_at(
 /// boxes showing their names, with ids continuing the numbering.
 /// A theme for its editor: background and shared elements (ids `e{index}`
 /// as for a layout), on the theme's style.
+/// A theme as edited: its background and elements as its own, and its
+/// placeholders that have a position (the theme used as a layout).
 pub fn render_theme(deck: &Deck, theme: &ThemeSet, math: &dyn MathRenderer) -> String {
     let as_layout = Layout {
         name: theme.name.clone(),
         background: theme.background,
         theme: theme.style.clone(),
         elements: theme.elements.clone(),
+        placeholders: theme.slots().map(|(_, p)| p.clone()).collect(),
         ..Default::default()
     };
     render_layout(deck, &as_layout, math)

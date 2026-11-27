@@ -37,7 +37,7 @@ from typing import Any, Iterator
 
 __all__ = ["Deck", "Slide", "Element", "Rect", "Series", "load", "new", "current", "VERSION"]
 
-VERSION = 3
+VERSION = 4
 
 
 class Rect:
@@ -405,10 +405,15 @@ class Deck:
     def placeholders(self, layout: str) -> list[dict]:
         """The placeholders of layout ``layout`` with their style resolved: what the
         layout does not set itself (``own``) comes from its theme's placeholder of
-        the same kind (``body2`` takes ``body``)."""
+        the same kind (``body2`` takes ``body``). A theme's name gives the theme
+        used as a layout: its placeholders that have a position."""
         lay = self.layout(layout)
         if lay is None:
-            raise KeyError(f"no layout named {layout!r}")
+            theme = next((t for t in self.themes if t.get("name") == layout), None)
+            if theme is None:
+                raise KeyError(f"no layout or theme named {layout!r}")
+            placed = lambda r: (r or {}).get("w", 0) > 0 and (r or {}).get("h", 0) > 0
+            return [dict(ph) for ph in theme.get("placeholders", []) if placed(ph.get("rect"))]
         theme = next((t for t in self.themes if t.get("name") == lay.get("parent")), None)
         out = []
         for ph in lay.get("placeholders", []):
@@ -622,8 +627,15 @@ def _image_size(path: Path) -> tuple[int, int] | tuple[None, None]:
 
 def new(title: str = "Untitled", width: float = 960, height: float = 540) -> Deck:
     """An empty deck (16:9 at 960×540 points by default)."""
-    return Deck({"version": VERSION, "title": title, "width": float(width), "height": float(height),
-                 "themes": [{"name": "Theme"}], "slides": []})
+    w, h = float(width), float(height)
+    rect = lambda x, y, rw, rh: {"x": x * w, "y": y * h, "w": rw * w, "h": rh * h}
+    # Its theme is a layout too: a title and a body in place, as in the app.
+    theme = {"name": "Theme", "placeholders": [
+        {"name": "title", "rect": rect(0.06, 0.05, 0.88, 0.15), "size": 40.0, "bold": True},
+        {"name": "body", "rect": rect(0.06, 0.24, 0.88, 0.68), "size": 24.0, "bullets": True},
+        {"name": "subtitle", "rect": rect(0, 0, 0, 0), "size": 26.0, "align": "center"},
+    ]}
+    return Deck({"version": VERSION, "title": title, "width": w, "height": h, "themes": [theme], "slides": []})
 
 
 def load(path: "str | os.PathLike") -> Deck:

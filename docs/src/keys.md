@@ -71,13 +71,13 @@ The same list as the editor's help (**F1** or **?**). Generated from the editor'
 | Key or control | Does |
 | --- | --- |
 | Slides \| Design (header) | The design view, like PowerPoint's slide master: themes and their layouts on the left, edited on the canvas; right-click for new layouts and themes, rename (or double-click), save, load, delete |
-| Layout selector (Slide tab) · Layout ▸ (thumbnail menu) | The slide's layout, grouped by theme |
+| Layout selector (Slide tab) · Layout ▸ (thumbnail menu) | The slide's layout, grouped by theme; ◆ the theme itself, used as a layout |
 | theme · ↺ · ⇪ (placeholder style) | The value comes from the theme; set by the layout: back to the theme's, or make it the theme's |
 | Reset to theme · hide the theme's elements | Drop all of a layout's overrides; leave out the theme's logo, footer… |
 | Select a placeholder | Its default text style in the panel: size, bold, color, font, alignment, bullets, vertical alignment, and a prefix drawn before the slide's text (`{{ }}` allowed) |
 | Double-click a placeholder (design view) | Rename it in place; slides that fill it follow |
 | Click a variable (design view panel) | Insert it into the prefix or the text being edited; otherwise copy it |
-| + Placeholder (design view) | A title, subtitle or body slot; slides using the layout get a box for it |
+| + Placeholder (design view) | A title, subtitle or body slot of the layout or theme; slides using it get a box for it |
 | Double-click to add… (empty placeholder) | A prompt shown only in the editor; double-click the box and type |
 | `{{section}}` `{{subsection}}` `{{slide}}` `{{slides}}` `{{title}}` `{{deck}}` `{{date}}` | Variables in layout texts, filled per slide |
 | Fonts and colors (panel) | Default font, size, text color, accent and palette of the slide's theme, of the theme or of the layout under edit; fonts/ in the deck adds fonts |

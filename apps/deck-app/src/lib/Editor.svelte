@@ -255,8 +255,10 @@
   /** Opens the design view on the current slide's layout (else its theme). */
   function enterDesign() {
     if (!view) return;
-    const layout = view.layout;
-    const theme = view.theme.of_theme ?? view.layout_groups.find((g) => g.theme)?.theme ?? null;
+    // A slide may use a theme itself as its layout.
+    const usesTheme = view.layout !== null && view.layout_groups.some((g) => g.theme === view!.layout);
+    const layout = usesTheme ? null : view.layout;
+    const theme = (usesTheme ? view.layout : null) ?? view.theme.of_theme ?? view.layout_groups.find((g) => g.theme)?.theme ?? null;
     enqueue(async () => {
       if (layout) await run("Design view", () => api.editLayout(layout));
       else if (theme) await run("Design view", () => api.editTheme(theme));
@@ -1355,6 +1357,8 @@
       </span>
       <button onclick={() => run("Added text", api.addText)}>+ Text</button>
       <MenuButton label="+ Shape" title="Add a shape, or draw a path" items={SHAPES} onpick={addShapeOf} />
+      <MenuButton label="+ Placeholder" title="A slot of the theme used as a layout: slides using the theme get a box for it" items={[{ value: "title", label: "Title" }, { value: "subtitle", label: "Subtitle" }, { value: "body", label: "Body" }]}
+                  onpick={(k) => run("Added placeholder", () => api.addPlaceholder(k as "title" | "subtitle" | "body"))} />
       <button class="primary" onclick={exitDesign}>Close design view</button>
     {:else if view?.editing_layout !== null && view?.editing_layout !== undefined}
       <span class="banner">Layout
@@ -1398,11 +1402,11 @@
         {#each tree as item (item.kind + ":" + item.name)}
           {@const current = item.kind === "theme" ? view.editing_theme === item.name : view.editing_layout === item.name}
           <button class="design-item {item.kind}" class:current class:loose={item.kind === "layout" && !item.theme}
-                  title={item.kind === "theme" ? `Theme “${item.name}”: background, shared elements, placeholder styles, fonts and colors` : `Layout “${item.name}”${item.used ? `, used by ${item.used} slide${item.used > 1 ? "s" : ""}` : ", not used"}`}
+                  title={item.kind === "theme" ? `Theme “${item.name}”: background, shared elements, placeholders, fonts and colors${item.used ? `; used as a layout by ${item.used} slide${item.used > 1 ? "s" : ""}` : ""}` : `Layout “${item.name}”${item.used ? `, used by ${item.used} slide${item.used > 1 ? "s" : ""}` : ", not used"}`}
                   onclick={() => openDesignItem(item)} oncontextmenu={(e) => openTreeMenu(e, item)}
                   ondblclick={() => { renamingItem = { kind: item.kind, name: item.name, value: item.name }; queueMicrotask(() => { const i = document.querySelector<HTMLInputElement>(".rename-dialog input"); i?.focus(); i?.select(); }); }}>
             <SlideView svg={item.svg} width={view.width} height={view.height} />
-            <span class="design-name">{item.kind === "theme" ? "◆ " : ""}{item.name}{#if item.kind === "layout" && item.used}<span class="used">{item.used}</span>{/if}</span>
+            <span class="design-name">{item.kind === "theme" ? "◆ " : ""}{item.name}{#if item.used}<span class="used">{item.used}</span>{/if}</span>
           </button>
         {/each}
         <p class="muted pane-hint">Right-click for new layouts and themes.</p>
@@ -1727,7 +1731,8 @@
       {/if}
       {#if view.editing_theme !== null}
         <h3>Placeholder styles</h3>
-        <p class="muted">The style each kind of placeholder starts with in this theme's layouts, unless a layout sets its own. Body styles apply to body1, body2…</p>
+        <p class="muted">The style each kind of placeholder starts with in this theme's layouts, unless a layout sets its own. Body styles apply to body1, body2…
+          The dashed boxes on the canvas are the theme's own placeholders: the theme is a layout too, for slides that use it directly.</p>
         {#each view.theme_placeholders as tph (tph.name)}
           <details class="kind">
             <summary>{tph.name}</summary>
@@ -1770,12 +1775,12 @@
         <p class="muted" title="Variables filled per slide in texts: {"{{section}}"}, {"{{subsection}}"}, {"{{slide}}"}, {"{{slides}}"}, {"{{title}}"}, {"{{deck}}"}, {"{{date}}"}">Own elements over the theme's (dimmed); dashed boxes are the placeholders new slides start from. Texts can hold variables such as <code>{"{{slide}}"}</code>.</p>
       {:else}
         <h3>Layout</h3>
-        {#if view.layouts.length}
+        {#if view.layout_groups.length}
           <select value={view.layout ?? ""} onchange={(e) => run("Layout set", () => api.setLayout(e.currentTarget.value || null))}>
             <option value="">none</option>
             {#each view.layout_groups as g}
               {#if g.theme}
-                <optgroup label={g.theme}>{#each g.layouts as name}<option value={name}>{name}</option>{/each}</optgroup>
+                <optgroup label={g.theme}><option value={g.theme}>◆ {g.theme} (the theme)</option>{#each g.layouts as name}<option value={name}>{name}</option>{/each}</optgroup>
               {:else}
                 {#each g.layouts as name}<option value={name}>{name}</option>{/each}
               {/if}
@@ -2003,7 +2008,10 @@
       {#if layoutList}
         <div class="menu-list">
           {#each view.layout_groups as g}
-            {#if g.theme}<div class="menu-group">{g.theme}</div>{/if}
+            {#if g.theme}
+              <div class="menu-group">{g.theme}</div>
+              <button role="menuitem" title="The theme itself, as a layout" onclick={() => applyLayout(g.theme)}>◆ {g.theme}</button>
+            {/if}
             {#each g.layouts as name}
               <button role="menuitem" onclick={() => applyLayout(name)}>{name}</button>
             {/each}

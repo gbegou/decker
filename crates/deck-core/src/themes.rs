@@ -31,7 +31,9 @@ pub struct ThemeSet {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub elements: Vec<Element>,
     /// The default style of each kind of placeholder, by name (`title`,
-    /// `subtitle`, `body`...); their positions are the layouts' business.
+    /// `subtitle`, `body`...). Those with a position (a non-empty `rect`)
+    /// are also placeholders of the theme used as a layout (see
+    /// [`ThemeSet::as_layout`]); the others only style their kind.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub placeholders: Vec<Placeholder>,
 }
@@ -44,7 +46,87 @@ pub fn kind_of(name: &str) -> &str {
     name.trim_end_matches(|c: char| c.is_ascii_digit())
 }
 
+impl Placeholder {
+    /// Whether it has a position: a theme's placeholder without one only
+    /// styles its kind.
+    pub fn is_slot(&self) -> bool {
+        self.rect.w > 0.0 && self.rect.h > 0.0
+    }
+}
+
 impl ThemeSet {
+    /// The theme used as a layout, like PowerPoint's slide master: its
+    /// background and elements, and its placeholders that have a position.
+    /// Resolved (see [`Deck::resolve`]) it is the theme as drawn.
+    pub fn as_layout(&self) -> Layout {
+        Layout {
+            name: self.name.clone(),
+            parent: Some(self.name.clone()),
+            placeholders: self.slots().map(|(_, p)| Placeholder { own: vec![], ..p.clone() }).collect(),
+            ..Default::default()
+        }
+    }
+
+    /// A new theme: the usual placeholder styles (title, subtitle, body),
+    /// its title and body placed, for a `w` by `h` slide.
+    pub fn standard(name: &str, w: f64, h: f64) -> ThemeSet {
+        let mut placeholders: Vec<Placeholder> = vec![];
+        let presets = [Layout::preset("", "compare", w, h), Layout::preset("", "title", w, h)];
+        for p in presets.iter().flat_map(|l| l.placeholders.iter()) {
+            let kind = kind_of(&p.name).to_string();
+            if !placeholders.iter().any(|q| q.name == kind) {
+                placeholders.push(Placeholder { name: kind, rect: Rect::default(), ..p.clone() });
+            }
+        }
+        let mut theme = ThemeSet { name: name.into(), placeholders, ..Default::default() };
+        theme.place_slots(&[], w, h);
+        theme
+    }
+
+    /// The placeholders with a position, with their index in `placeholders`.
+    pub fn slots(&self) -> impl Iterator<Item = (usize, &Placeholder)> {
+        self.placeholders.iter().enumerate().filter(|(_, p)| p.is_slot())
+    }
+
+    /// The index in `placeholders` of the `k`-th one with a position.
+    pub fn slot_index(&self, k: usize) -> Option<usize> {
+        self.slots().nth(k).map(|(i, _)| i)
+    }
+
+    /// Gives the title and the body a position when they have none: the
+    /// most common among `layouts` (of this theme), else that of the usual
+    /// "title and content" disposition on a `w` by `h` slide. A missing
+    /// title or body style is added.
+    pub fn place_slots(&mut self, layouts: &[&Layout], w: f64, h: f64) {
+        let usual = Layout::preset("", "content", w, h);
+        for kind in ["title", "body"] {
+            let i = match self.placeholders.iter().position(|p| p.name == kind) {
+                Some(i) => i,
+                None => {
+                    let mut p =
+                        usual.placeholders.iter().find(|p| kind_of(&p.name) == kind).cloned().unwrap_or_default();
+                    p.name = kind.into();
+                    p.rect = Rect::default();
+                    self.placeholders.push(p);
+                    self.placeholders.len() - 1
+                }
+            };
+            if self.placeholders[i].is_slot() {
+                continue;
+            }
+            let rects: Vec<Rect> = layouts
+                .iter()
+                .flat_map(|l| l.placeholders.iter())
+                .filter(|p| kind_of(&p.name) == kind && p.is_slot())
+                .map(|p| p.rect)
+                .collect();
+            let common = rects.iter().max_by_key(|r| rects.iter().filter(|q| q == r).count()).copied();
+            self.placeholders[i].rect = common
+                .or_else(|| usual.placeholders.iter().find(|p| kind_of(&p.name) == kind).map(|p| p.rect))
+                .unwrap_or_default();
+        }
+    }
+
     /// The theme's placeholder for a layout placeholder named `name`: of
     /// the same name, else of the same kind.
     pub fn placeholder_for(&self, name: &str) -> Option<&Placeholder> {
@@ -232,6 +314,9 @@ impl Deck {
                 theme.placeholders.push(Placeholder { name: kind, rect: Rect::default(), own: vec![], ..(*p).clone() });
             }
         }
+        // The theme is a layout too: its title and body get positions.
+        let members: Vec<&Layout> = idx.iter().map(|&i| &self.layouts[i]).collect();
+        theme.place_slots(&members, self.width, self.height);
         for &i in &idx {
             let l = &mut self.layouts[i];
             if theme.style == l.theme {
@@ -275,6 +360,15 @@ impl Deck {
                 l.theme = l.theme.over(&deck_style);
             }
         }
+        // Version 4: a theme is a layout too, its title and body placed.
+        if self.version < THEME_LAYOUT_VERSION {
+            let (w, h) = (self.width, self.height);
+            for t in 0..self.themes.len() {
+                let name = self.themes[t].name.clone();
+                let layouts: Vec<Layout> = self.layouts_of_theme(&name).into_iter().cloned().collect();
+                self.themes[t].place_slots(&layouts.iter().collect::<Vec<_>>(), w, h);
+            }
+        }
         self.clear_placeholder_names();
         self.version = self.version.max(FORMAT_VERSION);
     }
@@ -299,15 +393,9 @@ impl Deck {
         }
     }
 
-    /// A theme name not yet taken, from `base`.
+    /// A theme name not yet taken (by a theme or a layout), from `base`.
     pub fn free_theme_name(&self, base: &str) -> String {
-        let mut name = base.to_string();
-        let mut n = 1;
-        while self.theme_set(&name).is_some() {
-            n += 1;
-            name = format!("{base} {n}");
-        }
-        name
+        self.free_name(base)
     }
 }
 
@@ -425,6 +513,27 @@ mod tests {
         let content = deck.resolved_layout("Content").unwrap();
         assert_eq!(content.placeholders[0].valign, VAlign::Middle);
         assert_eq!(content.placeholders[0].text_box().valign, VAlign::Middle, "new slides start with it");
+    }
+
+    #[test]
+    fn a_theme_is_a_layout_with_its_placed_title_and_body() {
+        let mut deck = two_layouts();
+        deck.migrate();
+        let theme = &deck.themes[0];
+        // Placed where most of its layouts put them; the body (positionless
+        // in the layouts) where the usual disposition does.
+        let title = theme.placeholders.iter().find(|p| p.name == "title").unwrap();
+        assert_eq!(title.rect, Rect::new(10.0, 10.0, 500.0, 60.0));
+        assert!(theme.placeholders.iter().find(|p| p.name == "body").unwrap().is_slot());
+        let name = theme.name.clone();
+        let as_layout = deck.resolved_layout(&name).expect("a theme's name is a layout");
+        assert_eq!(as_layout.placeholders.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["title", "body"]);
+        assert_eq!(as_layout.elements.len(), 1, "with the theme's elements");
+        assert_eq!(as_layout.background, Some(Color::WHITE));
+        let slide = as_layout.new_slide();
+        assert_eq!(slide.layout.as_deref(), Some(name.as_str()));
+        assert_eq!(deck.style_theme_of(&slide), Some(name.as_str()));
+        assert_eq!(deck.free_name(&name), format!("{name} 2"), "layouts and themes share names");
     }
 
     #[test]

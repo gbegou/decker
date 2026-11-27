@@ -211,7 +211,7 @@ fn main() -> Result<()> {
         }
         Command::Layouts { deck } => {
             let d = native::load(&deck)?;
-            if d.layouts.is_empty() {
+            if d.layouts.is_empty() && d.themes.is_empty() {
                 println!("no layouts");
             }
             let show = |l: &deck_core::Layout, indent: &str| {
@@ -233,7 +233,19 @@ fn main() -> Result<()> {
                 }
             };
             for t in &d.themes {
-                println!("theme {} ({} shared elements)", t.name, t.elements.len());
+                // A theme is a layout too: slides may use it directly.
+                let used = d.slides.iter().filter(|s| s.layout.as_deref() == Some(t.name.as_str())).count();
+                println!("theme {} ({} shared elements, used as a layout by {used} slides)", t.name, t.elements.len());
+                for (_, p) in t.slots() {
+                    println!(
+                        "    {:<12} at {},{} {}x{}",
+                        p.name,
+                        p.rect.x.round(),
+                        p.rect.y.round(),
+                        p.rect.w.round(),
+                        p.rect.h.round()
+                    );
+                }
                 for l in d.layouts_of_theme(&t.name) {
                     show(l, "  ");
                 }

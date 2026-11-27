@@ -5,23 +5,25 @@ Ten minutes from an empty window to a presented, exported talk. It assumes decke
 
 ## 1. A new deck
 
-Start decker: a new deck, with one empty slide. Choose **File ▸ Save as…** (Ctrl+Shift+S) and choose a folder name
+Start decker and click **New deck**: one slide, using the deck's theme, with a title and a
+body to type in (grey prompts show where). Choose **File ▸ Save as…** (Ctrl+Shift+S) and choose a folder name
 such as `talk.deck`: a deck is a folder, with `deck.json` and an `assets/` folder for
 pictures (see [the deck format](format.md)). From now on, **File ▸ Save** (Ctrl+S) writes it.
 
-## 2. A layout
+## 2. A footer in the theme
 
-Layouts give slides their placeholders, background and footer, like PowerPoint's masters.
-Click **Design** in the header: the design view shows the deck's theme on the left. Right-click
-it and choose **Title and content**: the new layout opens on the canvas. Click **+ Text** and
-type `{{section}} — {{slide}} / {{slides}}` in the new box; drag it to the bottom of the
-slide. Click **Close design view**. Back on the slide, choose the new layout in the Slide tab's
-**Layout** selector (or right-click the thumbnail, **Layout ▸**). See
-[Themes and layouts](layouts.md) and [Variables](variables.md).
+The theme gives slides their placeholders, background and footer, like PowerPoint's slide
+master. Click **Design** in the header: the design view opens on the deck's theme. Click
+**+ Text** and type `{{section}} — {{slide}} / {{slides}}` in the new box; drag it to the
+bottom of the slide. Click **Close design view**: every slide of the theme shows the footer.
+For other arrangements (a title slide, two columns), right-click the theme in the design view
+and pick a **new layout**, then choose it in the Slide tab's **Layout** selector (or
+right-click the thumbnail, **Layout ▸**). See [Themes and layouts](layouts.md) and
+[Variables](variables.md).
 
 ## 3. Bullets and a formula
 
-Right-click the slide's thumbnail and choose **New slide after**: the new slide starts from the layout, with a title and a body placeholder.
+Right-click the slide's thumbnail and choose **New slide after**: the new slide starts from the same layout (here the theme), with a title and a body placeholder.
 Double-click the title, type `Waves in a tank`, press Escape. Double-click the body and type:
 
 ```text
