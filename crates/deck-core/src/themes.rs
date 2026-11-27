@@ -37,7 +37,7 @@ pub struct ThemeSet {
 }
 
 /// The style properties a placeholder can override.
-pub const PLACEHOLDER_PROPS: [&str; 6] = ["size", "bold", "color", "font", "align", "bullets"];
+pub const PLACEHOLDER_PROPS: [&str; 7] = ["size", "bold", "color", "font", "align", "bullets", "valign"];
 
 /// The kind of a placeholder name: `body2` is a `body`.
 pub fn kind_of(name: &str) -> &str {
@@ -70,6 +70,7 @@ impl Placeholder {
             "font" => self.font.clone_from(&from.font),
             "align" => self.align = from.align,
             "bullets" => self.bullets = from.bullets,
+            "valign" => self.valign = from.valign,
             _ => {}
         }
     }
@@ -82,6 +83,7 @@ impl Placeholder {
             "font" => self.font == other.font,
             "align" => self.align == other.align,
             "bullets" => self.bullets == other.bullets,
+            "valign" => self.valign == other.valign,
             _ => true,
         }
     }
@@ -408,6 +410,21 @@ mod tests {
         assert_eq!(content.background, Some(Color::BLACK));
         assert_eq!(content.elements.len(), 1);
         assert_eq!(title.elements.len(), 2, "theme elements under the layout's own");
+    }
+
+    #[test]
+    fn the_vertical_alignment_follows_the_theme_unless_overridden() {
+        let mut deck = two_layouts();
+        deck.migrate();
+        deck.themes[0].placeholders.iter_mut().find(|p| p.name == "title").unwrap().valign = VAlign::Bottom;
+        assert_eq!(deck.resolved_layout("Content").unwrap().placeholders[0].valign, VAlign::Bottom);
+        let layout = deck.layouts.iter_mut().find(|l| l.name == "Content").unwrap();
+        layout.placeholders[0].valign = VAlign::Middle;
+        layout.placeholders[0].set_own("valign");
+        assert!(layout.overrides().iter().any(|o| o == "title: valign"), "{:?}", layout.overrides());
+        let content = deck.resolved_layout("Content").unwrap();
+        assert_eq!(content.placeholders[0].valign, VAlign::Middle);
+        assert_eq!(content.placeholders[0].text_box().valign, VAlign::Middle, "new slides start with it");
     }
 
     #[test]

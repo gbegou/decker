@@ -419,7 +419,7 @@ class Deck:
                 base = next((b for b in theme.get("placeholders", []) if b.get("name") == name), None) or \
                     next((b for b in theme.get("placeholders", []) if b.get("name", "").rstrip("0123456789") == kind), None)
                 if base is not None:
-                    for prop in ("size", "bold", "color", "font", "align", "bullets"):
+                    for prop in ("size", "bold", "color", "font", "align", "bullets", "valign"):
                         if prop not in ph.get("own", []):
                             if prop in base:
                                 ph[prop] = base[prop]
@@ -460,12 +460,16 @@ class Deck:
             s["layout"] = layout
             for ph in self.placeholders(layout):
                 run = {k: ph[k] for k in ("size", "bold", "color", "font") if ph.get(k)}
-                p: dict[str, Any] = {"runs": [dict(run, text=ph.get("name", ""))]}
+                # Empty: the editor shows a prompt in it until text is typed.
+                p: dict[str, Any] = {"runs": [dict(run, text="")]}
                 if ph.get("align"):
                     p["align"] = ph["align"]
                 if ph.get("bullets"):
                     p["bullet"] = 0
-                s["elements"].append({"type": "text", "rect": dict(ph["rect"]), "placeholder": ph.get("name"), "paragraphs": [p]})
+                box = {"type": "text", "rect": dict(ph["rect"]), "placeholder": ph.get("name"), "paragraphs": [p]}
+                if ph.get("valign") and ph["valign"] != "top":
+                    box["valign"] = ph["valign"]
+                s["elements"].append(box)
         if section:
             s["section"] = section
         if subsection:

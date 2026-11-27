@@ -228,7 +228,7 @@ pub fn render_layout(deck: &Deck, layout: &Layout, math: &dyn MathRenderer) -> S
             fmt(r.h)
         );
         let sample = ph.sample_box();
-        text_body(&mut out, r, &sample.paragraphs, &deck.math_preamble, math, defaults);
+        text_body_at(&mut out, r, &sample.paragraphs, &deck.math_preamble, math, defaults, sample.valign);
         out.push_str("</g>");
     }
     out.push_str("</svg>\n");

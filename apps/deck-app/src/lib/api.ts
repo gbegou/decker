@@ -51,6 +51,8 @@ export type TableEdit =
   | { op: "split"; row: number; column: number };
 export interface PlaceholderStyle {
   size?: number; bold?: boolean; color?: string; font?: string; align?: Align; bullets?: boolean;
+  /** Where the text sits in the box, top to bottom. */
+  valign?: VAlign;
   /** Text before the slide's own text in this placeholder ({{ }} variables allowed). */
   prefix?: string;
 }

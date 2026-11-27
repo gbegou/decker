@@ -64,7 +64,9 @@ which move and resize the same way. **Double-click** a placeholder to rename it 
 follow the new name.
 
 Selecting a placeholder shows its text style in the Element tab: size, bold, color, font,
-alignment, bullets. In a layout with a theme, each field says where its value comes from:
+alignment, bullets, and **vertical** alignment (top, middle or bottom of the box, for
+instance a title centered in its band). Boxes made from the placeholder (new slides, a
+layout applied) start with that style; boxes already on slides keep theirs. In a layout with a theme, each field says where its value comes from:
 
 - **theme**: the theme's value, which follows the theme when it changes;
 - in bold, with **↺** and **⇪**: set by this layout. **↺** drops the override and returns to
@@ -181,7 +183,8 @@ lists a deck's themes, their layouts, what each layout overrides, and its placeh
       "hide_theme_elements": true,
       "placeholders": [
         { "name": "title", "rect": { "x": 80, "y": 170, "w": 800, "h": 90 },
-          "size": 48, "align": "center", "own": ["size", "align"], "prefix": "{{slide}}. " }
+          "size": 48, "align": "center", "valign": "middle", "own": ["size", "align", "valign"],
+          "prefix": "{{slide}}. " }
       ]
     },
     {

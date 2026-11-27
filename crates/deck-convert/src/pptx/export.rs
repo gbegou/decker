@@ -556,7 +556,14 @@ fn placeholder_body(ph: &Placeholder) -> String {
         let _ = write!(lvl, r#"<a:latin typeface="{}"/>"#, esc(f));
     }
     lvl.push_str("</a:defRPr></a:lvl1pPr>");
-    format!(r#"<p:txBody><a:bodyPr/><a:lstStyle>{lvl}</a:lstStyle><a:p><a:endParaRPr/></a:p></p:txBody>"#)
+    let anchor = match ph.valign {
+        VAlign::Top => "t",
+        VAlign::Middle => "ctr",
+        VAlign::Bottom => "b",
+    };
+    format!(
+        r#"<p:txBody><a:bodyPr anchor="{anchor}"/><a:lstStyle>{lvl}</a:lstStyle><a:p><a:endParaRPr/></a:p></p:txBody>"#
+    )
 }
 
 /// Writes one element into a slide or layout part. `ph` is the `<p:ph>`
@@ -1396,6 +1403,49 @@ mod tests {
             })
             .collect();
         assert_eq!(valigns, [VAlign::Middle, VAlign::Bottom, VAlign::Top]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn placeholder_anchors_round_trip() {
+        let dir = std::env::temp_dir().join(format!("decker-phanchor-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut deck = Deck::new("anchors");
+        deck.layouts.push(Layout {
+            name: "Centered".into(),
+            placeholders: vec![Placeholder {
+                name: "title".into(),
+                rect: Rect::new(40.0, 40.0, 800.0, 120.0),
+                valign: VAlign::Middle,
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        let mut filled = deck.layouts[0].placeholders[0].text_box();
+        filled.paragraphs[0].runs[0].text = "Hello".into();
+        let mut top = filled.clone();
+        top.valign = VAlign::Top;
+        deck.slides.push(Slide {
+            layout: Some("Centered".into()),
+            elements: vec![Element::Text(filled)],
+            ..Default::default()
+        });
+        deck.slides.push(Slide {
+            layout: Some("Centered".into()),
+            elements: vec![Element::Text(top)],
+            ..Default::default()
+        });
+        let pptx = dir.join("p.pptx");
+        export(&deck, &dir, &pptx).unwrap();
+        let (back, _) = super::super::import(&pptx, &dir.join("back.deck")).unwrap();
+        let layout = back.layout_of(&back.slides[0]).expect("its layout");
+        assert_eq!(layout.placeholder("title").map(|p| p.valign), Some(VAlign::Middle));
+        let valign = |i: usize| match &back.slides[i].elements[0] {
+            Element::Text(t) => t.valign,
+            _ => panic!("text"),
+        };
+        assert_eq!((valign(0), valign(1)), (VAlign::Middle, VAlign::Top), "an explicit top stays top");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

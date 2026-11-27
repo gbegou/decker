@@ -10,12 +10,13 @@ opening of the same file opens that folder. The command line does the same with
 - Slide size and order, slide names, solid background colors, speaker notes, sections.
 - Each slide master as a decker [theme](layouts.md) holding its layouts: what the layouts
   share (background, shapes, fonts and colors, placeholder styles) in the theme, their
-  differences as overrides. Placeholders keep the master's text styles (size, bold, color, alignment, bullets); slide text takes what its runs
+  differences as overrides. Placeholders keep the master's text styles (size, bold, color, alignment, bullets) and their vertical alignment (anchor); slide text takes what its runs
   leave unset from its placeholder, one size step down per bullet level. Placeholders without
   an explicit position inherit it from the layout, then the master. The master's theme fonts
   and colors become the theme's fonts and colors.
 - Text: paragraphs with alignment and bullet level, runs with bold, italic, size, color and
-  font; the vertical alignment (anchor) of the text boxes and shapes that set it.
+  font; the vertical alignment (anchor) of text boxes and shapes, a placeholder's coming from
+  its layout or master when the slide does not set it.
 - Pictures (PNG, JPEG, GIF, BMP, SVG, WebP), copied into `assets/`, with their crop, their
   crop-to-shape (ellipse, rounded rectangle) and their mirroring.
 - Shapes: rectangles and rounded variants, ellipses, lines, connectors and arrows, with solid

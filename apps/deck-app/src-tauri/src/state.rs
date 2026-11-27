@@ -75,6 +75,8 @@ pub struct PlaceholderStyle {
     pub align: Option<deck_core::Align>,
     #[serde(default)]
     pub bullets: Option<bool>,
+    #[serde(default)]
+    pub valign: Option<VAlign>,
     /// Text shown before the slide's own text (`{{…}}` variables allowed).
     pub prefix: Option<String>,
 }
@@ -2472,6 +2474,7 @@ impl AppState {
             ("font", change.font.is_some()),
             ("align", change.align.is_some()),
             ("bullets", change.bullets.is_some()),
+            ("valign", change.valign.is_some()),
         ] {
             if set {
                 ph.set_own(prop);
@@ -3040,6 +3043,9 @@ fn apply_placeholder_style(ph: &mut Placeholder, change: &PlaceholderStyle) -> R
     if let Some(b) = change.bullets {
         ph.bullets = b;
     }
+    if let Some(v) = change.valign {
+        ph.valign = v;
+    }
     if let Some(p) = &change.prefix {
         ph.prefix.clone_from(p);
     }
@@ -3062,6 +3068,7 @@ fn copy_prop(to: &mut Placeholder, from: &Placeholder, prop: &str) {
         "font" => to.font.clone_from(&from.font),
         "align" => to.align = from.align,
         "bullets" => to.bullets = from.bullets,
+        "valign" => to.valign = from.valign,
         _ => {}
     }
 }

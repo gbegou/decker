@@ -31,7 +31,8 @@ font, alignment and bullet level: of the selection while editing, else of the wh
 - **Vertical alignment** (top, middle, bottom) belongs to the box, a text box or a shape: it
   places the whole text at the top, the middle or the bottom of the box. Text taller than a
   middle-aligned box overflows above and below; a bottom-aligned one, above. PowerPoint calls
-  it the text anchor, and it is kept on import and export.
+  it the text anchor, and it is kept on import and export. A layout's placeholders have one
+  too (see [Themes and layouts](layouts.md)): boxes made from them start with it.
 
 Ctrl+B and Ctrl+I work too. The round swatches are the theme's palette; the ⌀ buttons return
 to the theme's default. The box's own fill and outline are set there as well.

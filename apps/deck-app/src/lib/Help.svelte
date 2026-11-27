@@ -58,7 +58,7 @@
       ["Layout selector (Slide tab) · Layout ▸ (thumbnail menu)", "The slide's layout, grouped by theme"],
       ["theme · ↺ · ⇪ (placeholder style)", "The value comes from the theme; set by the layout: back to the theme's, or make it the theme's"],
       ["Reset to theme · hide the theme's elements", "Drop all of a layout's overrides; leave out the theme's logo, footer…"],
-      ["Select a placeholder", "Its default text style in the panel: size, bold, color, font, alignment, bullets, and a prefix drawn before the slide's text ({{ }} allowed)"],
+      ["Select a placeholder", "Its default text style in the panel: size, bold, color, font, alignment, bullets, vertical alignment, and a prefix drawn before the slide's text ({{ }} allowed)"],
       ["Double-click a placeholder (design view)", "Rename it in place; slides that fill it follow"],
       ["Click a variable (design view panel)", "Insert it into the prefix or the text being edited; otherwise copy it"],
       ["+ Placeholder (design view)", "A title, subtitle or body slot; slides using the layout get a box for it"],

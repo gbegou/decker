@@ -58,6 +58,10 @@
     <select value={ph.align ?? "left"} onchange={(e) => onchange({ align: e.currentTarget.value as "left" | "center" | "right" | "justify" })}>
       <option value="left">left</option><option value="center">center</option><option value="right">right</option><option value="justify">justify</option>
     </select>{@render mark("align")}</label>
+  <label class:own={inTheme && own("valign")} title="Where the text sits in the box, top to bottom">vertical
+    <select value={ph.valign ?? "top"} onchange={(e) => onchange({ valign: e.currentTarget.value as "top" | "middle" | "bottom" })}>
+      <option value="top">top</option><option value="middle">middle</option><option value="bottom">bottom</option>
+    </select>{@render mark("valign")}</label>
   <label class:own={inTheme && own("bullets")}><input type="checkbox" checked={ph.bullets ?? false} onchange={(e) => onchange({ bullets: e.currentTarget.checked })} /> bullets{@render mark("bullets")}</label>
 </div>
 

@@ -27,9 +27,11 @@ class DeckTests(unittest.TestCase):
         deck = decker.new("Demo")
         deck.theme["font"] = "Libertinus Serif"
         deck.layouts.append({"name": "Corp", "placeholders": [
-            {"name": "title", "rect": {"x": 40, "y": 30, "w": 880, "h": 80}, "size": 40, "bold": True, "align": "center"}]})
+            {"name": "title", "rect": {"x": 40, "y": 30, "w": 880, "h": 80}, "size": 40, "bold": True, "align": "center",
+             "valign": "bottom"}]})
         s = deck.add_slide(layout="Corp", section="Intro")
-        self.assertEqual(s.elements[0].text, "title")
+        self.assertEqual(s.elements[0].text, "", "empty: the editor shows a prompt")
+        self.assertEqual(s.elements[0].data["valign"], "bottom")
         s.elements[0].text = "Hello\nworld"
         self.assertEqual(s.elements[0].data["paragraphs"][1]["runs"][0], {"size": 40, "bold": True, "text": "world"})
         s.add_text("Body", 40, 130, 880, 300, bullets=True, size=20).appear(1)

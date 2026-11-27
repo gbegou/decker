@@ -347,20 +347,21 @@ pub struct Placeholder {
     /// Paragraphs start bulleted (a body placeholder).
     #[serde(default, skip_serializing_if = "is_default")]
     pub bullets: bool,
+    /// Where the text sits in the box, top to bottom.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub valign: VAlign,
     /// Text shown before the slide's own text in this placeholder, on
     /// every slide (variables such as `{{section}}` filled in); empty for none.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub prefix: String,
     /// In a layout with a theme: the style properties (`size`, `bold`,
-    /// `color`, `font`, `align`, `bullets`) this placeholder sets itself;
+    /// `color`, `font`, `align`, `bullets`, `valign`) this placeholder sets itself;
     /// the others come from the theme's placeholder of the same kind.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub own: Vec<String>,
 }
 
 impl Placeholder {
-    /// An empty text box in this placeholder, showing the placeholder's
-    /// name as its text.
     /// The empty text box a slide fills this placeholder with: the
     /// placeholder's style, no text (the editor shows a prompt in it).
     pub fn text_box(&self) -> TextBox {
@@ -383,6 +384,7 @@ impl Placeholder {
         };
         TextBox {
             rect: self.rect,
+            valign: self.valign,
             paragraphs: vec![Paragraph {
                 runs: vec![run],
                 align: self.align,

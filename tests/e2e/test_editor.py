@@ -234,7 +234,7 @@ class Themes(EditorTest):
         e.goto(2)
         self.button("Design")
         e.click_slide(400, 60)  # the title placeholder
-        self.assertEqual(e.s.js("return document.querySelectorAll('.props .mark').length"), 6, "all from the theme")
+        self.assertEqual(e.s.js("return document.querySelectorAll('.props .mark').length"), 7, "all from the theme (7 style fields)")
         self.set_field(".props .fields input[type=number]", "40")
         self.assertEqual(self.view()["layout_meta"]["overrides"], ["title: size"])
         e.s.js("document.querySelector('.props .mark.own button').click(); return true")  # ↺
@@ -514,6 +514,26 @@ class Editing(EditorTest):
 
 
 class Placeholders(EditorTest):
+    def test_vertical_alignment_of_a_placeholder(self):
+        e = self.e
+        e.goto(2)
+        e.s.js("[...document.querySelectorAll('.views button')].find(b => b.textContent.trim() === 'Design').click(); return true")
+        e.settle(1.5)
+        e.click_slide(300, 60)  # the title placeholder
+        e.settle(0.5)
+        e.s.js("""const s = [...document.querySelectorAll('.props label')].find(l => l.textContent.trim().startsWith('vertical')).querySelector('select');
+                  s.value = 'middle'; s.dispatchEvent(new Event('change', {bubbles: true})); return true""")
+        e.settle(1.0)
+        title = next(x for x in self.view()["elements"] if x["kind"] == "placeholder" and x["text"] == "title")
+        self.assertEqual(title["placeholder"]["valign"], "middle")
+        self.assertIn("valign", title["placeholder"].get("own", []), "an override of the theme")
+        e.s.js("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Close design view').click(); return true")
+        e.settle(1.5)
+        e.s.call("add_slide", {})
+        e.settle(1.0)
+        box = next(x for x in self.view()["elements"] if x["text"] == "" and x["kind"] == "text")
+        self.assertEqual(box["valign"], "middle", "a new slide's box starts with it")
+
     def test_rename_on_the_canvas_prefix_and_layout_boxes(self):
         e = self.e
         e.goto(2)

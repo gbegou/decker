@@ -197,7 +197,7 @@ fn import_layout(pkg: &Package, part: &str, images: &mut ImageStore, report: &mu
         }
     }
 
-    let no_inherit = |_: Node| -> Option<Rect> { None };
+    let no_inherit = |_: Node| -> (Option<Rect>, Option<VAlign>) { (None, None) };
     let mut ids = vec![];
     if let (Some(master), Some(master_part)) = (&master, &master_part) {
         if let Some(tree) = child(master.root_element(), NS_P, "cSld").and_then(|c| child(c, NS_P, "spTree")) {
@@ -242,6 +242,17 @@ fn import_layout(pkg: &Package, part: &str, images: &mut ImageStore, report: &mu
             font: None,
             align: Align::Left,
             bullets: matches!(ph.kind.as_str(), "body" | "obj"),
+            // The layout's anchor, else the master's for that placeholder.
+            valign: child(sp, NS_P, "txBody")
+                .and_then(explicit_anchor)
+                .or_else(|| {
+                    master
+                        .as_ref()
+                        .and_then(|m| placeholder_node(m.root_element(), &ph))
+                        .and_then(|n| child(n, NS_P, "txBody"))
+                        .and_then(explicit_anchor)
+                })
+                .unwrap_or_default(),
             prefix: String::new(),
             own: vec![],
         };
@@ -268,12 +279,17 @@ fn import_layout(pkg: &Package, part: &str, images: &mut ImageStore, report: &mu
     Ok(layout)
 }
 
-/// Where a text body sits in its shape: its `bodyPr anchor` (top when unset).
-fn anchor(tx_body: Node) -> VAlign {
-    match child(tx_body, NS_A, "bodyPr").and_then(|b| b.attribute("anchor")) {
-        Some("ctr") => VAlign::Middle,
-        Some("b") => VAlign::Bottom,
-        _ => VAlign::Top,
+/// What a slide shape takes from its layout's or master's placeholder when
+/// it does not set it: its position and its text anchor.
+type Inherit<'x> = dyn Fn(Node) -> (Option<Rect>, Option<VAlign>) + 'x;
+
+/// The `bodyPr anchor` a text body sets, if it sets one.
+fn explicit_anchor(tx_body: Node) -> Option<VAlign> {
+    match child(tx_body, NS_A, "bodyPr")?.attribute("anchor")? {
+        "ctr" => Some(VAlign::Middle),
+        "b" => Some(VAlign::Bottom),
+        "t" => Some(VAlign::Top),
+        _ => None,
     }
 }
 
@@ -418,9 +434,14 @@ fn import_slide(
         slide.background = Some(bg);
     }
     let tree = child(csld, NS_P, "spTree").ok_or_else(|| anyhow!("no spTree"))?;
-    let inherit = |node: Node| -> Option<Rect> {
-        let ph = placeholder(node)?;
-        [layout.as_ref(), master.as_ref()].into_iter().flatten().find_map(|d| placeholder_rect(d.root_element(), &ph))
+    let inherit = |node: Node| -> (Option<Rect>, Option<VAlign>) {
+        let Some(ph) = placeholder(node) else { return (None, None) };
+        let docs = || [layout.as_ref(), master.as_ref()].into_iter().flatten();
+        let rect = docs().find_map(|d| placeholder_rect(d.root_element(), &ph));
+        let valign = docs().find_map(|d| {
+            placeholder_node(d.root_element(), &ph).and_then(|n| child(n, NS_P, "txBody")).and_then(explicit_anchor)
+        });
+        (rect, valign)
     };
     let mut shape_ids = vec![];
     import_tree(
@@ -463,7 +484,7 @@ fn import_tree(
     pkg: &Package,
     images: &mut ImageStore,
     report: &mut ImportReport,
-    inherit: &dyn Fn(Node) -> Option<Rect>,
+    inherit: &Inherit,
     elements: &mut Vec<Element>,
     offset: Rect,
     shape_ids: &mut Vec<Option<String>>,
@@ -899,13 +920,9 @@ fn shift(r: Rect, o: Rect) -> Rect {
     Rect { x: o.x + r.x * sx, y: o.y + r.y * sy, w: r.w * sx, h: r.h * sy }
 }
 
-fn import_shape(
-    node: Node,
-    inherit: &dyn Fn(Node) -> Option<Rect>,
-    offset: Rect,
-    report: &mut ImportReport,
-) -> Option<Element> {
-    let rect = match xfrm(node).or_else(|| inherit(node)) {
+fn import_shape(node: Node, inherit: &Inherit, offset: Rect, report: &mut ImportReport) -> Option<Element> {
+    let inherited = inherit(node);
+    let rect = match xfrm(node).or(inherited.0) {
         Some(r) => shift(r, offset),
         None => {
             report.warnings.push(format!("shape {:?} without position skipped", shape_name(node)));
@@ -924,7 +941,8 @@ fn import_shape(
     if let Some(tb) = child(node, NS_P, "txBody") {
         shrink_to_fit(tb, &mut paragraphs);
     }
-    let valign = child(node, NS_P, "txBody").map(anchor).unwrap_or_default();
+    // Its own anchor, else its layout's or master's placeholder's.
+    let valign = child(node, NS_P, "txBody").and_then(explicit_anchor).or(inherited.1).unwrap_or_default();
     let is_text_box = child(node, NS_P, "nvSpPr")
         .and_then(|n| child(n, NS_P, "cNvSpPr"))
         .and_then(|n| n.attribute("txBox"))
@@ -1362,6 +1380,12 @@ fn placeholder(sp: Node) -> Option<PhRef> {
 /// Finds the layout/master shape matching a placeholder: same idx when the
 /// slide gives one, else same type. Titles match `title` or `ctrTitle`.
 fn placeholder_rect(root: Node, ph: &PhRef) -> Option<Rect> {
+    placeholder_node(root, ph).and_then(xfrm)
+}
+
+/// The placeholder shape of a layout or master matching `ph`: same index,
+/// else same kind (titles and bodies match their variants).
+fn placeholder_node<'a, 'i>(root: Node<'a, 'i>, ph: &PhRef) -> Option<Node<'a, 'i>> {
     let shapes: Vec<(PhRef, Node)> = root
         .descendants()
         .filter(|n| n.has_tag_name((NS_P, "sp")))
@@ -1380,7 +1404,7 @@ fn placeholder_rect(root: Node, ph: &PhRef) -> Option<Rect> {
                 None
             }
         });
-    found.and_then(|(_, n)| xfrm(*n))
+    found.map(|(_, n)| *n)
 }
 
 fn xfrm(node: Node) -> Option<Rect> {
